@@ -4,7 +4,9 @@ on run
         say "Good morning. Here is your audio briefing."
 
         -- Play bundled audio file
-        set audioPath to (POSIX path of (path to resource folder)) & "briefing_audio.mp3"
+        set resourceFolder to path to resource folder
+        set posixResourceFolder to POSIX path of resourceFolder
+        set audioPath to posixResourceFolder & "briefing_audio.mp3"
         set posixAudioPath to quoted form of audioPath
         do shell script "afplay " & posixAudioPath
 
