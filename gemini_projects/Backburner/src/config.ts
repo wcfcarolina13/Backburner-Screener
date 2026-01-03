@@ -11,10 +11,10 @@ export const DEFAULT_CONFIG: ScreenerConfig = {
   rsiDeepOversoldThreshold: 20,  // Secondary entry opportunity when RSI < 20
 
   // Impulse move detection
-  minImpulsePercent: 3,  // Minimum 3% move to qualify as impulse
+  minImpulsePercent: 5,  // Minimum 5% move to qualify as impulse (increased from 3%)
 
-  // Volume filter (24h volume in USDT)
-  minVolume24h: 100000,  // $100k minimum daily volume
+  // Volume filter (24h volume in USDT) - $5M minimum to filter out shitcoins
+  minVolume24h: 5_000_000,
 
   // Update frequency
   updateIntervalMs: 10000,  // Update every 10 seconds
@@ -40,6 +40,10 @@ export const DEFAULT_CONFIG: ScreenerConfig = {
     /^PYUSD/i,
     /^EURC/i,
     /^EUR[A-Z]/i,
+    /^UST/i,
+    /^USDJ/i,
+    /^CUSD/i,
+    /^HUSD/i,
 
     // Leveraged tokens
     /\d+[LS]$/i,      // 3L, 3S, 5L, 5S etc
@@ -65,6 +69,18 @@ export const DEFAULT_CONFIG: ScreenerConfig = {
     /TEST/i,
     /OLD$/i,
     /^LEGACY/i,
+
+    // Low-quality meme/scam patterns
+    /^SAFE/i,         // SafeMoon clones
+    /^BABY/i,         // BabyDoge etc
+    /^MINI/i,         // Mini tokens
+    /^FLOKI/i,        // Floki variants (keep original FLOKI if volume is high)
+    /INU$/i,          // Random inu coins (not SHIB which is established)
+    /MOON$/i,         // Moon tokens
+    /ELON$/i,         // Elon tokens
+    /DOGE(?!$)/i,     // Doge clones (but not DOGE itself)
+    /SHIB(?!$)/i,     // Shib clones (but not SHIB itself)
+    /PEPE(?!$)/i,     // Pepe clones (but not PEPE itself)
   ],
 };
 
