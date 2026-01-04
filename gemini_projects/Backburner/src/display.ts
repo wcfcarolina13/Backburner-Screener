@@ -44,10 +44,10 @@ function formatState(state: SetupState): string {
   switch (state) {
     case 'triggered':
       return chalk.bgGreen.black.bold(' TRIGGERED ');
-    case 'deep_oversold':
-      return chalk.bgRed.white.bold(' DEEP OVERSOLD ');
-    case 'bouncing':
-      return chalk.bgYellow.black(' BOUNCING ');
+    case 'deep_extreme':
+      return chalk.bgRed.white.bold(' DEEP EXTREME ');
+    case 'reversing':
+      return chalk.bgYellow.black(' REVERSING ');
     case 'watching':
       return chalk.gray('watching');
     case 'played_out':
@@ -55,6 +55,16 @@ function formatState(state: SetupState): string {
     default:
       return state;
   }
+}
+
+/**
+ * Format direction (LONG/SHORT)
+ */
+function formatDirection(direction: 'long' | 'short'): string {
+  if (direction === 'long') {
+    return chalk.bgGreen.black.bold(' LONG ');
+  }
+  return chalk.bgRed.white.bold(' SHORT ');
 }
 
 /**
@@ -109,21 +119,30 @@ export function createSetupsTable(setups: BackburnerSetup[]): string {
   // Sort by state priority and RSI
   const sorted = [...setups].sort((a, b) => {
     const statePriority: Record<SetupState, number> = {
-      deep_oversold: 0,
+      deep_extreme: 0,
       triggered: 1,
-      bouncing: 2,
+      reversing: 2,
       watching: 3,
       played_out: 4,
     };
     if (statePriority[a.state] !== statePriority[b.state]) {
       return statePriority[a.state] - statePriority[b.state];
     }
-    return a.currentRSI - b.currentRSI;
+    // For longs, lower RSI is more interesting; for shorts, higher RSI
+    if (a.direction === 'long' && b.direction === 'long') {
+      return a.currentRSI - b.currentRSI;
+    }
+    if (a.direction === 'short' && b.direction === 'short') {
+      return b.currentRSI - a.currentRSI;
+    }
+    // Group longs before shorts
+    return a.direction === 'long' ? -1 : 1;
   });
 
   const table = new Table({
     head: [
       chalk.white.bold('Symbol'),
+      chalk.white.bold('Dir'),
       chalk.white.bold('Tier'),
       chalk.white.bold('TF'),
       chalk.white.bold('State'),
@@ -137,7 +156,7 @@ export function createSetupsTable(setups: BackburnerSetup[]): string {
       head: [],
       border: ['gray'],
     },
-    colWidths: [10, 12, 5, 16, 7, 12, 9, 5, 10],
+    colWidths: [10, 9, 12, 5, 16, 7, 12, 9, 5, 10],
   });
 
   for (const setup of sorted) {
@@ -147,6 +166,7 @@ export function createSetupsTable(setups: BackburnerSetup[]): string {
 
     table.push([
       formatSymbol(setup.symbol, setup.qualityTier),
+      formatDirection(setup.direction),
       formatQualityTier(setup.qualityTier),
       formatTimeframe(setup.timeframe),
       formatState(setup.state),
@@ -176,8 +196,13 @@ export function createSummary(
 ): string {
   const byState = {
     triggered: setups.filter(s => s.state === 'triggered').length,
-    deep_oversold: setups.filter(s => s.state === 'deep_oversold').length,
-    bouncing: setups.filter(s => s.state === 'bouncing').length,
+    deep_extreme: setups.filter(s => s.state === 'deep_extreme').length,
+    reversing: setups.filter(s => s.state === 'reversing').length,
+  };
+
+  const byDirection = {
+    long: setups.filter(s => s.direction === 'long').length,
+    short: setups.filter(s => s.direction === 'short').length,
   };
 
   const byTimeframe = {
@@ -194,7 +219,8 @@ export function createSummary(
     `${statusIcon} ${chalk.bold('Backburner Screener')} | ${eligibleSymbols} symbols | ${setups.length} active setups`,
     chalk.gray(`  Last update: ${timestamp}${statusMessage ? ` | ${statusMessage}` : ''}`),
     '',
-    chalk.gray(`  Triggered: ${byState.triggered} | Deep Oversold: ${byState.deep_oversold} | Bouncing: ${byState.bouncing}`),
+    chalk.gray(`  ${chalk.green('LONG')}: ${byDirection.long} | ${chalk.red('SHORT')}: ${byDirection.short}`),
+    chalk.gray(`  Triggered: ${byState.triggered} | Deep Extreme: ${byState.deep_extreme} | Reversing: ${byState.reversing}`),
     chalk.gray(`  5m: ${byTimeframe['5m']} | 15m: ${byTimeframe['15m']} | 1h: ${byTimeframe['1h']}`),
     '',
   ];
@@ -209,14 +235,15 @@ export function createSetupNotification(setup: BackburnerSetup, type: 'new' | 'u
   const symbol = chalk.bold(setup.symbol.replace('USDT', ''));
   const tf = formatTimeframe(setup.timeframe);
   const rsi = formatRSI(setup.currentRSI);
+  const dir = formatDirection(setup.direction);
 
   switch (type) {
     case 'new':
-      return chalk.green(`\n✦ NEW: ${symbol} ${tf} - RSI ${rsi} - ${formatState(setup.state)}\n`);
+      return chalk.green(`\n✦ NEW: ${symbol} ${dir} ${tf} - RSI ${rsi} - ${formatState(setup.state)}\n`);
     case 'updated':
-      return chalk.yellow(`\n⟳ UPDATE: ${symbol} ${tf} - RSI ${rsi} - ${formatState(setup.state)}\n`);
+      return chalk.yellow(`\n⟳ UPDATE: ${symbol} ${dir} ${tf} - RSI ${rsi} - ${formatState(setup.state)}\n`);
     case 'removed':
-      return chalk.gray(`\n✗ REMOVED: ${symbol} ${tf} - Setup played out\n`);
+      return chalk.gray(`\n✗ REMOVED: ${symbol} ${dir} ${tf} - Setup played out\n`);
     default:
       return '';
   }
@@ -227,12 +254,13 @@ export function createSetupNotification(setup: BackburnerSetup, type: 'new' | 'u
  */
 export function createHeader(): string {
   return `
-${chalk.cyan.bold('╔══════════════════════════════════════════════════════════════════╗')}
-${chalk.cyan.bold('║')}  ${chalk.white.bold('BACKBURNER SCREENER')} - ${chalk.gray('TCG Strategy Scanner for MEXC')}             ${chalk.cyan.bold('║')}
-${chalk.cyan.bold('╠══════════════════════════════════════════════════════════════════╣')}
-${chalk.cyan.bold('║')}  ${chalk.gray('Strategy: First RSI < 30 after impulse move = High prob bounce')}  ${chalk.cyan.bold('║')}
-${chalk.cyan.bold('║')}  ${chalk.gray('Timeframes: 5m, 15m, 1h | RSI Triggers: <30 (entry), <20 (add)')}  ${chalk.cyan.bold('║')}
-${chalk.cyan.bold('╚══════════════════════════════════════════════════════════════════╝')}
+${chalk.cyan.bold('╔══════════════════════════════════════════════════════════════════════════╗')}
+${chalk.cyan.bold('║')}  ${chalk.white.bold('BACKBURNER SCREENER')} - ${chalk.gray('TCG Strategy Scanner for MEXC')}                   ${chalk.cyan.bold('║')}
+${chalk.cyan.bold('╠══════════════════════════════════════════════════════════════════════════╣')}
+${chalk.cyan.bold('║')}  ${chalk.green('LONG')}: ${chalk.gray('Impulse UP → RSI < 30 = Buy bounce')}                              ${chalk.cyan.bold('║')}
+${chalk.cyan.bold('║')}  ${chalk.red('SHORT')}: ${chalk.gray('Impulse DOWN → RSI > 70 = Short fade')}                           ${chalk.cyan.bold('║')}
+${chalk.cyan.bold('║')}  ${chalk.gray('Timeframes: 5m, 15m, 1h | Deep zones: <20 (long), >80 (short)')}       ${chalk.cyan.bold('║')}
+${chalk.cyan.bold('╚══════════════════════════════════════════════════════════════════════════╝')}
 `;
 }
 

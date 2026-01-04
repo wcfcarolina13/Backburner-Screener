@@ -258,20 +258,17 @@ export class BackburnerScreener {
       }
     }
 
-    const previousSetup = this.detector.getActiveSetups().find(
-      s => s.symbol === symbol && s.timeframe === timeframe
-    );
-    const previousKey = previousSetup ? `${symbol}-${timeframe}` : null;
+    // analyzeSymbol now returns an array (can have both long and short setups)
+    const setups = this.detector.analyzeSymbol(symbol, timeframe, candles, higherTFCandles);
 
-    const setup = this.detector.analyzeSymbol(symbol, timeframe, candles, higherTFCandles);
-
-    if (setup) {
+    for (const setup of setups) {
       // Add volume and quality tier info
       const volume24h = this.symbolVolumes.get(symbol) || 0;
       setup.volume24h = volume24h;
       setup.qualityTier = this.getQualityTier(volume24h);
 
-      const key = `${symbol}-${timeframe}`;
+      const key = `${symbol}-${timeframe}-${setup.direction}`;
+      const previousSetup = this.previousSetups.get(key);
 
       if (setup.state === 'played_out') {
         // Setup removed
@@ -279,14 +276,13 @@ export class BackburnerScreener {
           this.previousSetups.delete(key);
           this.events.onSetupRemoved?.(setup);
         }
-      } else if (!previousKey) {
+      } else if (!previousSetup) {
         // New setup
         this.previousSetups.set(key, setup);
         this.events.onNewSetup?.(setup);
       } else {
         // Existing setup updated
-        const prev = this.previousSetups.get(key);
-        if (prev && (prev.state !== setup.state || Math.abs(prev.currentRSI - setup.currentRSI) > 1)) {
+        if (previousSetup.state !== setup.state || Math.abs(previousSetup.currentRSI - setup.currentRSI) > 1) {
           this.events.onSetupUpdated?.(setup);
         }
         this.previousSetups.set(key, setup);
@@ -306,8 +302,8 @@ export class BackburnerScreener {
       const age = now - setup.detectedAt;
 
       if (age > expiryMs) {
-        this.detector.removeSetup(setup.symbol, setup.timeframe);
-        this.previousSetups.delete(`${setup.symbol}-${setup.timeframe}`);
+        this.detector.removeSetup(setup.symbol, setup.timeframe, setup.direction);
+        this.previousSetups.delete(`${setup.symbol}-${setup.timeframe}-${setup.direction}`);
         this.events.onSetupRemoved?.(setup);
       }
     }

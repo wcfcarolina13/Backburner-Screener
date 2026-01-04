@@ -17,13 +17,16 @@ export interface RSIResult {
   timestamp: number;
 }
 
+// Setup direction
+export type SetupDirection = 'long' | 'short';
+
 // Backburner setup state
 export type SetupState =
-  | 'watching'      // Had impulse move, waiting for RSI to drop
-  | 'triggered'     // RSI just broke below 30 - ACTIVE SETUP
-  | 'deep_oversold' // RSI below 20 - secondary entry opportunity
-  | 'bouncing'      // Price recovering from oversold
-  | 'played_out';   // Setup completed or invalidated
+  | 'watching'        // Had impulse move, waiting for RSI trigger
+  | 'triggered'       // RSI just hit threshold - ACTIVE SETUP
+  | 'deep_extreme'    // RSI at extreme levels (< 20 or > 80)
+  | 'reversing'       // Price reversing from extreme
+  | 'played_out';     // Setup completed or invalidated
 
 // Quality tier based on 24h volume
 export type QualityTier = 'bluechip' | 'midcap' | 'shitcoin';
@@ -32,6 +35,7 @@ export type QualityTier = 'bluechip' | 'midcap' | 'shitcoin';
 export interface BackburnerSetup {
   symbol: string;
   timeframe: Timeframe;
+  direction: SetupDirection;
   state: SetupState;
 
   // Impulse move details
@@ -91,8 +95,12 @@ export interface ScreeningResult {
 export interface ScreenerConfig {
   timeframes: Timeframe[];
   rsiPeriod: number;
+  // Long setups (oversold)
   rsiOversoldThreshold: number;
   rsiDeepOversoldThreshold: number;
+  // Short setups (overbought)
+  rsiOverboughtThreshold: number;
+  rsiDeepOverboughtThreshold: number;
   minImpulsePercent: number;
   minVolume24h: number;
   volumeTiers: {

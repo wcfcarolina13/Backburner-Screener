@@ -1,28 +1,32 @@
-import type { Candle, Timeframe, BackburnerSetup, SetupState } from './types.js';
+import type { Candle, Timeframe, BackburnerSetup, SetupState, SetupDirection } from './types.js';
 import { DEFAULT_CONFIG } from './config.js';
 import {
   calculateRSI,
   getCurrentRSI,
   detectImpulseMove,
   isVolumeContracting,
-  rsiJustCrossedBelow,
   isHigherTFBullish,
-  findHighestHigh,
   calculateAvgVolume,
 } from './indicators.js';
 
 /**
  * The Backburner Detector
  *
- * Implements The Chart Guys' Backburner strategy:
- * 1. Identify a strong impulse move (new high/significant breakout)
+ * Implements The Chart Guys' Backburner strategy for BOTH directions:
+ *
+ * LONG Setup:
+ * 1. Identify a strong impulse move UP
  * 2. Wait for the FIRST oversold condition (RSI < 30)
- * 3. This is the high-probability entry for a bounce
+ * 3. Buy for high-probability bounce
+ *
+ * SHORT Setup:
+ * 1. Identify a strong impulse move DOWN
+ * 2. Wait for the FIRST overbought condition (RSI > 70)
+ * 3. Short for high-probability fade
  *
  * Key principles:
- * - Only the FIRST oversold after impulse is valid
- * - Volume should contract during pullback
- * - Higher timeframe trend should remain bullish
+ * - Only the FIRST extreme RSI after impulse is valid
+ * - Volume should contract during counter-move
  */
 export class BackburnerDetector {
   private config = DEFAULT_CONFIG;
@@ -35,35 +39,34 @@ export class BackburnerDetector {
   }
 
   /**
-   * Generate a unique key for a setup
+   * Generate a unique key for a setup (includes direction)
    */
-  private getSetupKey(symbol: string, timeframe: Timeframe): string {
-    return `${symbol}-${timeframe}`;
+  private getSetupKey(symbol: string, timeframe: Timeframe, direction: SetupDirection): string {
+    return `${symbol}-${timeframe}-${direction}`;
   }
 
   /**
    * Analyze candles and detect/update Backburner setups
+   * Returns an array since we can have both long AND short setups
    */
   analyzeSymbol(
     symbol: string,
     timeframe: Timeframe,
     candles: Candle[],
     higherTFCandles?: Candle[]
-  ): BackburnerSetup | null {
+  ): BackburnerSetup[] {
     if (candles.length < 50) {
-      return null;
+      return [];
     }
 
-    const key = this.getSetupKey(symbol, timeframe);
-    const existingSetup = this.activeSetups.get(key);
-    const now = Date.now();
+    const results: BackburnerSetup[] = [];
 
     // Calculate current RSI
     const rsiValues = calculateRSI(candles, this.config.rsiPeriod);
     const currentRSI = getCurrentRSI(candles, this.config.rsiPeriod);
 
     if (currentRSI === null || rsiValues.length < 5) {
-      return null;
+      return [];
     }
 
     const currentPrice = candles[candles.length - 1].close;
@@ -73,100 +76,148 @@ export class BackburnerDetector {
       ? isHigherTFBullish(higherTFCandles)
       : undefined;
 
-    // If we have an existing setup, update it
-    if (existingSetup) {
-      return this.updateExistingSetup(
-        existingSetup,
-        candles,
-        currentRSI,
-        currentPrice,
-        higherTFBullish
-      );
+    // Check for existing setups and update them
+    for (const direction of ['long', 'short'] as SetupDirection[]) {
+      const key = this.getSetupKey(symbol, timeframe, direction);
+      const existingSetup = this.activeSetups.get(key);
+
+      if (existingSetup) {
+        const updated = this.updateExistingSetup(
+          existingSetup,
+          candles,
+          currentRSI,
+          currentPrice,
+          higherTFBullish
+        );
+        if (updated) {
+          results.push(updated);
+        }
+      } else {
+        // Try to detect a new setup for this direction
+        const newSetup = this.detectNewSetup(
+          symbol,
+          timeframe,
+          direction,
+          candles,
+          rsiValues,
+          currentRSI,
+          currentPrice,
+          higherTFBullish
+        );
+        if (newSetup) {
+          results.push(newSetup);
+        }
+      }
     }
 
-    // Try to detect a new setup
-    return this.detectNewSetup(
-      symbol,
-      timeframe,
-      candles,
-      rsiValues,
-      currentRSI,
-      currentPrice,
-      higherTFBullish
-    );
+    return results;
   }
 
   /**
-   * Detect a new Backburner setup
+   * Detect a new Backburner setup for a specific direction
    */
   private detectNewSetup(
     symbol: string,
     timeframe: Timeframe,
+    direction: SetupDirection,
     candles: Candle[],
     rsiValues: { value: number; timestamp: number }[],
     currentRSI: number,
     currentPrice: number,
     higherTFBullish?: boolean
   ): BackburnerSetup | null {
-    // Step 1: Look for an impulse move
+    // Look for an impulse move
     const impulse = detectImpulseMove(candles, this.config.minImpulsePercent);
 
-    if (!impulse || impulse.direction !== 'up') {
-      // We only care about upward impulses for long setups
+    if (!impulse) {
       return null;
     }
 
-    // Step 2: Check if we're now in pullback territory
-    // Current price should be below the impulse high but above the impulse low
-    if (currentPrice >= impulse.endPrice) {
-      // Still at or above the high - not pulling back yet
+    // Check direction matches
+    if (direction === 'long' && impulse.direction !== 'up') {
+      return null;
+    }
+    if (direction === 'short' && impulse.direction !== 'down') {
       return null;
     }
 
-    if (currentPrice <= impulse.startPrice) {
-      // Broke below the impulse low - setup invalidated
-      return null;
+    // LONG: Check if we're in pullback territory after UP impulse
+    if (direction === 'long') {
+      // Current price should be below the impulse high but above the impulse low
+      if (currentPrice >= impulse.endPrice) {
+        return null; // Still at highs - not pulling back yet
+      }
+      if (currentPrice <= impulse.startPrice) {
+        return null; // Broke below impulse low - structure broken
+      }
+
+      // Check if this is the FIRST oversold condition
+      const isFirstOversold = this.isFirstExtremeAfterImpulse(
+        rsiValues,
+        impulse.endIndex,
+        candles.length,
+        'oversold'
+      );
+
+      if (!isFirstOversold && currentRSI >= this.config.rsiOversoldThreshold) {
+        return null;
+      }
+
+      // Check RSI is actually oversold
+      if (currentRSI >= this.config.rsiOversoldThreshold) {
+        return null;
+      }
     }
 
-    // Step 3: Check if this is the FIRST oversold condition after the impulse
-    // Look for RSI crossing below 30 recently
-    const isFirstOversold = this.isFirstOversoldAfterImpulse(
-      rsiValues,
-      impulse.endIndex,
-      candles.length
-    );
+    // SHORT: Check if we're in bounce territory after DOWN impulse
+    if (direction === 'short') {
+      // Current price should be above the impulse low but below the impulse high
+      if (currentPrice <= impulse.endPrice) {
+        return null; // Still at lows - not bouncing yet
+      }
+      if (currentPrice >= impulse.startPrice) {
+        return null; // Broke above impulse high - structure broken
+      }
 
-    if (!isFirstOversold && currentRSI >= this.config.rsiOversoldThreshold) {
-      // Not oversold yet - keep watching but don't create setup
-      return null;
+      // Check if this is the FIRST overbought condition
+      const isFirstOverbought = this.isFirstExtremeAfterImpulse(
+        rsiValues,
+        impulse.endIndex,
+        candles.length,
+        'overbought'
+      );
+
+      if (!isFirstOverbought && currentRSI <= this.config.rsiOverboughtThreshold) {
+        return null;
+      }
+
+      // Check RSI is actually overbought
+      if (currentRSI <= this.config.rsiOverboughtThreshold) {
+        return null;
+      }
     }
 
-    // Step 4: Analyze volume
+    // Analyze volume
     const impulseCandles = candles.slice(impulse.startIndex, impulse.endIndex + 1);
-    const pullbackCandles = candles.slice(impulse.endIndex + 1);
-    const volumeContracting = isVolumeContracting(impulseCandles, pullbackCandles);
+    const counterMoveCandles = candles.slice(impulse.endIndex + 1);
+    const volumeContracting = isVolumeContracting(impulseCandles, counterMoveCandles);
 
     // Determine setup state
-    let state: SetupState = 'watching';
-    if (currentRSI < this.config.rsiDeepOversoldThreshold) {
-      state = 'deep_oversold';
-    } else if (currentRSI < this.config.rsiOversoldThreshold) {
-      state = 'triggered';
-    }
+    const state = this.determineInitialState(currentRSI, direction);
 
-    // Only create setup if we're in an actionable state
     if (state === 'watching') {
       return null;
     }
 
-    const isActionable = state === 'triggered' || state === 'deep_oversold';
+    const isActionable = state === 'triggered' || state === 'deep_extreme';
 
     const setup: BackburnerSetup = {
       symbol,
       timeframe,
+      direction,
       state,
-      impulseHigh: impulse.endPrice,
-      impulseLow: impulse.startPrice,
+      impulseHigh: direction === 'long' ? impulse.endPrice : impulse.startPrice,
+      impulseLow: direction === 'long' ? impulse.startPrice : impulse.endPrice,
       impulseStartTime: candles[impulse.startIndex].timestamp,
       impulseEndTime: candles[impulse.endIndex].timestamp,
       impulsePercentMove: impulse.percentMove,
@@ -178,38 +229,58 @@ export class BackburnerDetector {
       triggeredAt: isActionable ? Date.now() : undefined,
       lastUpdated: Date.now(),
       impulseAvgVolume: calculateAvgVolume(impulseCandles, impulseCandles.length),
-      pullbackAvgVolume: calculateAvgVolume(pullbackCandles, pullbackCandles.length),
+      pullbackAvgVolume: calculateAvgVolume(counterMoveCandles, counterMoveCandles.length),
       volumeContracting,
       higherTFBullish,
     };
 
-    this.activeSetups.set(this.getSetupKey(symbol, timeframe), setup);
+    this.activeSetups.set(this.getSetupKey(symbol, timeframe, direction), setup);
     return setup;
   }
 
   /**
-   * Check if this is the first RSI oversold condition after the impulse move
+   * Check if this is the first extreme RSI condition after the impulse move
    */
-  private isFirstOversoldAfterImpulse(
+  private isFirstExtremeAfterImpulse(
     rsiValues: { value: number; timestamp: number }[],
     impulseEndIndex: number,
-    totalCandles: number
+    totalCandles: number,
+    type: 'oversold' | 'overbought'
   ): boolean {
-    // Calculate how many RSI values correspond to candles after the impulse
     const rsiOffset = totalCandles - rsiValues.length;
     const startRSIIndex = Math.max(0, impulseEndIndex - rsiOffset);
 
-    // Check if there's been any oversold condition since the impulse
-    let oversoldCount = 0;
+    let extremeCount = 0;
     for (let i = startRSIIndex; i < rsiValues.length; i++) {
-      if (rsiValues[i].value < this.config.rsiOversoldThreshold) {
-        oversoldCount++;
+      if (type === 'oversold' && rsiValues[i].value < this.config.rsiOversoldThreshold) {
+        extremeCount++;
+      }
+      if (type === 'overbought' && rsiValues[i].value > this.config.rsiOverboughtThreshold) {
+        extremeCount++;
       }
     }
 
-    // This is the first oversold if we only have one occurrence
-    // (which is the current one)
-    return oversoldCount <= 1;
+    return extremeCount <= 1;
+  }
+
+  /**
+   * Determine initial state based on RSI and direction
+   */
+  private determineInitialState(currentRSI: number, direction: SetupDirection): SetupState {
+    if (direction === 'long') {
+      if (currentRSI < this.config.rsiDeepOversoldThreshold) {
+        return 'deep_extreme';
+      } else if (currentRSI < this.config.rsiOversoldThreshold) {
+        return 'triggered';
+      }
+    } else {
+      if (currentRSI > this.config.rsiDeepOverboughtThreshold) {
+        return 'deep_extreme';
+      } else if (currentRSI > this.config.rsiOverboughtThreshold) {
+        return 'triggered';
+      }
+    }
+    return 'watching';
   }
 
   /**
@@ -222,26 +293,25 @@ export class BackburnerDetector {
     currentPrice: number,
     higherTFBullish?: boolean
   ): BackburnerSetup | null {
-    const now = Date.now();
-    const key = this.getSetupKey(setup.symbol, setup.timeframe);
+    const key = this.getSetupKey(setup.symbol, setup.timeframe, setup.direction);
 
     // Update basic fields
     setup.currentRSI = currentRSI;
     setup.currentPrice = currentPrice;
-    setup.lastUpdated = now;
+    setup.lastUpdated = Date.now();
     if (higherTFBullish !== undefined) {
       setup.higherTFBullish = higherTFBullish;
     }
 
     // Check for invalidation conditions
-    if (this.isSetupInvalidated(setup, candles)) {
+    if (this.isSetupInvalidated(setup, currentPrice, currentRSI)) {
       setup.state = 'played_out';
       this.activeSetups.delete(key);
       return setup;
     }
 
     // Update state based on current conditions
-    setup.state = this.determineSetupState(setup, currentRSI);
+    setup.state = this.determineUpdatedState(setup, currentRSI);
 
     // If setup is played out, remove it
     if (setup.state === 'played_out') {
@@ -256,64 +326,90 @@ export class BackburnerDetector {
   /**
    * Check if a setup has been invalidated
    */
-  private isSetupInvalidated(setup: BackburnerSetup, candles: Candle[]): boolean {
-    const currentPrice = candles[candles.length - 1].close;
-
-    // Invalidation 1: Price broke below the impulse low (structure broken)
-    if (currentPrice < setup.impulseLow) {
-      return true;
-    }
-
-    // Invalidation 2: Price recovered back to impulse high (target reached)
-    if (setup.state === 'triggered' || setup.state === 'deep_oversold') {
-      if (currentPrice >= setup.impulseHigh * 0.99) {
-        // Reached target - setup played out successfully
+  private isSetupInvalidated(setup: BackburnerSetup, currentPrice: number, currentRSI: number): boolean {
+    if (setup.direction === 'long') {
+      // LONG invalidation: broke below impulse low
+      if (currentPrice < setup.impulseLow) {
         return true;
       }
-    }
-
-    // Invalidation 3: RSI has gone oversold multiple times (not first anymore)
-    // This is a simplified check - ideally track all oversold occurrences
-    if (setup.state === 'bouncing' && setup.currentRSI < this.config.rsiOversoldThreshold) {
-      // Second oversold - no longer the first, invalidate
-      return true;
+      // Target reached: back to impulse high
+      if ((setup.state === 'triggered' || setup.state === 'deep_extreme') &&
+          currentPrice >= setup.impulseHigh * 0.99) {
+        return true;
+      }
+      // Second oversold after bounce = no longer first
+      if (setup.state === 'reversing' && currentRSI < this.config.rsiOversoldThreshold) {
+        return true;
+      }
+    } else {
+      // SHORT invalidation: broke above impulse high
+      if (currentPrice > setup.impulseHigh) {
+        return true;
+      }
+      // Target reached: back to impulse low
+      if ((setup.state === 'triggered' || setup.state === 'deep_extreme') &&
+          currentPrice <= setup.impulseLow * 1.01) {
+        return true;
+      }
+      // Second overbought after fade = no longer first
+      if (setup.state === 'reversing' && currentRSI > this.config.rsiOverboughtThreshold) {
+        return true;
+      }
     }
 
     return false;
   }
 
   /**
-   * Determine the current state of a setup
+   * Determine the updated state of a setup
    */
-  private determineSetupState(setup: BackburnerSetup, currentRSI: number): SetupState {
+  private determineUpdatedState(setup: BackburnerSetup, currentRSI: number): SetupState {
     const prevState = setup.state;
 
-    // Deep oversold
-    if (currentRSI < this.config.rsiDeepOversoldThreshold) {
-      return 'deep_oversold';
-    }
-
-    // Still in triggered zone
-    if (currentRSI < this.config.rsiOversoldThreshold) {
-      return 'triggered';
-    }
-
-    // RSI recovered above 30
-    if (prevState === 'triggered' || prevState === 'deep_oversold') {
-      // Now bouncing - setup is playing out
-      if (currentRSI > 40) {
-        // Good bounce, consider played out
-        return 'played_out';
+    if (setup.direction === 'long') {
+      // Deep oversold
+      if (currentRSI < this.config.rsiDeepOversoldThreshold) {
+        return 'deep_extreme';
       }
-      return 'bouncing';
-    }
-
-    // If bouncing and RSI stays above 30, setup is complete
-    if (prevState === 'bouncing') {
-      if (currentRSI > 50) {
-        return 'played_out';
+      // Still in triggered zone
+      if (currentRSI < this.config.rsiOversoldThreshold) {
+        return 'triggered';
       }
-      return 'bouncing';
+      // RSI recovered above 30
+      if (prevState === 'triggered' || prevState === 'deep_extreme') {
+        if (currentRSI > 40) {
+          return 'played_out';
+        }
+        return 'reversing';
+      }
+      if (prevState === 'reversing') {
+        if (currentRSI > 50) {
+          return 'played_out';
+        }
+        return 'reversing';
+      }
+    } else {
+      // Deep overbought
+      if (currentRSI > this.config.rsiDeepOverboughtThreshold) {
+        return 'deep_extreme';
+      }
+      // Still in triggered zone
+      if (currentRSI > this.config.rsiOverboughtThreshold) {
+        return 'triggered';
+      }
+      // RSI dropped below 70
+      if (prevState === 'triggered' || prevState === 'deep_extreme') {
+        if (currentRSI < 60) {
+          return 'played_out';
+        }
+        return 'reversing';
+      }
+      if (prevState === 'reversing') {
+        if (currentRSI < 50) {
+          return 'played_out';
+        }
+        return 'reversing';
+      }
     }
 
     return setup.state;
@@ -343,8 +439,8 @@ export class BackburnerDetector {
   /**
    * Remove a setup manually
    */
-  removeSetup(symbol: string, timeframe: Timeframe): void {
-    this.activeSetups.delete(this.getSetupKey(symbol, timeframe));
+  removeSetup(symbol: string, timeframe: Timeframe, direction: SetupDirection): void {
+    this.activeSetups.delete(this.getSetupKey(symbol, timeframe, direction));
   }
 
   /**

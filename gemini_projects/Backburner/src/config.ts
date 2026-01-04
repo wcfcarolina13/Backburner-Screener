@@ -7,8 +7,12 @@ export const DEFAULT_CONFIG: ScreenerConfig = {
 
   // RSI settings based on TCG Backburner strategy
   rsiPeriod: 14,
+  // Long setups (buy oversold after impulse UP)
   rsiOversoldThreshold: 30,      // Primary entry when RSI < 30
-  rsiDeepOversoldThreshold: 20,  // Secondary entry opportunity when RSI < 20
+  rsiDeepOversoldThreshold: 20,  // Secondary add when RSI < 20
+  // Short setups (sell overbought after impulse DOWN)
+  rsiOverboughtThreshold: 70,    // Primary entry when RSI > 70
+  rsiDeepOverboughtThreshold: 80, // Secondary add when RSI > 80
 
   // Impulse move detection
   minImpulsePercent: 5,  // Minimum 5% move to qualify as impulse (increased from 3%)
