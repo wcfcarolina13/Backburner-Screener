@@ -25,6 +25,9 @@ export type SetupState =
   | 'bouncing'      // Price recovering from oversold
   | 'played_out';   // Setup completed or invalidated
 
+// Quality tier based on 24h volume
+export type QualityTier = 'bluechip' | 'midcap' | 'shitcoin';
+
 // A detected Backburner setup
 export interface BackburnerSetup {
   symbol: string;
@@ -55,6 +58,8 @@ export interface BackburnerSetup {
   impulseAvgVolume: number;
   pullbackAvgVolume: number;
   volumeContracting: boolean;
+  volume24h?: number;
+  qualityTier?: QualityTier;
 
   // Higher timeframe trend (for multi-timeframe confirmation)
   higherTFBullish?: boolean;
@@ -90,6 +95,11 @@ export interface ScreenerConfig {
   rsiDeepOversoldThreshold: number;
   minImpulsePercent: number;
   minVolume24h: number;
+  volumeTiers: {
+    bluechip: number;
+    midcap: number;
+    lowcap: number;
+  };
   updateIntervalMs: number;
   maxConcurrentRequests: number;
   excludePatterns: RegExp[];

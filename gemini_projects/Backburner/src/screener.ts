@@ -1,7 +1,7 @@
 import { BackburnerDetector } from './backburner-detector.js';
 import { getExchangeInfo, get24hTickers, getKlines } from './mexc-api.js';
 import { DEFAULT_CONFIG, TIMEFRAME_MS, SETUP_EXPIRY_MS } from './config.js';
-import type { Timeframe, BackburnerSetup, SymbolInfo, ScreenerConfig } from './types.js';
+import type { Timeframe, BackburnerSetup, SymbolInfo, ScreenerConfig, QualityTier } from './types.js';
 
 export interface ScreenerEvents {
   onNewSetup?: (setup: BackburnerSetup) => void;
@@ -25,6 +25,7 @@ export class BackburnerScreener {
   private isRunning = false;
   private scanInterval: ReturnType<typeof setInterval> | null = null;
   private eligibleSymbols: string[] = [];
+  private symbolVolumes: Map<string, number> = new Map();
   private lastFullScan: Map<Timeframe, number> = new Map();
   private previousSetups: Map<string, BackburnerSetup> = new Map();
 
@@ -83,14 +84,13 @@ export class BackburnerScreener {
       ]);
 
       // Create a map of volume by symbol
-      const volumeMap = new Map<string, number>();
       for (const ticker of tickers) {
-        volumeMap.set(ticker.symbol, parseFloat(ticker.quoteVolume));
+        this.symbolVolumes.set(ticker.symbol, parseFloat(ticker.quoteVolume));
       }
 
       // Filter symbols
       this.eligibleSymbols = exchangeInfo
-        .filter((s: SymbolInfo) => this.isEligibleSymbol(s, volumeMap.get(s.symbol) || 0))
+        .filter((s: SymbolInfo) => this.isEligibleSymbol(s, this.symbolVolumes.get(s.symbol) || 0))
         .map((s: SymbolInfo) => s.symbol);
 
       this.events.onScanProgress?.(
@@ -266,6 +266,11 @@ export class BackburnerScreener {
     const setup = this.detector.analyzeSymbol(symbol, timeframe, candles, higherTFCandles);
 
     if (setup) {
+      // Add volume and quality tier info
+      const volume24h = this.symbolVolumes.get(symbol) || 0;
+      setup.volume24h = volume24h;
+      setup.qualityTier = this.getQualityTier(volume24h);
+
       const key = `${symbol}-${timeframe}`;
 
       if (setup.state === 'played_out') {
@@ -346,6 +351,19 @@ export class BackburnerScreener {
       } catch (error) {
         this.events.onError?.(error as Error, symbol);
       }
+    }
+  }
+
+  /**
+   * Get quality tier based on 24h volume
+   */
+  private getQualityTier(volume24h: number): QualityTier {
+    if (volume24h >= this.config.volumeTiers.bluechip) {
+      return 'bluechip';
+    } else if (volume24h >= this.config.volumeTiers.midcap) {
+      return 'midcap';
+    } else {
+      return 'shitcoin';
     }
   }
 }

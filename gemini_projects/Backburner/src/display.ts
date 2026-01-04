@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import Table from 'cli-table3';
-import type { BackburnerSetup, Timeframe, SetupState } from './types.js';
+import type { BackburnerSetup, Timeframe, SetupState, QualityTier } from './types.js';
 
 /**
  * Format time ago from timestamp
@@ -58,6 +58,33 @@ function formatState(state: SetupState): string {
 }
 
 /**
+ * Format quality tier with clear warnings
+ */
+function formatQualityTier(tier: QualityTier | undefined): string {
+  switch (tier) {
+    case 'bluechip':
+      return chalk.green('★');
+    case 'midcap':
+      return chalk.yellow('●');
+    case 'shitcoin':
+      return chalk.bgRed.white.bold(' SHITCOIN ');
+    default:
+      return chalk.gray('?');
+  }
+}
+
+/**
+ * Format symbol with tier indicator
+ */
+function formatSymbol(symbol: string, tier: QualityTier | undefined): string {
+  const name = symbol.replace('USDT', '');
+  if (tier === 'shitcoin') {
+    return chalk.red.bold(name);
+  }
+  return chalk.white.bold(name);
+}
+
+/**
  * Format timeframe badge
  */
 function formatTimeframe(tf: Timeframe): string {
@@ -97,12 +124,12 @@ export function createSetupsTable(setups: BackburnerSetup[]): string {
   const table = new Table({
     head: [
       chalk.white.bold('Symbol'),
+      chalk.white.bold('Tier'),
       chalk.white.bold('TF'),
       chalk.white.bold('State'),
       chalk.white.bold('RSI'),
       chalk.white.bold('Price'),
       chalk.white.bold('Impulse'),
-      chalk.white.bold('Vol Ratio'),
       chalk.white.bold('HTF'),
       chalk.white.bold('Detected'),
     ],
@@ -110,23 +137,22 @@ export function createSetupsTable(setups: BackburnerSetup[]): string {
       head: [],
       border: ['gray'],
     },
-    colWidths: [12, 6, 16, 8, 14, 10, 10, 6, 12],
+    colWidths: [10, 12, 5, 16, 7, 12, 9, 5, 10],
   });
 
   for (const setup of sorted) {
-    const pullbackPercent = ((setup.currentPrice - setup.impulseHigh) / setup.impulseHigh) * 100;
     const volumeRatio = setup.impulseAvgVolume > 0
       ? (setup.pullbackAvgVolume / setup.impulseAvgVolume).toFixed(2)
       : 'N/A';
 
     table.push([
-      chalk.white.bold(setup.symbol.replace('USDT', '')),
+      formatSymbol(setup.symbol, setup.qualityTier),
+      formatQualityTier(setup.qualityTier),
       formatTimeframe(setup.timeframe),
       formatState(setup.state),
       formatRSI(setup.currentRSI),
-      setup.currentPrice.toPrecision(6),
+      setup.currentPrice.toPrecision(5),
       formatPercent(setup.impulsePercentMove),
-      setup.volumeContracting ? chalk.green(volumeRatio) : chalk.yellow(volumeRatio),
       setup.higherTFBullish === undefined
         ? chalk.gray('-')
         : setup.higherTFBullish

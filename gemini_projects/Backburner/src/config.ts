@@ -13,8 +13,15 @@ export const DEFAULT_CONFIG: ScreenerConfig = {
   // Impulse move detection
   minImpulsePercent: 5,  // Minimum 5% move to qualify as impulse (increased from 3%)
 
-  // Volume filter (24h volume in USDT) - $5M minimum to filter out shitcoins
-  minVolume24h: 5_000_000,
+  // Volume filter (24h volume in USDT)
+  minVolume24h: 1_000_000,  // $1M minimum to be included
+
+  // Volume tiers for quality classification
+  volumeTiers: {
+    bluechip: 20_000_000,   // $20M+ = blue chip (BTC, ETH, SOL, etc.)
+    midcap: 5_000_000,      // $5M-$20M = mid cap
+    lowcap: 1_000_000,      // $1M-$5M = low cap (SHITCOIN warning)
+  },
 
   // Update frequency
   updateIntervalMs: 10000,  // Update every 10 seconds
