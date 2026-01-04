@@ -28,6 +28,8 @@ export class BackburnerScreener {
   private symbolVolumes: Map<string, number> = new Map();
   private lastFullScan: Map<Timeframe, number> = new Map();
   private previousSetups: Map<string, BackburnerSetup> = new Map();
+  // Keep played-out setups visible (no longer updated, but shown in display)
+  private playedOutSetups: Map<string, BackburnerSetup> = new Map();
 
   constructor(config?: Partial<ScreenerConfig>, events?: ScreenerEvents) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -177,16 +179,34 @@ export class BackburnerScreener {
 
   /**
    * Run an incremental scan (only update active setups and check for new ones)
+   * Priority: triggered/deep_extreme setups get updated first
    */
   async runIncrementalScan(): Promise<void> {
     // Get current active setups
     const activeSetups = this.detector.getActiveSetups();
 
-    // Update existing setups first
-    if (activeSetups.length > 0) {
-      this.events.onScanStatus?.(`Updating ${activeSetups.length} active setups...`);
+    // Prioritize triggered and deep_extreme setups (these need real-time updates)
+    const prioritySetups = activeSetups.filter(
+      s => s.state === 'triggered' || s.state === 'deep_extreme'
+    );
+    const otherSetups = activeSetups.filter(
+      s => s.state !== 'triggered' && s.state !== 'deep_extreme'
+    );
+
+    // Update priority setups first (triggered/deep_extreme)
+    if (prioritySetups.length > 0) {
+      this.events.onScanStatus?.(`Updating ${prioritySetups.length} priority setups...`);
+      for (const setup of prioritySetups) {
+        try {
+          await this.analyzeSymbol(setup.symbol, setup.timeframe);
+        } catch (error) {
+          this.events.onError?.(error as Error, setup.symbol);
+        }
+      }
     }
-    for (const setup of activeSetups) {
+
+    // Update other active setups (reversing, watching)
+    for (const setup of otherSetups) {
       try {
         await this.analyzeSymbol(setup.symbol, setup.timeframe);
       } catch (error) {
@@ -216,9 +236,12 @@ export class BackburnerScreener {
       }
     }
 
-    // Clean up expired setups
+    // Clean up expired setups (both active and played-out)
     this.cleanupExpiredSetups();
-    this.events.onScanStatus?.(`Monitoring ${this.eligibleSymbols.length} symbols...`);
+
+    const totalActive = activeSetups.length;
+    const totalPlayedOut = this.playedOutSetups.size;
+    this.events.onScanStatus?.(`Monitoring ${this.eligibleSymbols.length} symbols | ${totalActive} active | ${totalPlayedOut} played out`);
   }
 
   /**
@@ -271,9 +294,12 @@ export class BackburnerScreener {
       const previousSetup = this.previousSetups.get(key);
 
       if (setup.state === 'played_out') {
-        // Setup removed
+        // Setup played out - move to played-out list (stays visible, no longer updated)
         if (previousSetup) {
           this.previousSetups.delete(key);
+          // Mark when it played out
+          setup.playedOutAt = Date.now();
+          this.playedOutSetups.set(key, setup);
           this.events.onSetupRemoved?.(setup);
         }
       } else if (!previousSetup) {
@@ -297,6 +323,7 @@ export class BackburnerScreener {
     const now = Date.now();
     const activeSetups = this.detector.getActiveSetups();
 
+    // Clean up expired active setups
     for (const setup of activeSetups) {
       const expiryMs = SETUP_EXPIRY_MS[setup.timeframe];
       const age = now - setup.detectedAt;
@@ -307,13 +334,35 @@ export class BackburnerScreener {
         this.events.onSetupRemoved?.(setup);
       }
     }
+
+    // Clean up old played-out setups (keep visible for 30 minutes after playing out)
+    const PLAYED_OUT_DISPLAY_MS = 30 * 60 * 1000; // 30 minutes
+    for (const [key, setup] of this.playedOutSetups) {
+      if (setup.playedOutAt && now - setup.playedOutAt > PLAYED_OUT_DISPLAY_MS) {
+        this.playedOutSetups.delete(key);
+      }
+    }
   }
 
   /**
-   * Get all currently active setups
+   * Get all currently active setups (excludes played-out)
    */
   getActiveSetups(): BackburnerSetup[] {
     return this.detector.getActiveSetups();
+  }
+
+  /**
+   * Get played-out setups (no longer updated, but visible)
+   */
+  getPlayedOutSetups(): BackburnerSetup[] {
+    return Array.from(this.playedOutSetups.values());
+  }
+
+  /**
+   * Get all setups (active + played-out) for display
+   */
+  getAllSetups(): BackburnerSetup[] {
+    return [...this.detector.getActiveSetups(), ...this.playedOutSetups.values()];
   }
 
   /**

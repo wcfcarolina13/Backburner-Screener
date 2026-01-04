@@ -57,6 +57,7 @@ export interface BackburnerSetup {
   detectedAt: number;
   triggeredAt?: number;
   lastUpdated: number;
+  playedOutAt?: number;  // When the setup was marked as played out
 
   // Volume analysis
   impulseAvgVolume: number;

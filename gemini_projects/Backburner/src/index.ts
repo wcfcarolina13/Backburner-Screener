@@ -129,8 +129,12 @@ async function main() {
 
     moveCursorToTop();
     console.log(createHeader());
+    // Get all setups including played-out ones for display
+    const allSetups = screener.getAllSetups();
+    const activeSetups = screener.getActiveSetups();
+
     console.log(createSummary(
-      screener.getActiveSetups(),
+      allSetups,
       screener.getEligibleSymbolCount(),
       screener.isActive(),
       currentStatus
@@ -142,7 +146,7 @@ async function main() {
       console.log(recentNotifications.join(''));
     }
 
-    console.log(createSetupsTable(screener.getActiveSetups()));
+    console.log(createSetupsTable(allSetups));
     console.log('\n  Press Ctrl+C to exit\n');
   }
 
