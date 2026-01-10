@@ -265,3 +265,214 @@ export function isHigherTFBullish(candles: Candle[], smaPeriod = 20): boolean {
 
   return currentPrice > currentSMA;
 }
+
+/**
+ * Divergence types
+ */
+export type DivergenceType =
+  | 'bullish'        // Price lower low, RSI higher low - reversal signal
+  | 'bearish'        // Price higher high, RSI lower high - reversal signal
+  | 'hidden_bullish' // Price higher low, RSI lower low - continuation signal
+  | 'hidden_bearish' // Price lower high, RSI higher high - continuation signal
+  | null;
+
+export interface DivergenceResult {
+  type: DivergenceType;
+  strength: 'strong' | 'moderate' | 'weak';
+  priceSwing1: { value: number; index: number; timestamp: number };
+  priceSwing2: { value: number; index: number; timestamp: number };
+  rsiSwing1: { value: number; index: number; timestamp: number };
+  rsiSwing2: { value: number; index: number; timestamp: number };
+  description: string;
+}
+
+/**
+ * Find swing highs in a data series
+ * A swing high is a point higher than N bars on each side
+ */
+function findSwingHighs(
+  data: { value: number; timestamp: number }[],
+  lookback: number = 5
+): { value: number; index: number; timestamp: number }[] {
+  const swings: { value: number; index: number; timestamp: number }[] = [];
+
+  for (let i = lookback; i < data.length - lookback; i++) {
+    let isSwingHigh = true;
+    for (let j = 1; j <= lookback; j++) {
+      if (data[i].value <= data[i - j].value || data[i].value <= data[i + j].value) {
+        isSwingHigh = false;
+        break;
+      }
+    }
+    if (isSwingHigh) {
+      swings.push({ value: data[i].value, index: i, timestamp: data[i].timestamp });
+    }
+  }
+
+  return swings;
+}
+
+/**
+ * Find swing lows in a data series
+ * A swing low is a point lower than N bars on each side
+ */
+function findSwingLows(
+  data: { value: number; timestamp: number }[],
+  lookback: number = 5
+): { value: number; index: number; timestamp: number }[] {
+  const swings: { value: number; index: number; timestamp: number }[] = [];
+
+  for (let i = lookback; i < data.length - lookback; i++) {
+    let isSwingLow = true;
+    for (let j = 1; j <= lookback; j++) {
+      if (data[i].value >= data[i - j].value || data[i].value >= data[i + j].value) {
+        isSwingLow = false;
+        break;
+      }
+    }
+    if (isSwingLow) {
+      swings.push({ value: data[i].value, index: i, timestamp: data[i].timestamp });
+    }
+  }
+
+  return swings;
+}
+
+/**
+ * Detect RSI-Price divergences
+ * Looks for the most recent divergence within the lookback period
+ */
+export function detectDivergence(
+  candles: Candle[],
+  rsiValues: RSIResult[],
+  lookbackBars: number = 50,
+  swingLookback: number = 5
+): DivergenceResult | null {
+  if (candles.length < lookbackBars || rsiValues.length < lookbackBars) {
+    return null;
+  }
+
+  // Get recent data
+  const recentCandles = candles.slice(-lookbackBars);
+  const recentRSI = rsiValues.slice(-lookbackBars);
+
+  // Convert candles to price data for swing detection
+  const priceHighs = recentCandles.map((c, i) => ({ value: c.high, timestamp: c.timestamp }));
+  const priceLows = recentCandles.map((c, i) => ({ value: c.low, timestamp: c.timestamp }));
+  const rsiData = recentRSI.map(r => ({ value: r.value, timestamp: r.timestamp }));
+
+  // Find swing points
+  const priceSwingHighs = findSwingHighs(priceHighs, swingLookback);
+  const priceSwingLows = findSwingLows(priceLows, swingLookback);
+  const rsiSwingHighs = findSwingHighs(rsiData, swingLookback);
+  const rsiSwingLows = findSwingLows(rsiData, swingLookback);
+
+  // Need at least 2 swing points to compare
+  if (priceSwingHighs.length < 2 && priceSwingLows.length < 2) {
+    return null;
+  }
+
+  // Check for bearish divergence (price higher high, RSI lower high)
+  if (priceSwingHighs.length >= 2 && rsiSwingHighs.length >= 2) {
+    const [prevPriceHigh, currPriceHigh] = priceSwingHighs.slice(-2);
+    const [prevRsiHigh, currRsiHigh] = rsiSwingHighs.slice(-2);
+
+    // Price made higher high but RSI made lower high
+    if (currPriceHigh.value > prevPriceHigh.value && currRsiHigh.value < prevRsiHigh.value) {
+      const priceDiff = ((currPriceHigh.value - prevPriceHigh.value) / prevPriceHigh.value) * 100;
+      const rsiDiff = prevRsiHigh.value - currRsiHigh.value;
+
+      let strength: 'strong' | 'moderate' | 'weak' = 'weak';
+      if (rsiDiff > 10 && priceDiff > 2) strength = 'strong';
+      else if (rsiDiff > 5 || priceDiff > 1) strength = 'moderate';
+
+      return {
+        type: 'bearish',
+        strength,
+        priceSwing1: prevPriceHigh,
+        priceSwing2: currPriceHigh,
+        rsiSwing1: prevRsiHigh,
+        rsiSwing2: currRsiHigh,
+        description: `Bearish divergence: Price higher high (+${priceDiff.toFixed(1)}%), RSI lower high (-${rsiDiff.toFixed(1)})`,
+      };
+    }
+  }
+
+  // Check for bullish divergence (price lower low, RSI higher low)
+  if (priceSwingLows.length >= 2 && rsiSwingLows.length >= 2) {
+    const [prevPriceLow, currPriceLow] = priceSwingLows.slice(-2);
+    const [prevRsiLow, currRsiLow] = rsiSwingLows.slice(-2);
+
+    // Price made lower low but RSI made higher low
+    if (currPriceLow.value < prevPriceLow.value && currRsiLow.value > prevRsiLow.value) {
+      const priceDiff = ((prevPriceLow.value - currPriceLow.value) / prevPriceLow.value) * 100;
+      const rsiDiff = currRsiLow.value - prevRsiLow.value;
+
+      let strength: 'strong' | 'moderate' | 'weak' = 'weak';
+      if (rsiDiff > 10 && priceDiff > 2) strength = 'strong';
+      else if (rsiDiff > 5 || priceDiff > 1) strength = 'moderate';
+
+      return {
+        type: 'bullish',
+        strength,
+        priceSwing1: prevPriceLow,
+        priceSwing2: currPriceLow,
+        rsiSwing1: prevRsiLow,
+        rsiSwing2: currRsiLow,
+        description: `Bullish divergence: Price lower low (-${priceDiff.toFixed(1)}%), RSI higher low (+${rsiDiff.toFixed(1)})`,
+      };
+    }
+  }
+
+  // Check for hidden bearish (price lower high, RSI higher high) - continuation
+  if (priceSwingHighs.length >= 2 && rsiSwingHighs.length >= 2) {
+    const [prevPriceHigh, currPriceHigh] = priceSwingHighs.slice(-2);
+    const [prevRsiHigh, currRsiHigh] = rsiSwingHighs.slice(-2);
+
+    if (currPriceHigh.value < prevPriceHigh.value && currRsiHigh.value > prevRsiHigh.value) {
+      const priceDiff = ((prevPriceHigh.value - currPriceHigh.value) / prevPriceHigh.value) * 100;
+      const rsiDiff = currRsiHigh.value - prevRsiHigh.value;
+
+      let strength: 'strong' | 'moderate' | 'weak' = 'weak';
+      if (rsiDiff > 8 && priceDiff > 1.5) strength = 'strong';
+      else if (rsiDiff > 4 || priceDiff > 0.75) strength = 'moderate';
+
+      return {
+        type: 'hidden_bearish',
+        strength,
+        priceSwing1: prevPriceHigh,
+        priceSwing2: currPriceHigh,
+        rsiSwing1: prevRsiHigh,
+        rsiSwing2: currRsiHigh,
+        description: `Hidden bearish: Price lower high (-${priceDiff.toFixed(1)}%), RSI higher high (+${rsiDiff.toFixed(1)}) - downtrend continuation`,
+      };
+    }
+  }
+
+  // Check for hidden bullish (price higher low, RSI lower low) - continuation
+  if (priceSwingLows.length >= 2 && rsiSwingLows.length >= 2) {
+    const [prevPriceLow, currPriceLow] = priceSwingLows.slice(-2);
+    const [prevRsiLow, currRsiLow] = rsiSwingLows.slice(-2);
+
+    if (currPriceLow.value > prevPriceLow.value && currRsiLow.value < prevRsiLow.value) {
+      const priceDiff = ((currPriceLow.value - prevPriceLow.value) / prevPriceLow.value) * 100;
+      const rsiDiff = prevRsiLow.value - currRsiLow.value;
+
+      let strength: 'strong' | 'moderate' | 'weak' = 'weak';
+      if (rsiDiff > 8 && priceDiff > 1.5) strength = 'strong';
+      else if (rsiDiff > 4 || priceDiff > 0.75) strength = 'moderate';
+
+      return {
+        type: 'hidden_bullish',
+        strength,
+        priceSwing1: prevPriceLow,
+        priceSwing2: currPriceLow,
+        rsiSwing1: prevRsiLow,
+        rsiSwing2: currRsiLow,
+        description: `Hidden bullish: Price higher low (+${priceDiff.toFixed(1)}%), RSI lower low (-${rsiDiff.toFixed(1)}) - uptrend continuation`,
+      };
+    }
+  }
+
+  return null;
+}

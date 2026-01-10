@@ -1,0 +1,162 @@
+================================================================================
+BACKBURNER DAILY TRADING REPORT
+Date: 2026-01-09
+Generated: 2026-01-09 23:30:14
+================================================================================
+
+EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+Total Bots: 11
+Total Trades Closed: 213
+Overall Win Rate: 30.5%
+Combined P&L (realized + unrealized): $14,562.93
+
+BOT PERFORMANCE RANKING
+--------------------------------------------------------------------------------
+Bot                       Balance     True P&L     Unreal   Trades     Win%     Return
+--------------------------------------------------------------------------------
+++ Trail Aggressive     $8,723.12    $6,723.12    -$17.83       46      28%    +336.2%
+++ Trail Wide           $6,788.55    $4,788.55     $47.76       44      55%    +239.4%
+++ Trail Standard       $5,391.24    $3,391.24     -$6.46       43      28%    +169.6%
+++ Trail Light          $2,541.66      $541.66      $2.01       46      24%     +27.1%
++ Fixed 20/20          $2,000.00        $0.00     $14.94        0       0%      +0.0%
+   Confluence           $2,000.00        $0.00      $0.00        0       0%      +0.0%
+   Triple Light         $2,000.00        $0.00      $0.00        0       0%      +0.0%
+   BTC Contrarian       $2,000.00        $0.00      $0.00        0       0%      +0.0%
+-- BTC Momentum         $1,752.10     -$247.90     -$1.88       10      10%     -12.4%
+-- Trend Flip           $1,700.20     -$299.80      $0.00       13       8%     -15.0%
+-- Trend Override       $1,578.22     -$421.78     $49.31       11      27%     -21.1%
+
+DETAILED BOT ANALYSIS
+================================================================================
+
+Trail Aggressive
+  Strategy: 10% pos, 20x lev, trailing stop
+  Balance: $8,723.12 | True P&L: $6,723.12 | Unrealized: -$17.83
+  Trades: 46 | Wins: 13 | Win Rate: 28%
+  Execution Costs: $496.73 | Open Positions: 2
+  Return on Capital: +336.2%
+  [Note: Reported P&L was -$1,204.50 due to cost double-counting bug]
+
+Trail Wide
+  Strategy: 10% pos, 10x lev, 20% trigger, wide trail
+  Balance: $6,788.55 | True P&L: $4,788.55 | Unrealized: $47.76
+  Trades: 44 | Wins: 24 | Win Rate: 55%
+  Execution Costs: $372.56 | Open Positions: 3
+  Return on Capital: +239.4%
+  [Note: Reported P&L was -$738.62 due to cost double-counting bug]
+
+Trail Standard
+  Strategy: 10% pos, 10x lev, trailing stop
+  Balance: $5,391.24 | True P&L: $3,391.24 | Unrealized: -$6.46
+  Trades: 43 | Wins: 12 | Win Rate: 28%
+  Execution Costs: $113.72 | Open Positions: 7
+  Return on Capital: +169.6%
+  [Note: Reported P&L was -$511.19 due to cost double-counting bug]
+
+Trail Light
+  Strategy: 1% pos, 10x lev, trailing stop
+  Balance: $2,541.66 | True P&L: $541.66 | Unrealized: $2.01
+  Trades: 46 | Wins: 11 | Win Rate: 24%
+  Execution Costs: $16.68 | Open Positions: 6
+  Return on Capital: +27.1%
+  [Note: Reported P&L was -$72.33 due to cost double-counting bug]
+
+Fixed 20/20
+  Strategy: 1% pos, 10x lev, 20% TP/SL
+  Balance: $2,000.00 | True P&L: $0.00 | Unrealized: $14.94
+  Trades: 0 | Wins: 0 | Win Rate: 0%
+  Execution Costs: $0.00 | Open Positions: 10
+  Return on Capital: +0.0%
+
+Confluence
+  Strategy: Multi-timeframe confirmation
+  Balance: $2,000.00 | True P&L: $0.00 | Unrealized: $0.00
+  Trades: 0 | Wins: 0 | Win Rate: 0%
+  Execution Costs: $0.00 | Open Positions: 0
+  Return on Capital: +0.0%
+
+Triple Light
+  Strategy: 3-green-light system
+  Balance: $2,000.00 | True P&L: $0.00 | Unrealized: $0.00
+  Trades: 0 | Wins: 0 | Win Rate: 0%
+  Execution Costs: $0.00 | Open Positions: 0
+  Return on Capital: +0.0%
+  [Note: Reported P&L was $0.00 due to cost double-counting bug]
+
+BTC Contrarian
+  Strategy: BTC 50x reversal plays
+  Balance: $2,000.00 | True P&L: $0.00 | Unrealized: $0.00
+  Trades: 0 | Wins: 0 | Win Rate: 0%
+  Execution Costs: $0.00 | Open Positions: 0
+  Return on Capital: +0.0%
+
+BTC Momentum
+  Strategy: BTC 50x trend following
+  Balance: $1,752.10 | True P&L: -$247.90 | Unrealized: -$1.88
+  Trades: 10 | Wins: 1 | Win Rate: 10%
+  Execution Costs: $0.00 | Open Positions: 0
+  Return on Capital: -12.4%
+
+Trend Flip
+  Strategy: Override + direction flip
+  Balance: $1,700.20 | True P&L: -$299.80 | Unrealized: $0.00
+  Trades: 13 | Wins: 1 | Win Rate: 8%
+  Execution Costs: $85.95 | Open Positions: 0
+  Return on Capital: -15.0%
+
+Trend Override
+  Strategy: Trade with BTC bias
+  Balance: $1,578.22 | True P&L: -$421.78 | Unrealized: $49.31
+  Trades: 11 | Wins: 3 | Win Rate: 27%
+  Execution Costs: $67.60 | Open Positions: 1
+  Return on Capital: -21.1%
+
+================================================================================
+KEY LEARNINGS & INSIGHTS
+================================================================================
+
+WHAT WORKED:
+----------------------------------------
+1. Trail Aggressive was the top performer with +336.2% return
+2. Trailing stop strategies averaged +193.1% return
+   - All 4 trailing bots were profitable
+   - Higher leverage (20x) outperformed lower leverage (10x)
+3. Trail Wide had the best win rate at 55%
+   - Wider trigger (20% before trailing) filters out noise
+
+WHAT DIDNT WORK:
+----------------------------------------
+1. Trend Override was the worst performer with -21.1% return
+2. BTC directional/trend bots lost $969.49 combined
+   - BTC bias-based trading underperformed today
+   - Market conditions may not favor trend-following
+
+KEY METRICS:
+----------------------------------------
+- Best Win Rate: 55% (Trail Wide)
+- Most Trades: 46 (Trail Aggressive)
+- Highest Return: +336.2%
+- Lowest Return: -21.1%
+
+RECOMMENDATIONS FOR TOMORROW:
+----------------------------------------
+1. KEEP: Trail Aggressive, Trail Wide, Trail Standard - all profitable
+2. WATCH: BTC Momentum, Trend Override - significant losses, may need parameter tuning
+3. TEST: BTC Bias bots (new) - not yet activated, restart servers to enable
+4. CONSIDER: Reducing position size on trend-following bots during choppy markets
+
+================================================================================
+DATA QUALITY NOTES
+================================================================================
+
+BUG FIX APPLIED: Entry cost double-counting (fixed 2026-01-09)
+- Affected bots: Trail Light, Trail Standard, Trail Aggressive, Trail Wide, Triple Light
+- Impact: Reported P&L was understated; balance was correct
+- This report uses TRUE P&L calculated from balance
+
+See data/ANALYSIS_NOTES.md for full documentation of data quality issues.
+
+================================================================================
+END OF REPORT
+================================================================================

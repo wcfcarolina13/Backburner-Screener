@@ -1,0 +1,127 @@
+[
+  {
+    "botId": "fixed",
+    "botName": "Fixed 20/20",
+    "config": {
+      "initialBalance": 2000,
+      "positionSizePercent": 1,
+      "leverage": 10,
+      "takeProfitPercent": 20,
+      "stopLossPercent": 20,
+      "maxOpenPositions": 10
+    },
+    "snapshotTime": "2026-01-09T16:35:15.130Z"
+  },
+  {
+    "botId": "1pct",
+    "botName": "Trail Light",
+    "config": {
+      "initialBalance": 2000,
+      "positionSizePercent": 1,
+      "leverage": 10,
+      "initialStopLossPercent": 20,
+      "trailTriggerPercent": 10,
+      "trailStepPercent": 10,
+      "level1LockPercent": 0,
+      "maxOpenPositions": 10
+    },
+    "snapshotTime": "2026-01-09T16:35:15.130Z"
+  },
+  {
+    "botId": "10pct10x",
+    "botName": "Trail Standard",
+    "config": {
+      "initialBalance": 2000,
+      "positionSizePercent": 10,
+      "leverage": 10,
+      "initialStopLossPercent": 20,
+      "trailTriggerPercent": 10,
+      "trailStepPercent": 10,
+      "level1LockPercent": 0,
+      "maxOpenPositions": 100
+    },
+    "snapshotTime": "2026-01-09T16:35:15.130Z"
+  },
+  {
+    "botId": "10pct20x",
+    "botName": "Trail Aggressive",
+    "config": {
+      "initialBalance": 2000,
+      "positionSizePercent": 10,
+      "leverage": 20,
+      "initialStopLossPercent": 20,
+      "trailTriggerPercent": 10,
+      "trailStepPercent": 10,
+      "level1LockPercent": 0,
+      "maxOpenPositions": 100
+    },
+    "snapshotTime": "2026-01-09T16:35:15.130Z"
+  },
+  {
+    "botId": "wide",
+    "botName": "Trail Wide",
+    "config": {
+      "initialBalance": 2000,
+      "positionSizePercent": 10,
+      "leverage": 20,
+      "initialStopLossPercent": 20,
+      "trailTriggerPercent": 20,
+      "trailStepPercent": 10,
+      "level1LockPercent": 10,
+      "maxOpenPositions": 100
+    },
+    "snapshotTime": "2026-01-09T16:35:15.130Z"
+  },
+  {
+    "botId": "confluence",
+    "botName": "Multi-TF",
+    "config": {
+      "initialBalance": 2000,
+      "positionSizePercent": 10,
+      "leverage": 20,
+      "initialStopLossPercent": 20,
+      "trailTriggerPercent": 10,
+      "trailStepPercent": 10,
+      "level1LockPercent": 0,
+      "maxOpenPositions": 100,
+      "requiredTimeframe": "5m",
+      "confirmingTimeframes": [
+        "15m",
+        "1h"
+      ],
+      "confluenceWindowMs": 300000
+    },
+    "snapshotTime": "2026-01-09T16:35:15.130Z"
+  },
+  {
+    "botId": "btcExtreme",
+    "botName": "BTC Contrarian",
+    "config": {
+      "initialBalance": 2000,
+      "positionSizePercent": 10,
+      "leverage": 50,
+      "initialStopLossPercent": 20,
+      "trailTriggerPercent": 10,
+      "trailStepPercent": 10,
+      "extremeOversoldThreshold": 30,
+      "extremeOverboughtThreshold": 70,
+      "coolOffThreshold": 50
+    },
+    "snapshotTime": "2026-01-09T16:35:15.130Z"
+  },
+  {
+    "botId": "btcTrend",
+    "botName": "BTC Momentum",
+    "config": {
+      "initialBalance": 2000,
+      "positionSizePercent": 10,
+      "leverage": 50,
+      "initialStopLossPercent": 20,
+      "trailTriggerPercent": 10,
+      "trailStepPercent": 10,
+      "strongBiasThreshold": 70,
+      "exitBiasThreshold": 30
+    },
+    "snapshotTime": "2026-01-09T16:35:15.130Z"
+  }
+]

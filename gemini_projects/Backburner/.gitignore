@@ -2,3 +2,21 @@ node_modules/
 dist/
 *.log
 .DS_Store
+
+# Security - NEVER commit these
+.env
+.env.local
+.env.production
+.env*.local
+*.pem
+*.key
+secrets/
+credentials/
+
+# API keys backup files
+*api*key*
+*secret*
+
+# Data files (may contain trading history)
+data/*.json
+!data/.gitkeep

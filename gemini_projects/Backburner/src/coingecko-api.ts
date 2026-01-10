@@ -5,7 +5,8 @@
  */
 
 // Rate limiting for CoinGecko free tier (10-30 calls/min)
-const RATE_LIMIT_DELAY_MS = 2500; // ~24 calls/min to be safe
+// Being more conservative to avoid rate limits during startup
+const RATE_LIMIT_DELAY_MS = 6000; // ~10 calls/min - CoinGecko free tier is strict
 let lastCallTime = 0;
 
 interface CoinGeckoMarketData {
@@ -33,7 +34,7 @@ const COIN_LIST_CACHE_MS = 24 * 60 * 60 * 1000; // 24 hours
 // Cache for market data
 const marketDataCache: Map<string, CoinGeckoMarketData> = new Map();
 let marketDataCacheTime = 0;
-const MARKET_DATA_CACHE_MS = 5 * 60 * 1000; // 5 minutes
+const MARKET_DATA_CACHE_MS = 30 * 60 * 1000; // 30 minutes - market cap doesn't change fast
 
 /**
  * Rate-limited fetch wrapper
@@ -104,7 +105,7 @@ async function fetchMarketData(page = 1, perPage = 250): Promise<CoinGeckoMarket
 
 /**
  * Build a cache of market data for filtering
- * Fetches top coins by market cap
+ * Fetches top coins by market cap with retry logic
  */
 export async function buildMarketDataCache(onProgress?: (msg: string) => void): Promise<void> {
   const now = Date.now();
@@ -118,17 +119,30 @@ export async function buildMarketDataCache(onProgress?: (msg: string) => void): 
 
   // Fetch top 1000 coins (4 pages of 250)
   for (let page = 1; page <= 4; page++) {
-    try {
-      onProgress?.(`Fetching market data page ${page}/4...`);
-      const data = await fetchMarketData(page, 250);
+    let retries = 3;
+    let success = false;
 
-      for (const coin of data) {
-        marketDataCache.set(coin.symbol.toLowerCase(), coin);
+    while (retries > 0 && !success) {
+      try {
+        onProgress?.(`Fetching market data page ${page}/4...`);
+        const data = await fetchMarketData(page, 250);
+
+        for (const coin of data) {
+          marketDataCache.set(coin.symbol.toLowerCase(), coin);
+        }
+        success = true;
+      } catch (error) {
+        retries--;
+        if (retries > 0) {
+          // Wait longer before retry (exponential backoff)
+          const waitTime = (4 - retries) * 10000; // 10s, 20s, 30s
+          onProgress?.(`Rate limited, waiting ${waitTime / 1000}s before retry...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        } else {
+          // All retries failed, continue with partial data
+          console.error(`Failed to fetch page ${page} after retries`);
+        }
       }
-    } catch (error) {
-      // If we hit rate limit, stop fetching more pages
-      console.error(`Failed to fetch page ${page}:`, error);
-      break;
     }
   }
 

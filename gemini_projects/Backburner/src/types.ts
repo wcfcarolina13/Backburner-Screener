@@ -9,7 +9,7 @@ export interface Candle {
 }
 
 // Timeframe options
-export type Timeframe = '5m' | '15m' | '1h' | '4h' | '1d';
+export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
 
 // RSI calculation result
 export interface RSIResult {
@@ -19,6 +19,12 @@ export interface RSIResult {
 
 // Setup direction
 export type SetupDirection = 'long' | 'short';
+
+// Market type
+export type MarketType = 'spot' | 'futures';
+
+// Liquidity risk level
+export type LiquidityRisk = 'low' | 'medium' | 'high';
 
 // Backburner setup state
 export type SetupState =
@@ -73,6 +79,17 @@ export interface BackburnerSetup {
 
   // Higher timeframe trend (for multi-timeframe confirmation)
   higherTFBullish?: boolean;
+
+  // Market type and risk
+  marketType: MarketType;    // spot or futures
+  liquidityRisk: LiquidityRisk;  // low/medium/high based on volume
+
+  // RSI-Price divergence (optional - strengthens the setup when present)
+  divergence?: {
+    type: 'bullish' | 'bearish' | 'hidden_bullish' | 'hidden_bearish';
+    strength: 'strong' | 'moderate' | 'weak';
+    description: string;
+  };
 }
 
 // Symbol info from MEXC

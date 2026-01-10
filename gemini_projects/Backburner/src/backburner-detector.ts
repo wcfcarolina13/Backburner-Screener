@@ -7,6 +7,7 @@ import {
   isVolumeContracting,
   isHigherTFBullish,
   calculateAvgVolume,
+  detectDivergence,
 } from './indicators.js';
 
 /**
@@ -211,6 +212,28 @@ export class BackburnerDetector {
 
     const isActionable = state === 'triggered' || state === 'deep_extreme';
 
+    // Check for RSI-price divergence that aligns with the setup direction
+    const rsiResultsForDivergence = rsiValues.map(r => ({
+      value: r.value,
+      timestamp: r.timestamp,
+    }));
+    const divergenceResult = detectDivergence(candles, rsiResultsForDivergence, 50, 5);
+
+    // Only include divergence if it supports the setup direction
+    let setupDivergence: BackburnerSetup['divergence'] = undefined;
+    if (divergenceResult) {
+      const isBullishDiv = divergenceResult.type === 'bullish' || divergenceResult.type === 'hidden_bullish';
+      const isBearishDiv = divergenceResult.type === 'bearish' || divergenceResult.type === 'hidden_bearish';
+
+      if ((direction === 'long' && isBullishDiv) || (direction === 'short' && isBearishDiv)) {
+        setupDivergence = {
+          type: divergenceResult.type!,
+          strength: divergenceResult.strength,
+          description: divergenceResult.description,
+        };
+      }
+    }
+
     const setup: BackburnerSetup = {
       symbol,
       timeframe,
@@ -232,6 +255,10 @@ export class BackburnerDetector {
       pullbackAvgVolume: calculateAvgVolume(counterMoveCandles, counterMoveCandles.length),
       volumeContracting,
       higherTFBullish,
+      divergence: setupDivergence,
+      // These will be set by the screener with actual values
+      marketType: 'spot',
+      liquidityRisk: 'medium',
     };
 
     this.activeSetups.set(this.getSetupKey(symbol, timeframe, direction), setup);
