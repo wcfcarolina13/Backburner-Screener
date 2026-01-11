@@ -27,6 +27,7 @@ export interface PaperTradingConfig {
   takeProfitPercent: number;   // Take profit % (e.g., 20%)
   stopLossPercent: number;     // Stop loss % (e.g., 20%)
   maxOpenPositions: number;    // Max concurrent positions
+  requireFutures?: boolean;    // Only trade setups available on futures (default true)
 }
 
 export const DEFAULT_PAPER_CONFIG: PaperTradingConfig = {
@@ -174,6 +175,13 @@ export class PaperTradingEngine {
 
     // Only trade on triggered or deep_extreme
     if (setup.state !== 'triggered' && setup.state !== 'deep_extreme') {
+      return null;
+    }
+
+    // Only trade futures setups (realistic for leveraged trading on MEXC)
+    // Default to true if not specified - we want realistic paper trading
+    const requireFutures = this.config.requireFutures !== false;
+    if (requireFutures && setup.marketType !== 'futures') {
       return null;
     }
 

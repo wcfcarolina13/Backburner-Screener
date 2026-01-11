@@ -37,6 +37,7 @@ export interface TrailingStopConfig {
   trailStepPercent: number;         // Trail every X% profit (e.g., 10%)
   level1LockPercent: number;        // What ROI% to lock at Level 1 (default 0 = breakeven)
   maxOpenPositions: number;
+  requireFutures?: boolean;          // Only trade setups available on futures (default true)
 }
 
 export const DEFAULT_TRAILING_CONFIG: TrailingStopConfig = {
@@ -232,6 +233,13 @@ export class TrailingStopEngine {
 
     // Only trade on triggered or deep_extreme
     if (setup.state !== 'triggered' && setup.state !== 'deep_extreme') {
+      return null;
+    }
+
+    // Only trade futures setups (realistic for leveraged trading on MEXC)
+    // Default to true if not specified - we want realistic paper trading
+    const requireFutures = this.config.requireFutures !== false;
+    if (requireFutures && setup.marketType !== 'futures') {
       return null;
     }
 
