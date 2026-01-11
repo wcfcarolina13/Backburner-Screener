@@ -2,10 +2,11 @@
 services:
   - type: web
     name: backburner
-    env: docker
-    dockerfilePath: ./Dockerfile
+    runtime: node
     plan: free
     region: oregon
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
     healthCheckPath: /api/state
     envVars:
       - key: NODE_ENV
