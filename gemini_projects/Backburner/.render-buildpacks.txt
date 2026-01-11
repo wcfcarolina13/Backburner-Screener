@@ -1,0 +1,2 @@
+# Force Render to not auto-detect buildpacks
+# This project uses Dockerfile, not buildpacks
