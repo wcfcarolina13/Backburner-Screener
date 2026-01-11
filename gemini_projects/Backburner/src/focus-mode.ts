@@ -63,6 +63,9 @@ export interface FocusPosition {
   suggestedSize: number;        // In USDT (margin)
   suggestedLeverage: number;
 
+  // Paper bot position size (for P&L scaling)
+  paperNotionalSize: number;    // Paper bot's notional size
+
   // Stop loss tracking
   currentStopPrice: number;
   currentTrailLevel: number;
@@ -72,9 +75,9 @@ export interface FocusPosition {
   status: 'pending_open' | 'open' | 'pending_close' | 'closed';
   lastNotificationTime: number;
 
-  // Performance (mirroring paper bot)
-  unrealizedPnL: number;
-  unrealizedPnLPercent: number;
+  // Performance (scaled to user's position size, not paper bot's)
+  unrealizedPnL: number;        // Scaled to user's notional size
+  unrealizedPnLPercent: number; // ROI percentage (same as paper bot)
 }
 
 // Action types for notifications
@@ -191,6 +194,17 @@ export class FocusModeManager {
   }
 
   /**
+   * Scale P&L from paper bot to user's actual position size
+   * The paper bot's P&L is based on its notional size, we need to scale it
+   * to what the user would actually make with their suggested position
+   */
+  private scaleUserPnL(paperPnL: number, paperNotionalSize: number, userMargin: number, userLeverage: number): number {
+    if (paperNotionalSize === 0) return 0;
+    const userNotionalSize = userMargin * userLeverage;
+    return paperPnL * (userNotionalSize / paperNotionalSize);
+  }
+
+  /**
    * Process a new position opened by the target bot
    */
   async onPositionOpened(botPosition: any, setup: BackburnerSetup): Promise<FocusAction | null> {
@@ -230,6 +244,7 @@ export class FocusModeManager {
       entryTime: Date.now(),
       suggestedSize,
       suggestedLeverage: this.config.leverage,
+      paperNotionalSize: botPosition.notionalSize || 2000, // Store for P&L scaling
       currentStopPrice: currentStop,
       currentTrailLevel: botPosition.trailLevel || 0,
       initialStopPercent: stopPercent || 0,
@@ -277,9 +292,16 @@ export class FocusModeManager {
 
     if (!tracked) return null;
 
-    // Update P&L
-    tracked.unrealizedPnL = botPosition.unrealizedPnL;
-    tracked.unrealizedPnLPercent = botPosition.unrealizedPnLPercent;
+    // Update P&L - scale from paper bot's notional to user's suggested position
+    const scaledPnL = this.scaleUserPnL(
+      botPosition.unrealizedPnL || 0,
+      tracked.paperNotionalSize,
+      tracked.suggestedSize,
+      tracked.suggestedLeverage
+    );
+    tracked.unrealizedPnL = scaledPnL;
+    // ROI percent is the same regardless of position size (it's % return on margin)
+    tracked.unrealizedPnLPercent = botPosition.unrealizedPnLPercent || 0;
     tracked.currentStopPrice = botPosition.currentStopLossPrice || botPosition.currentStopPrice || tracked.currentStopPrice;
     tracked.status = 'open';
 
@@ -349,7 +371,14 @@ export class FocusModeManager {
     if (!tracked) return null;
 
     tracked.status = 'pending_close';
-    tracked.unrealizedPnL = botPosition.realizedPnL || botPosition.unrealizedPnL;
+    // Scale the realized P&L to user's position size
+    const paperPnL = botPosition.realizedPnL || botPosition.unrealizedPnL || 0;
+    tracked.unrealizedPnL = this.scaleUserPnL(
+      paperPnL,
+      tracked.paperNotionalSize,
+      tracked.suggestedSize,
+      tracked.suggestedLeverage
+    );
 
     const action: FocusAction = {
       type: 'CLOSE_POSITION',
@@ -470,8 +499,15 @@ export class FocusModeManager {
       const botPos = botPosMap.get(key);
 
       if (botPos && botPos.status === 'open') {
-        // Update from bot position
-        tracked.unrealizedPnL = botPos.unrealizedPnL || 0;
+        // Update from bot position - scale P&L to user's position size
+        const scaledPnL = this.scaleUserPnL(
+          botPos.unrealizedPnL || 0,
+          tracked.paperNotionalSize,
+          tracked.suggestedSize,
+          tracked.suggestedLeverage
+        );
+        tracked.unrealizedPnL = scaledPnL;
+        // ROI percent is the same regardless of position size
         tracked.unrealizedPnLPercent = botPos.unrealizedPnLPercent || 0;
         tracked.currentStopPrice = botPos.currentStopLossPrice || botPos.currentStopPrice || tracked.currentStopPrice;
         tracked.status = 'open';
@@ -520,6 +556,17 @@ export class FocusModeManager {
         : ((currentStop - botPos.entryPrice) / botPos.entryPrice) * 100;
 
       // Import this position
+      const paperNotionalSize = botPos.notionalSize || 2000;
+      const suggestedSize = this.calculateSuggestedSize(paperNotionalSize, botPos.leverage);
+
+      // Scale P&L to user's position size
+      const scaledPnL = this.scaleUserPnL(
+        botPos.unrealizedPnL || 0,
+        paperNotionalSize,
+        suggestedSize,
+        this.config.leverage
+      );
+
       const focusPosition: FocusPosition = {
         id: key,
         symbol: botPos.symbol,
@@ -528,14 +575,15 @@ export class FocusModeManager {
         marketType: botPos.marketType,
         entryPrice: botPos.entryPrice,
         entryTime: botPos.entryTime || Date.now(),
-        suggestedSize: this.calculateSuggestedSize(botPos.notionalSize, botPos.leverage),
+        suggestedSize,
         suggestedLeverage: this.config.leverage,
+        paperNotionalSize,
         currentStopPrice: currentStop,
         currentTrailLevel: botPos.trailLevel || 0,
         initialStopPercent: stopPercent || 2,
         status: 'open',
         lastNotificationTime: Date.now(),
-        unrealizedPnL: botPos.unrealizedPnL || 0,
+        unrealizedPnL: scaledPnL,
         unrealizedPnLPercent: botPos.unrealizedPnLPercent || 0,
       };
 
