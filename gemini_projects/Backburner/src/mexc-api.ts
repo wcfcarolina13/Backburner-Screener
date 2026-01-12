@@ -73,6 +73,24 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Check if error is a transient network error (DNS, connection refused, etc)
+function isTransientNetworkError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    const cause = (error as any).cause;
+    // Check for DNS failures, connection refused, network unreachable
+    if (msg.includes('fetch failed') || msg.includes('enotfound') || msg.includes('econnrefused') ||
+        msg.includes('network') || msg.includes('etimedout') || msg.includes('econnreset')) {
+      return true;
+    }
+    // Check cause for DNS errors
+    if (cause && cause.code && ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'ECONNRESET', 'ENETUNREACH'].includes(cause.code)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Fetch with retry logic
 async function fetchWithRetry(url: string, retries = 3): Promise<Response> {
   let lastError: Error | null = null;
@@ -91,7 +109,12 @@ async function fetchWithRetry(url: string, retries = 3): Promise<Response> {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     } catch (error) {
       lastError = error as Error;
-      await sleep(500 * (i + 1));
+      // For transient network errors (DNS, connection), wait longer
+      if (isTransientNetworkError(error)) {
+        await sleep(2000 * (i + 1)); // 2s, 4s, 6s for network issues
+      } else {
+        await sleep(500 * (i + 1));
+      }
     }
   }
 
@@ -150,13 +173,22 @@ export async function getKlines(
 }
 
 // Get current price for a symbol (spot)
+// Returns 0 on network errors to avoid unhandled rejections
 export async function getCurrentPrice(symbol: string): Promise<number> {
-  return rateLimiter.execute(async () => {
-    const url = `${MEXC_API.BASE_URL}${MEXC_API.TICKER_PRICE}?symbol=${symbol}`;
-    const response = await fetchWithRetry(url);
-    const data = await response.json();
-    return parseFloat(data.price);
-  });
+  try {
+    return await rateLimiter.execute(async () => {
+      const url = `${MEXC_API.BASE_URL}${MEXC_API.TICKER_PRICE}?symbol=${symbol}`;
+      const response = await fetchWithRetry(url);
+      const data = await response.json();
+      return parseFloat(data.price);
+    });
+  } catch (error) {
+    if (isTransientNetworkError(error)) {
+      // Silent fail on network issues (laptop sleep, wifi drop, etc)
+      return 0;
+    }
+    throw error;
+  }
 }
 
 // Cache for futures prices (refreshed every few seconds)
