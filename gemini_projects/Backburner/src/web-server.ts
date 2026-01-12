@@ -1592,8 +1592,8 @@ function getHtmlPage(): string {
     .section-toggle.collapsed { transform: rotate(-90deg); }
     .section-content { transition: max-height 0.3s ease, opacity 0.3s ease; overflow: hidden; }
     .section-content.collapsed { max-height: 0 !important; opacity: 0; margin-bottom: 0; }
-    .bot-toggles-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-    .bot-toggle-mini { flex: 0 0 auto; min-width: 100px; padding: 6px 10px; background: #161b22; border: 2px solid #30363d; border-radius: 6px; cursor: pointer; font-size: 11px; }
+    .bot-toggles-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+    .bot-toggle-mini { flex: 0 0 auto; min-width: 80px; padding: 4px 8px; background: #161b22; border: 2px solid #30363d; border-radius: 6px; cursor: pointer; font-size: 10px; }
     .bot-toggle-mini:hover { border-color: #58a6ff !important; }
 
     @media (max-width: 1200px) {
@@ -1959,145 +1959,76 @@ function getHtmlPage(): string {
     </div>
     <div class="section-content" id="altcoinBotsContent">
       <div class="bot-toggles-row">
-        <div class="bot-toggle" id="toggleFixedTP" onclick="event.stopPropagation(); toggleBot('fixedTP')" style="flex: 1; min-width: 120px; padding: 8px 10px; background: #161b22; border: 2px solid #238636; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleFixedTP" onclick="event.stopPropagation(); toggleBot('fixedTP')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #238636; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #3fb950; font-size: 12px;">🎯 Fixed</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #3fb950;"></span>
+            <span style="font-weight: 600; color: #3fb950; font-size: 10px;">🎯 Fix</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #3fb950;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleTrailing1pct" onclick="event.stopPropagation(); toggleBot('trailing1pct')" style="flex: 1; min-width: 120px; padding: 8px 10px; background: #161b22; border: 2px solid #8957e5; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleTrailing1pct" onclick="event.stopPropagation(); toggleBot('trailing1pct')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #8957e5; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #a371f7; font-size: 12px;">📈 Trail 1%</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #a371f7;"></span>
+            <span style="font-weight: 600; color: #a371f7; font-size: 10px;">📈 1%</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #a371f7;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleTrailing10pct10x" onclick="event.stopPropagation(); toggleBot('trailing10pct10x')" style="flex: 1; min-width: 120px; padding: 8px 10px; background: #161b22; border: 2px solid #d29922; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleTrailing10pct10x" onclick="event.stopPropagation(); toggleBot('trailing10pct10x')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #d29922; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #d29922; font-size: 12px;">🔥 10% 10x</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #d29922;"></span>
+            <span style="font-weight: 600; color: #d29922; font-size: 10px;">🔥 Std</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #d29922;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleTrailing10pct20x" onclick="event.stopPropagation(); toggleBot('trailing10pct20x')" style="flex: 1; min-width: 120px; padding: 8px 10px; background: #161b22; border: 2px solid #f85149; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleTrailing10pct20x" onclick="event.stopPropagation(); toggleBot('trailing10pct20x')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #f85149; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #f85149; font-size: 12px;">💀 Aggressive</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #f85149;"></span>
+            <span style="font-weight: 600; color: #f85149; font-size: 10px;">💀 Agg</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #f85149;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleTrailWide" onclick="event.stopPropagation(); toggleBot('trailWide')" style="flex: 1; min-width: 120px; padding: 8px 10px; background: #161b22; border: 2px solid #58a6ff; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleTrailWide" onclick="event.stopPropagation(); toggleBot('trailWide')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #58a6ff; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #58a6ff; font-size: 12px;">🌊 Wide</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #58a6ff;"></span>
+            <span style="font-weight: 600; color: #58a6ff; font-size: 10px;">🌊 Wide</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #58a6ff;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleConfluence" onclick="event.stopPropagation(); toggleBot('confluence')" style="flex: 1; min-width: 120px; padding: 8px 10px; background: #161b22; border: 2px solid #a371f7; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleConfluence" onclick="event.stopPropagation(); toggleBot('confluence')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #a371f7; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #a371f7; font-size: 12px;">🔗 Multi-TF</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #a371f7;"></span>
+            <span style="font-weight: 600; color: #a371f7; font-size: 10px;">🔗 MTF</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #a371f7;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleTripleLight" onclick="event.stopPropagation(); toggleBot('tripleLight')" style="flex: 1; min-width: 120px; padding: 8px 10px; background: #161b22; border: 2px solid #f0e68c; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleTripleLight" onclick="event.stopPropagation(); toggleBot('tripleLight')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #f0e68c; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #f0e68c; font-size: 12px;">🚦 Triple</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #f0e68c;"></span>
+            <span style="font-weight: 600; color: #f0e68c; font-size: 10px;">🚦 3x</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #f0e68c;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleBtcExtreme" onclick="event.stopPropagation(); toggleBot('btcExtreme')" style="flex: 1; min-width: 120px; padding: 8px 10px; background: #161b22; border: 2px solid #ff6b35; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleBtcExtreme" onclick="event.stopPropagation(); toggleBot('btcExtreme')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #ff6b35; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #ff6b35; font-size: 12px;">₿ Contra</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #ff6b35;"></span>
+            <span style="font-weight: 600; color: #ff6b35; font-size: 10px;">₿ Ctr</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #ff6b35;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleBtcTrend" onclick="event.stopPropagation(); toggleBot('btcTrend')" style="flex: 1; min-width: 120px; padding: 8px 10px; background: #161b22; border: 2px solid #00d4aa; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleBtcTrend" onclick="event.stopPropagation(); toggleBot('btcTrend')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #00d4aa; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #00d4aa; font-size: 12px;">₿ Mtm</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #00d4aa;"></span>
+            <span style="font-weight: 600; color: #00d4aa; font-size: 10px;">₿ Mtm</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #00d4aa;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleTrendOverride" onclick="event.stopPropagation(); toggleBot('trendOverride')" style="flex: 1; min-width: 120px; padding: 8px 10px; background: #161b22; border: 2px solid #e040fb; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleTrendOverride" onclick="event.stopPropagation(); toggleBot('trendOverride')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #e040fb; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #e040fb; font-size: 12px;">↕ Override</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #e040fb;"></span>
+            <span style="font-weight: 600; color: #e040fb; font-size: 10px;">↕ Ovr</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #e040fb;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleTrendFlip" onclick="event.stopPropagation(); toggleBot('trendFlip')" style="flex: 1; min-width: 120px; padding: 8px 10px; background: #161b22; border: 2px solid #00bcd4; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleTrendFlip" onclick="event.stopPropagation(); toggleBot('trendFlip')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #00bcd4; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #00bcd4; font-size: 12px;">🔄 Flip</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #00bcd4;"></span>
+            <span style="font-weight: 600; color: #00bcd4; font-size: 10px;">🔄 Flip</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #00bcd4;"></span>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Section: BTC Bias Bots -->
-    <div class="section-header" onclick="toggleSection('btcBiasBots')">
-      <span class="section-title">₿ BTC Bias Bots (8)</span>
-      <span class="section-toggle" id="btcBiasBotsToggle">▼</span>
-    </div>
-    <div class="section-content" id="btcBiasBotsContent">
-      <div style="font-size: 11px; color: #8b949e; margin-bottom: 8px; padding: 6px 10px; background: #0d1117; border-radius: 4px;">
-        BTC-only bots that trade based on macro bias. Hold through neutral, exit on opposite bias or stop. Require bias to cycle/strengthen after stop-out for re-entry.
-      </div>
-      <div class="bot-toggles-row">
-        <div class="bot-toggle" id="toggleBias100x20trail" onclick="event.stopPropagation(); toggleBot('bias100x20trail')" style="flex: 1; min-width: 140px; padding: 8px 10px; background: #161b22; border: 2px solid #ffd700; border-radius: 6px; cursor: pointer;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #ffd700; font-size: 11px;">100% 20x Trail</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #ffd700;"></span>
-          </div>
-          <div style="font-size: 9px; color: #6e7681; margin-top: 2px;">Full size, trailing stop</div>
-        </div>
-        <div class="bot-toggle" id="toggleBias100x50trail" onclick="event.stopPropagation(); toggleBot('bias100x50trail')" style="flex: 1; min-width: 140px; padding: 8px 10px; background: #161b22; border: 2px solid #ff8c00; border-radius: 6px; cursor: pointer;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #ff8c00; font-size: 11px;">100% 50x Trail</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #ff8c00;"></span>
-          </div>
-          <div style="font-size: 9px; color: #6e7681; margin-top: 2px;">Full size, high lev</div>
-        </div>
-        <div class="bot-toggle" id="toggleBias10x20trail" onclick="event.stopPropagation(); toggleBot('bias10x20trail')" style="flex: 1; min-width: 140px; padding: 8px 10px; background: #161b22; border: 2px solid #98fb98; border-radius: 6px; cursor: pointer;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #98fb98; font-size: 11px;">10% 20x Trail</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #98fb98;"></span>
-          </div>
-          <div style="font-size: 9px; color: #6e7681; margin-top: 2px;">10% size, trailing</div>
-        </div>
-        <div class="bot-toggle" id="toggleBias10x50trail" onclick="event.stopPropagation(); toggleBot('bias10x50trail')" style="flex: 1; min-width: 140px; padding: 8px 10px; background: #161b22; border: 2px solid #00ced1; border-radius: 6px; cursor: pointer;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #00ced1; font-size: 11px;">10% 50x Trail</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #00ced1;"></span>
-          </div>
-          <div style="font-size: 9px; color: #6e7681; margin-top: 2px;">10% size, high lev</div>
-        </div>
-        <div class="bot-toggle" id="toggleBias100x20hard" onclick="event.stopPropagation(); toggleBot('bias100x20hard')" style="flex: 1; min-width: 140px; padding: 8px 10px; background: #161b22; border: 2px solid #dc143c; border-radius: 6px; cursor: pointer;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #dc143c; font-size: 11px;">100% 20x Hard</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #dc143c;"></span>
-          </div>
-          <div style="font-size: 9px; color: #6e7681; margin-top: 2px;">Full size, 20% ROI stop</div>
-        </div>
-        <div class="bot-toggle" id="toggleBias100x50hard" onclick="event.stopPropagation(); toggleBot('bias100x50hard')" style="flex: 1; min-width: 140px; padding: 8px 10px; background: #161b22; border: 2px solid #8b0000; border-radius: 6px; cursor: pointer;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #ff6666; font-size: 11px;">100% 50x Hard</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #ff6666;"></span>
-          </div>
-          <div style="font-size: 9px; color: #6e7681; margin-top: 2px;">Full size, high lev hard</div>
-        </div>
-        <div class="bot-toggle" id="toggleBias10x20hard" onclick="event.stopPropagation(); toggleBot('bias10x20hard')" style="flex: 1; min-width: 140px; padding: 8px 10px; background: #161b22; border: 2px solid #9370db; border-radius: 6px; cursor: pointer;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #9370db; font-size: 11px;">10% 20x Hard</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #9370db;"></span>
-          </div>
-          <div style="font-size: 9px; color: #6e7681; margin-top: 2px;">10% size, hard stop</div>
-        </div>
-        <div class="bot-toggle" id="toggleBias10x50hard" onclick="event.stopPropagation(); toggleBot('bias10x50hard')" style="flex: 1; min-width: 140px; padding: 8px 10px; background: #161b22; border: 2px solid #4169e1; border-radius: 6px; cursor: pointer;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #4169e1; font-size: 11px;">10% 50x Hard</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #4169e1;"></span>
-          </div>
-          <div style="font-size: 9px; color: #6e7681; margin-top: 2px;">10% size, high lev hard</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 8-Bot Stats Comparison -->
+    <!-- 11-Bot Stats Comparison -->
     <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 12px;">
       <div class="stat-box" style="border-left: 3px solid #238636;">
         <div class="stat-value" id="fixedBalance" style="font-size: 18px;">$2,000</div>
@@ -2153,6 +2084,67 @@ function getHtmlPage(): string {
         <div class="stat-value" id="trendFlipBalance" style="font-size: 18px;">$2,000</div>
         <div class="stat-label">Flip | P&L: <span id="trendFlipPnL" class="positive">$0</span> | Unreal: <span id="trendFlipUnrealPnL" class="positive">$0</span></div>
         <div class="stat-label" style="margin-top: 2px;"><span id="trendFlipWinRate">0%</span> win (<span id="trendFlipTrades">0</span> trades) | Costs: <span id="trendFlipCosts" style="color: #f85149;">$0</span></div>
+      </div>
+    </div>
+
+    <!-- Section: BTC Bias Bots -->
+    <div class="section-header" onclick="toggleSection('btcBiasBots')" style="margin-top: 12px;">
+      <span class="section-title">₿ BTC Bias Bots (8)</span>
+      <span class="section-toggle" id="btcBiasBotsToggle">▼</span>
+    </div>
+    <div class="section-content" id="btcBiasBotsContent">
+      <div style="font-size: 11px; color: #8b949e; margin-bottom: 8px; padding: 6px 10px; background: #0d1117; border-radius: 4px;">
+        BTC-only bots that trade based on macro bias. Hold through neutral, exit on opposite bias or stop. Require bias to cycle/strengthen after stop-out for re-entry.
+      </div>
+      <div class="bot-toggles-row">
+        <div class="bot-toggle" id="toggleBias100x20trail" onclick="event.stopPropagation(); toggleBot('bias100x20trail')" style="flex: 1; min-width: 100px; padding: 5px 8px; background: #161b22; border: 2px solid #ffd700; border-radius: 6px; cursor: pointer;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: 600; color: #ffd700; font-size: 10px;">100% 20x T</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #ffd700;"></span>
+          </div>
+        </div>
+        <div class="bot-toggle" id="toggleBias100x50trail" onclick="event.stopPropagation(); toggleBot('bias100x50trail')" style="flex: 1; min-width: 100px; padding: 5px 8px; background: #161b22; border: 2px solid #ff8c00; border-radius: 6px; cursor: pointer;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: 600; color: #ff8c00; font-size: 10px;">100% 50x T</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #ff8c00;"></span>
+          </div>
+        </div>
+        <div class="bot-toggle" id="toggleBias10x20trail" onclick="event.stopPropagation(); toggleBot('bias10x20trail')" style="flex: 1; min-width: 100px; padding: 5px 8px; background: #161b22; border: 2px solid #98fb98; border-radius: 6px; cursor: pointer;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: 600; color: #98fb98; font-size: 10px;">10% 20x T</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #98fb98;"></span>
+          </div>
+        </div>
+        <div class="bot-toggle" id="toggleBias10x50trail" onclick="event.stopPropagation(); toggleBot('bias10x50trail')" style="flex: 1; min-width: 100px; padding: 5px 8px; background: #161b22; border: 2px solid #00ced1; border-radius: 6px; cursor: pointer;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: 600; color: #00ced1; font-size: 10px;">10% 50x T</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #00ced1;"></span>
+          </div>
+        </div>
+        <div class="bot-toggle" id="toggleBias100x20hard" onclick="event.stopPropagation(); toggleBot('bias100x20hard')" style="flex: 1; min-width: 100px; padding: 5px 8px; background: #161b22; border: 2px solid #dc143c; border-radius: 6px; cursor: pointer;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: 600; color: #dc143c; font-size: 10px;">100% 20x H</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #dc143c;"></span>
+          </div>
+        </div>
+        <div class="bot-toggle" id="toggleBias100x50hard" onclick="event.stopPropagation(); toggleBot('bias100x50hard')" style="flex: 1; min-width: 100px; padding: 5px 8px; background: #161b22; border: 2px solid #8b0000; border-radius: 6px; cursor: pointer;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: 600; color: #ff6666; font-size: 10px;">100% 50x H</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #ff6666;"></span>
+          </div>
+        </div>
+        <div class="bot-toggle" id="toggleBias10x20hard" onclick="event.stopPropagation(); toggleBot('bias10x20hard')" style="flex: 1; min-width: 100px; padding: 5px 8px; background: #161b22; border: 2px solid #9370db; border-radius: 6px; cursor: pointer;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: 600; color: #9370db; font-size: 10px;">10% 20x H</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #9370db;"></span>
+          </div>
+        </div>
+        <div class="bot-toggle" id="toggleBias10x50hard" onclick="event.stopPropagation(); toggleBot('bias10x50hard')" style="flex: 1; min-width: 100px; padding: 5px 8px; background: #161b22; border: 2px solid #4169e1; border-radius: 6px; cursor: pointer;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: 600; color: #4169e1; font-size: 10px;">10% 50x H</span>
+            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #4169e1;"></span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -2284,13 +2276,25 @@ function getHtmlPage(): string {
           <div class="stat-label" style="margin-top: 2px;"><span id="gpYoloWinRate">0%</span> win | <span id="gpYoloTP1Rate">0%</span> TP1</div>
         </div>
       </div>
+      <!-- GP Account Equity Summary -->
+      <div style="display: flex; gap: 12px; padding: 8px 12px; background: #0d1117; border-radius: 6px; border: 1px solid #30363d;">
+        <div style="flex: 1;">
+          <span style="color: #8b949e; font-size: 11px;">Account Equity (Balance + Unrealized)</span>
+          <div style="display: flex; gap: 20px; margin-top: 4px;">
+            <span style="font-size: 12px;"><span style="color: #4caf50;">Cons:</span> <span id="gpConsEquity" style="color: #c9d1d9; font-weight: 600;">$2,000</span></span>
+            <span style="font-size: 12px;"><span style="color: #8bc34a;">Std:</span> <span id="gpStdEquity" style="color: #c9d1d9; font-weight: 600;">$2,000</span></span>
+            <span style="font-size: 12px;"><span style="color: #ff9800;">Agg:</span> <span id="gpAggEquity" style="color: #c9d1d9; font-weight: 600;">$2,000</span></span>
+            <span style="font-size: 12px;"><span style="color: #f44336;">YOLO:</span> <span id="gpYoloEquity" style="color: #c9d1d9; font-weight: 600;">$2,000</span></span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Setups Card with Tabs -->
     <div class="card" style="margin-bottom: 20px;">
       <div class="card-header" style="flex-wrap: wrap; gap: 12px;">
         <span class="card-title">📊 Setups</span>
-        <div style="display: flex; gap: 8px;">
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
           <button class="tab-btn active" id="tabActive" onclick="setSetupsTab('active')" style="padding: 4px 12px; border-radius: 4px; border: 1px solid #30363d; background: #238636; color: white; font-size: 12px; cursor: pointer;">
             Active <span id="activeCount">0</span>
           </button>
@@ -2306,7 +2310,20 @@ function getHtmlPage(): string {
           <button class="tab-btn" id="tabGoldenPocket" onclick="setSetupsTab('goldenPocket')" style="padding: 4px 12px; border-radius: 4px; border: 1px solid #f0883e; background: #21262d; color: #f0883e; font-size: 12px; cursor: pointer;">
             🎯 GP <span id="gpCount">0</span>
           </button>
+          <span style="color: #30363d; margin: 0 4px;">|</span>
+          <button class="tab-btn" id="tabSavedList" onclick="setSetupsTab('savedList')" style="padding: 4px 12px; border-radius: 4px; border: 1px solid #58a6ff; background: #21262d; color: #58a6ff; font-size: 12px; cursor: pointer;">
+            📋 List <span id="savedListCount">0</span>
+          </button>
         </div>
+      </div>
+      <!-- Selection controls bar -->
+      <div id="selectionControls" style="display: flex; gap: 8px; padding: 8px 12px; background: #0d1117; border-bottom: 1px solid #30363d; flex-wrap: wrap; align-items: center;">
+        <span style="color: #8b949e; font-size: 11px;">Selection:</span>
+        <button onclick="selectAllSetups()" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">Select All</button>
+        <button onclick="deselectAllSetups()" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">Deselect All</button>
+        <button onclick="addSelectedToList()" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #3fb950; background: #21262d; color: #3fb950; font-size: 10px; cursor: pointer;">+ Add to List</button>
+        <button onclick="removeSelectedFromList()" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #f85149; background: #21262d; color: #f85149; font-size: 10px; cursor: pointer;">- Remove</button>
+        <span style="color: #6e7681; font-size: 10px; margin-left: 8px;" id="selectionStatus">0 selected</span>
       </div>
       <div id="setupsTable">
         <div class="empty-state">Scanning for setups...</div>
@@ -2738,6 +2755,105 @@ function getHtmlPage(): string {
     let currentSetupsTab = 'active';
     let allSetupsData = { all: [], active: [], playedOut: [], history: [], goldenPocket: [] };
 
+    // Saved list state
+    let savedList = new Set();  // Keys: symbol-timeframe-direction-marketType
+    let selectedSetups = new Set();  // Currently selected in UI
+
+    function getSetupKey(s) {
+      return s.symbol + '-' + s.timeframe + '-' + s.direction + '-' + s.marketType;
+    }
+
+    function toggleSetupSelection(key) {
+      if (selectedSetups.has(key)) {
+        selectedSetups.delete(key);
+      } else {
+        selectedSetups.add(key);
+      }
+      updateSelectionStatus();
+      // Update checkbox visual
+      const cb = document.querySelector('[data-setup-key="' + key + '"]');
+      if (cb) cb.checked = selectedSetups.has(key);
+    }
+
+    function selectAllSetups() {
+      const currentSetups = getCurrentDisplayedSetups();
+      currentSetups.forEach(s => selectedSetups.add(getSetupKey(s)));
+      updateSelectionStatus();
+      renderSetupsWithTab();
+    }
+
+    function deselectAllSetups() {
+      selectedSetups.clear();
+      updateSelectionStatus();
+      renderSetupsWithTab();
+    }
+
+    function addSelectedToList() {
+      selectedSetups.forEach(key => savedList.add(key));
+      updateSavedListCount();
+      selectedSetups.clear();
+      updateSelectionStatus();
+      renderSetupsWithTab();
+    }
+
+    function removeSelectedFromList() {
+      selectedSetups.forEach(key => savedList.delete(key));
+      updateSavedListCount();
+      selectedSetups.clear();
+      updateSelectionStatus();
+      renderSetupsWithTab();
+    }
+
+    function updateSelectionStatus() {
+      const el = document.getElementById('selectionStatus');
+      if (el) el.textContent = selectedSetups.size + ' selected';
+    }
+
+    function updateSavedListCount() {
+      const el = document.getElementById('savedListCount');
+      if (el) el.textContent = savedList.size;
+    }
+
+    function getCurrentDisplayedSetups() {
+      if (currentSetupsTab === 'active') return allSetupsData.active || [];
+      if (currentSetupsTab === 'playedOut') return allSetupsData.playedOut || [];
+      if (currentSetupsTab === 'history') return allSetupsData.history || [];
+      if (currentSetupsTab === 'goldenPocket') {
+        return (allSetupsData.goldenPocket || []).filter(s => gpStateFilters[s.state]);
+      }
+      if (currentSetupsTab === 'savedList') {
+        // Collect all setups that are in saved list
+        const all = [...(allSetupsData.all || []), ...(allSetupsData.goldenPocket || [])];
+        return all.filter(s => savedList.has(getSetupKey(s)));
+      }
+      return allSetupsData.all || [];
+    }
+
+    // GP filter state - which states to show
+    let gpStateFilters = {
+      watching: true,
+      triggered: true,
+      deep_extreme: true,
+      reversing: true,
+      played_out: false  // Hide played_out by default
+    };
+
+    function toggleGpFilter(state) {
+      gpStateFilters[state] = !gpStateFilters[state];
+      updateGpFilterButtons();
+      renderSetupsWithTab();
+    }
+
+    function updateGpFilterButtons() {
+      ['watching', 'triggered', 'deep_extreme', 'reversing', 'played_out'].forEach(state => {
+        const btn = document.getElementById('gpFilter_' + state);
+        if (btn) {
+          btn.style.opacity = gpStateFilters[state] ? '1' : '0.4';
+          btn.style.textDecoration = gpStateFilters[state] ? 'none' : 'line-through';
+        }
+      });
+    }
+
     function setSetupsTab(tab) {
       currentSetupsTab = tab;
       // Update tab button styles
@@ -2749,7 +2865,8 @@ function getHtmlPage(): string {
       if (activeBtn) {
         const bgColor = tab === 'playedOut' ? '#6e7681' :
                         tab === 'history' ? '#8957e5' :
-                        tab === 'goldenPocket' ? '#f0883e' : '#238636';
+                        tab === 'goldenPocket' ? '#f0883e' :
+                        tab === 'savedList' ? '#58a6ff' : '#238636';
         activeBtn.style.background = bgColor;
         activeBtn.style.color = 'white';
       }
@@ -2766,8 +2883,14 @@ function getHtmlPage(): string {
       } else if (currentSetupsTab === 'history') {
         setups = allSetupsData.history;
       } else if (currentSetupsTab === 'goldenPocket') {
-        setups = allSetupsData.goldenPocket;
-        document.getElementById('setupsTable').innerHTML = renderGoldenPocketTable(setups);
+        // Apply GP state filters
+        let filteredSetups = (allSetupsData.goldenPocket || []).filter(s => gpStateFilters[s.state]);
+        document.getElementById('setupsTable').innerHTML = renderGoldenPocketTable(filteredSetups, allSetupsData.goldenPocket?.length || 0);
+        return;
+      } else if (currentSetupsTab === 'savedList') {
+        // Show saved list items (both regular and GP setups)
+        setups = getCurrentDisplayedSetups();
+        document.getElementById('setupsTable').innerHTML = renderSavedListTable(setups);
         return;
       } else {
         setups = allSetupsData.all;
@@ -2775,19 +2898,31 @@ function getHtmlPage(): string {
       document.getElementById('setupsTable').innerHTML = renderSetupsTable(setups, currentSetupsTab);
     }
 
-    function renderGoldenPocketTable(setups) {
-      if (!setups || setups.length === 0) {
-        return '<div class="empty-state">No Golden Pocket setups detected</div>';
-      }
-
+    function renderGoldenPocketTable(setups, totalCount) {
       // Build MEXC futures URL from symbol (e.g., RIVERUSDT -> RIVER_USDT)
       function getMexcFuturesUrl(symbol) {
         const base = symbol.replace('USDT', '');
         return 'https://www.mexc.com/futures/' + base + '_USDT';
       }
 
-      let html = '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
+      // Filter bar
+      let html = '<div style="display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; align-items: center;">';
+      html += '<span style="color: #8b949e; font-size: 11px; margin-right: 4px;">Filter:</span>';
+      html += '<button id="gpFilter_watching" onclick="toggleGpFilter(\'watching\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #8b949e; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.watching ? '1' : '0.4') + ';">watching</button>';
+      html += '<button id="gpFilter_triggered" onclick="toggleGpFilter(\'triggered\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #3fb950; background: #21262d; color: #3fb950; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.triggered ? '1' : '0.4') + ';">triggered</button>';
+      html += '<button id="gpFilter_deep_extreme" onclick="toggleGpFilter(\'deep_extreme\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #f0883e; background: #21262d; color: #f0883e; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.deep_extreme ? '1' : '0.4') + ';">deep</button>';
+      html += '<button id="gpFilter_reversing" onclick="toggleGpFilter(\'reversing\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #58a6ff; background: #21262d; color: #58a6ff; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.reversing ? '1' : '0.4') + ';">reversing</button>';
+      html += '<button id="gpFilter_played_out" onclick="toggleGpFilter(\'played_out\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #6e7681; background: #21262d; color: #6e7681; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.played_out ? '1' : '0.4') + ';">played out</button>';
+      html += '<span style="color: #6e7681; font-size: 10px; margin-left: 8px;">(' + (setups?.length || 0) + '/' + (totalCount || 0) + ')</span>';
+      html += '</div>';
+
+      if (!setups || setups.length === 0) {
+        return html + '<div class="empty-state">No Golden Pocket setups match filters</div>';
+      }
+
+      html += '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
       html += '<thead><tr style="border-bottom: 1px solid #30363d;">';
+      html += '<th style="width: 30px; padding: 8px;"></th>';
       html += '<th style="text-align: left; padding: 8px; color: #8b949e;">Symbol</th>';
       html += '<th style="text-align: left; padding: 8px; color: #8b949e;">Dir</th>';
       html += '<th style="text-align: left; padding: 8px; color: #8b949e;">TF</th>';
@@ -2808,8 +2943,12 @@ function getHtmlPage(): string {
         const ticker = s.symbol.replace('USDT', '');
         const mexcUrl = getMexcFuturesUrl(s.symbol);
         const lastUpdated = formatTimeAgo(s.lastUpdated || s.detectedAt);
+        const key = getSetupKey(s);
+        const isSelected = selectedSetups.has(key);
+        const inList = savedList.has(key);
 
-        html += '<tr style="border-bottom: 1px solid #21262d;">';
+        html += '<tr style="border-bottom: 1px solid #21262d;' + (inList ? ' background: #1c2128;' : '') + '">';
+        html += '<td style="padding: 8px;"><input type="checkbox" data-setup-key="' + key + '" onclick="toggleSetupSelection(\'' + key + '\')" ' + (isSelected ? 'checked' : '') + ' style="cursor: pointer;">' + (inList ? '<span title="In list" style="color: #58a6ff; margin-left: 4px;">📋</span>' : '') + '</td>';
         html += '<td style="padding: 8px; font-weight: 600;"><a href="' + mexcUrl + '" target="_blank" style="color: #58a6ff; text-decoration: none;" title="Open on MEXC Futures">' + ticker + '</a></td>';
         html += '<td style="padding: 8px; color: ' + dirColor + ';">' + dirIcon + ' ' + s.direction.toUpperCase() + '</td>';
         html += '<td style="padding: 8px;">' + s.timeframe + '</td>';
@@ -2818,6 +2957,55 @@ function getHtmlPage(): string {
         html += '<td style="padding: 8px; text-align: right; color: #f0883e;">' + (s.fibLevels?.level618?.toFixed(6) || '-') + ' - ' + (s.fibLevels?.level65?.toFixed(6) || '-') + '</td>';
         html += '<td style="padding: 8px; text-align: right; color: #3fb950;">' + (s.tp1Price?.toFixed(6) || '-') + '</td>';
         html += '<td style="padding: 8px; text-align: right; color: #f85149;">' + (s.stopPrice?.toFixed(6) || '-') + '</td>';
+        html += '<td style="padding: 8px; text-align: right; color: #8b949e;">' + lastUpdated + '</td>';
+        html += '</tr>';
+      }
+
+      html += '</tbody></table>';
+      return html;
+    }
+
+    function renderSavedListTable(setups) {
+      if (!setups || setups.length === 0) {
+        return '<div class="empty-state">No setups in your saved list. Select setups and click "+ Add to List"</div>';
+      }
+
+      function getMexcFuturesUrl(symbol) {
+        const base = symbol.replace('USDT', '');
+        return 'https://www.mexc.com/futures/' + base + '_USDT';
+      }
+
+      let html = '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
+      html += '<thead><tr style="border-bottom: 1px solid #30363d;">';
+      html += '<th style="width: 30px; padding: 8px;"></th>';
+      html += '<th style="text-align: left; padding: 8px; color: #8b949e;">Symbol</th>';
+      html += '<th style="text-align: left; padding: 8px; color: #8b949e;">Type</th>';
+      html += '<th style="text-align: left; padding: 8px; color: #8b949e;">Dir</th>';
+      html += '<th style="text-align: left; padding: 8px; color: #8b949e;">TF</th>';
+      html += '<th style="text-align: left; padding: 8px; color: #8b949e;">State</th>';
+      html += '<th style="text-align: right; padding: 8px; color: #8b949e;">Updated</th>';
+      html += '</tr></thead><tbody>';
+
+      for (const s of setups) {
+        const dirColor = s.direction === 'long' ? '#3fb950' : '#f85149';
+        const dirIcon = s.direction === 'long' ? '📈' : '📉';
+        const stateColor = s.state === 'triggered' ? '#3fb950' :
+                           s.state === 'deep_extreme' ? '#f0883e' :
+                           s.state === 'reversing' ? '#58a6ff' : '#8b949e';
+        const ticker = s.symbol.replace('USDT', '');
+        const mexcUrl = getMexcFuturesUrl(s.symbol);
+        const lastUpdated = formatTimeAgo(s.lastUpdated || s.detectedAt);
+        const key = getSetupKey(s);
+        const isSelected = selectedSetups.has(key);
+        const isGP = 'fibLevels' in s;
+
+        html += '<tr style="border-bottom: 1px solid #21262d;">';
+        html += '<td style="padding: 8px;"><input type="checkbox" data-setup-key="' + key + '" onclick="toggleSetupSelection(\'' + key + '\')" ' + (isSelected ? 'checked' : '') + ' style="cursor: pointer;"></td>';
+        html += '<td style="padding: 8px; font-weight: 600;"><a href="' + mexcUrl + '" target="_blank" style="color: #58a6ff; text-decoration: none;" title="Open on MEXC Futures">' + ticker + '</a></td>';
+        html += '<td style="padding: 8px; color: ' + (isGP ? '#f0883e' : '#8b949e') + ';">' + (isGP ? '🎯 GP' : '🔥 BB') + '</td>';
+        html += '<td style="padding: 8px; color: ' + dirColor + ';">' + dirIcon + ' ' + s.direction.toUpperCase() + '</td>';
+        html += '<td style="padding: 8px;">' + s.timeframe + '</td>';
+        html += '<td style="padding: 8px; color: ' + stateColor + ';">' + s.state + '</td>';
         html += '<td style="padding: 8px; text-align: right; color: #8b949e;">' + lastUpdated + '</td>';
         html += '</tr>';
       }
@@ -3409,6 +3597,24 @@ function getHtmlPage(): string {
             if (posCountEl) posCountEl.textContent = (bot.openPositions || []).length;
           }
         }
+        // Update GP Account Equity values
+        const gpEquityMap = {
+          'gp-conservative': 'gpConsEquity',
+          'gp-standard': 'gpStdEquity',
+          'gp-aggressive': 'gpAggEquity',
+          'gp-yolo': 'gpYoloEquity',
+        };
+        for (const [key, eqId] of Object.entries(gpEquityMap)) {
+          const bot = state.goldenPocketBots[key];
+          if (bot) {
+            const equity = bot.balance + (bot.unrealizedPnL || 0);
+            const eqEl = document.getElementById(eqId);
+            if (eqEl) {
+              eqEl.textContent = formatCurrency(equity);
+              eqEl.style.color = equity >= 2000 ? '#3fb950' : '#f85149';
+            }
+          }
+        }
       }
 
       // Update Fixed TP/SL positions (Bot 1)
@@ -3533,7 +3739,7 @@ function getHtmlPage(): string {
       // History tab has a 'Removed' column instead of 'Updated'
       const lastColHeader = tabType === 'history' ? 'Removed' : 'Updated';
 
-      return '<table><thead><tr><th>Mkt</th><th>Symbol</th><th>Dir</th><th>TF</th><th>State</th><th>RSI</th><th>Div</th><th>Price</th><th>Impulse</th><th>Triggered</th><th>' + lastColHeader + '</th></tr></thead><tbody>' +
+      return '<table><thead><tr><th style="width: 30px;"></th><th>Mkt</th><th>Symbol</th><th>Dir</th><th>TF</th><th>State</th><th>RSI</th><th>Div</th><th>Price</th><th>Impulse</th><th>Triggered</th><th>' + lastColHeader + '</th></tr></thead><tbody>' +
         setups.map(s => {
           const stateClass = s.state === 'deep_extreme' ? 'deep' : s.state;
           const rowStyle = tabType === 'history' || s.state === 'played_out' ? 'opacity: 0.7;' : '';
@@ -3541,6 +3747,9 @@ function getHtmlPage(): string {
           const impulseSign = s.impulsePercentMove >= 0 ? '+' : '';
           const rsiColor = s.currentRSI < 30 ? '#f85149' : s.currentRSI > 70 ? '#3fb950' : s.currentRSI < 40 ? '#d29922' : s.currentRSI > 60 ? '#58a6ff' : '#c9d1d9';
           const lastColTime = tabType === 'history' ? formatTimeAgo(s.removedAt) : formatTimeAgo(s.lastUpdated || s.detectedAt);
+          const key = getSetupKey(s);
+          const isSelected = selectedSetups.has(key);
+          const inList = savedList.has(key);
           // Divergence display
           let divHtml = '-';
           if (s.divergence && s.divergence.type) {
@@ -3556,7 +3765,8 @@ function getHtmlPage(): string {
               divHtml = '<span style="color: ' + cfg.color + '; cursor: help;" title="' + (s.divergence.description || s.divergence.type) + '">' + cfg.label + ' ' + strengthDots + '</span>';
             }
           }
-          return \`<tr style="\${rowStyle}">
+          return \`<tr style="\${rowStyle}\${inList ? ' background: #1c2128;' : ''}">
+            <td><input type="checkbox" data-setup-key="\${key}" onclick="toggleSetupSelection('\${key}')" \${isSelected ? 'checked' : ''} style="cursor: pointer;">\${inList ? '<span title="In list" style="color: #58a6ff; margin-left: 4px;">📋</span>' : ''}</td>
             <td><span class="badge badge-\${s.marketType}">\${s.marketType === 'futures' ? 'F' : 'S'}</span></td>
             <td><strong>\${s.symbol.replace('USDT', '')}</strong><br><span style="font-size: 10px; color: #6e7681;">\${s.coinName || ''}</span></td>
             <td><span class="badge badge-\${s.direction}">\${s.direction.toUpperCase()}</span></td>
