@@ -149,13 +149,34 @@ export class BackburnerScreener {
     this.events.onScanProgress?.(0, 1, 'Fetching spot and futures info...');
 
     try {
-      // Fetch spot and futures data in parallel
+      // Fetch spot and futures data in parallel with retry on failure
       const [exchangeInfo, spotTickers, futuresContracts, futuresTickers] = await Promise.all([
-        getExchangeInfo(),
-        get24hTickers(),
+        getExchangeInfo().catch((e) => {
+          console.error('[Screener] Failed to fetch exchange info:', e.message);
+          return [] as SymbolInfo[];
+        }),
+        get24hTickers().catch((e) => {
+          console.error('[Screener] Failed to fetch spot tickers:', e.message);
+          return [] as { symbol: string; quoteVolume: string }[];
+        }),
         getFuturesContracts().catch(() => [] as FuturesSymbolInfo[]),
         getFuturesTickers().catch(() => [] as FuturesTickerInfo[]),
       ]);
+
+      // If exchange info failed, retry once after delay
+      if (exchangeInfo.length === 0) {
+        console.log('[Screener] Retrying exchange info fetch after 5s...');
+        await new Promise(r => setTimeout(r, 5000));
+        const retryInfo = await getExchangeInfo().catch(() => [] as SymbolInfo[]);
+        if (retryInfo.length > 0) {
+          exchangeInfo.push(...retryInfo);
+        }
+      }
+
+      if (exchangeInfo.length === 0) {
+        console.error('[Screener] Could not fetch exchange info - will retry on next refresh');
+        return;
+      }
 
       // Build volume maps
       const spotVolumeMap = new Map<string, number>();
