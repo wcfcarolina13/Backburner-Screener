@@ -4099,6 +4099,17 @@ async function main() {
       for (const [, bot] of mexcSimBots) {
         await bot.updateAllPositionPrices(getCurrentPrice);
       }
+      // Update Golden Pocket bot positions with current prices
+      const gpPriceMap = new Map<string, number>();
+      for (const [, bot] of goldenPocketBots) {
+        for (const symbol of bot.getOpenSymbols()) {
+          if (!gpPriceMap.has(symbol)) {
+            const price = await getPrice(symbol, 'futures');
+            if (price) gpPriceMap.set(symbol, price);
+          }
+        }
+        bot.updateAllPositionsWithPrices(gpPriceMap);
+      }
       broadcastState(); // Update clients with new prices
     }, 10000);
   } catch (error) {

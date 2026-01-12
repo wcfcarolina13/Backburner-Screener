@@ -500,6 +500,88 @@ export class GoldenPocketBot {
   }
 
   /**
+   * Update all positions with current prices
+   * Called periodically to keep unrealized P&L up to date
+   */
+  updateAllPositionsWithPrices(priceMap: Map<string, number>): void {
+    for (const [key, position] of this.positions) {
+      const price = priceMap.get(position.symbol);
+      if (price && (position.status === 'open' || position.status === 'partial_tp1')) {
+        position.currentPrice = price;
+
+        // Calculate unrealized PnL on remaining position
+        const priceChange = position.direction === 'long'
+          ? (position.currentPrice - position.entryPrice) / position.entryPrice
+          : (position.entryPrice - position.currentPrice) / position.entryPrice;
+
+        position.unrealizedPnL = position.remainingSize * priceChange;
+        position.unrealizedPnLPercent = priceChange * 100;
+
+        // Check exit conditions with current price
+        this.checkExitConditionsWithPrice(position, price);
+      }
+    }
+  }
+
+  /**
+   * Check exit conditions using just price (no setup needed)
+   */
+  private checkExitConditionsWithPrice(position: GoldenPocketPosition, currentPrice: number): void {
+    // For LONG positions
+    if (position.direction === 'long') {
+      // Check stop loss first (0.786 invalidation)
+      if (currentPrice <= position.stopPrice) {
+        this.closePosition(position, 'closed_sl', 'Stop Loss Hit (0.786 Invalidation)');
+        return;
+      }
+
+      // Check TP1 (0.382 level) - partial close
+      if (!position.tp1Closed && currentPrice >= position.tp1Price) {
+        this.partialClose(position, 'tp1');
+      }
+
+      // Check TP2 (swing high retest)
+      if (currentPrice >= position.tp2Price * 0.998) {
+        this.closePosition(position, 'closed_tp2', 'Full Target Hit (Swing High Retest)');
+        return;
+      }
+    }
+
+    // For SHORT positions
+    if (position.direction === 'short') {
+      // Check stop loss
+      if (currentPrice >= position.stopPrice) {
+        this.closePosition(position, 'closed_sl', 'Stop Loss Hit (0.786 Invalidation)');
+        return;
+      }
+
+      // Check TP1
+      if (!position.tp1Closed && currentPrice <= position.tp1Price) {
+        this.partialClose(position, 'tp1');
+      }
+
+      // Check TP2 (swing low retest)
+      if (currentPrice <= position.tp2Price * 1.002) {
+        this.closePosition(position, 'closed_tp2', 'Full Target Hit (Swing Low Retest)');
+        return;
+      }
+    }
+  }
+
+  /**
+   * Get all symbols with open positions (for price fetching)
+   */
+  getOpenSymbols(): string[] {
+    const symbols = new Set<string>();
+    for (const position of this.positions.values()) {
+      if (position.status === 'open' || position.status === 'partial_tp1') {
+        symbols.add(position.symbol);
+      }
+    }
+    return Array.from(symbols);
+  }
+
+  /**
    * Restore state from persistence
    */
   restoreState(
