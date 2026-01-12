@@ -845,7 +845,8 @@ export class BackburnerScreener {
    * Get active Golden Pocket setups
    */
   getGoldenPocketSetups(): import('./golden-pocket-detector.js').GoldenPocketSetup[] {
-    return this.goldenPocketDetector.getActiveSetups();
+    // Return from screener's tracking, not detector's internal state
+    return Array.from(this.previousGPSetups.values());
   }
 
   /**

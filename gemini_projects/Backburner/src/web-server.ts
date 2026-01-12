@@ -4023,31 +4023,18 @@ async function main() {
   dataPersistence.logBotConfig('btcTrend', 'BTC Momentum', { ...btcTrendBot.getConfig() });
   console.log('📊 Bot configurations logged to data persistence');
 
-  // Load persisted positions from disk
-  console.log('📂 Loading persisted positions...');
-  trailing1pctBot.loadState();
-  trailing10pct10xBot.loadState();
-  trailing10pct20xBot.loadState();
-  trailWideBot.loadState();
-  console.log('✅ Position loading complete');
+  // Position persistence DISABLED - start fresh each time
+  // To re-enable, uncomment the loadState() calls below
+  console.log('📊 Starting with fresh bot state (persistence disabled)');
+  // trailing1pctBot.loadState();
+  // trailing10pct10xBot.loadState();
+  // trailing10pct20xBot.loadState();
+  // trailWideBot.loadState();
 
-  // Save positions periodically (every 60 seconds)
-  setInterval(() => {
-    trailing1pctBot.saveState();
-    trailing10pct10xBot.saveState();
-    trailing10pct20xBot.saveState();
-    trailWideBot.saveState();
-  }, 60000);
-
-  // Graceful shutdown handler - save positions before exit
+  // Graceful shutdown handler
   const saveAllPositions = () => {
-    console.log('\n💾 Saving positions before shutdown...');
-    trailing1pctBot.saveState();
-    trailing10pct10xBot.saveState();
-    trailing10pct20xBot.saveState();
-    trailWideBot.saveState();
     dataPersistence.stop();
-    console.log('✅ Positions saved');
+    console.log('✅ Shutdown complete');
   };
 
   // Handle various shutdown signals
