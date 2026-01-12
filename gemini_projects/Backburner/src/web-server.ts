@@ -2780,6 +2780,12 @@ function getHtmlPage(): string {
         return '<div class="empty-state">No Golden Pocket setups detected</div>';
       }
 
+      // Build MEXC futures URL from symbol (e.g., RIVERUSDT -> RIVER_USDT)
+      function getMexcFuturesUrl(symbol) {
+        const base = symbol.replace('USDT', '');
+        return 'https://www.mexc.com/futures/' + base + '_USDT';
+      }
+
       let html = '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
       html += '<thead><tr style="border-bottom: 1px solid #30363d;">';
       html += '<th style="text-align: left; padding: 8px; color: #8b949e;">Symbol</th>';
@@ -2790,6 +2796,7 @@ function getHtmlPage(): string {
       html += '<th style="text-align: right; padding: 8px; color: #8b949e;">Entry Zone</th>';
       html += '<th style="text-align: right; padding: 8px; color: #8b949e;">TP1</th>';
       html += '<th style="text-align: right; padding: 8px; color: #8b949e;">Stop</th>';
+      html += '<th style="text-align: right; padding: 8px; color: #8b949e;">Updated</th>';
       html += '</tr></thead><tbody>';
 
       for (const s of setups) {
@@ -2798,9 +2805,12 @@ function getHtmlPage(): string {
         const stateColor = s.state === 'triggered' ? '#3fb950' :
                            s.state === 'deep_extreme' ? '#f0883e' :
                            s.state === 'reversing' ? '#58a6ff' : '#8b949e';
+        const ticker = s.symbol.replace('USDT', '');
+        const mexcUrl = getMexcFuturesUrl(s.symbol);
+        const lastUpdated = formatTimeAgo(s.lastUpdated || s.detectedAt);
 
         html += '<tr style="border-bottom: 1px solid #21262d;">';
-        html += '<td style="padding: 8px; font-weight: 600;">' + s.symbol.replace('USDT', '') + '</td>';
+        html += '<td style="padding: 8px; font-weight: 600;"><a href="' + mexcUrl + '" target="_blank" style="color: #58a6ff; text-decoration: none;" title="Open on MEXC Futures">' + ticker + '</a></td>';
         html += '<td style="padding: 8px; color: ' + dirColor + ';">' + dirIcon + ' ' + s.direction.toUpperCase() + '</td>';
         html += '<td style="padding: 8px;">' + s.timeframe + '</td>';
         html += '<td style="padding: 8px; color: ' + stateColor + ';">' + s.state + '</td>';
@@ -2808,6 +2818,7 @@ function getHtmlPage(): string {
         html += '<td style="padding: 8px; text-align: right; color: #f0883e;">' + (s.fibLevels?.level618?.toFixed(6) || '-') + ' - ' + (s.fibLevels?.level65?.toFixed(6) || '-') + '</td>';
         html += '<td style="padding: 8px; text-align: right; color: #3fb950;">' + (s.tp1Price?.toFixed(6) || '-') + '</td>';
         html += '<td style="padding: 8px; text-align: right; color: #f85149;">' + (s.stopPrice?.toFixed(6) || '-') + '</td>';
+        html += '<td style="padding: 8px; text-align: right; color: #8b949e;">' + lastUpdated + '</td>';
         html += '</tr>';
       }
 
