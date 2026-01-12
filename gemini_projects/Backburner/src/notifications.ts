@@ -75,9 +75,11 @@ function formatSetupForNotification(setup: BackburnerSetup): {
   const ticker = setup.symbol.replace('USDT', '');
   const direction = setup.direction.toUpperCase();
   const market = setup.marketType === 'futures' ? 'Futures' : 'Spot';
-  const rsi = setup.currentRSI.toFixed(1);
+  const rsi = setup.currentRSI?.toFixed(1) || 'N/A';
 
-  const stateEmoji = setup.state === 'deep_extreme' ? '🔥' : '⚡';
+  // Check if this is a Golden Pocket setup
+  const isGP = 'fibLevels' in setup;
+  const stateEmoji = isGP ? '🎯' : (setup.state === 'deep_extreme' ? '🔥' : '⚡');
   const dirEmoji = setup.direction === 'long' ? '🟢' : '🔴';
 
   // Format market cap
@@ -92,8 +94,17 @@ function formatSetupForNotification(setup: BackburnerSetup): {
     }
   }
 
+  // GP-specific formatting
+  let subtitle: string;
+  if (isGP) {
+    const gpSetup = setup as any;
+    const retrace = gpSetup.retracementPercent ? `${(gpSetup.retracementPercent * 100).toFixed(0)}%` : '';
+    subtitle = `${dirEmoji} GP ${market} | Fib: ${retrace} | RSI: ${rsi}`;
+  } else {
+    subtitle = `${dirEmoji} ${market} | RSI: ${rsi} | MCap: ${mcap}`;
+  }
+
   const title = `${stateEmoji} ${ticker} ${direction} ${setup.timeframe}`;
-  const subtitle = `${dirEmoji} ${market} | RSI: ${rsi} | MCap: ${mcap}`;
   const message = setup.coinName
     ? `${setup.coinName} - ${setup.state.replace('_', ' ').toUpperCase()}`
     : `${setup.state.replace('_', ' ').toUpperCase()}`;

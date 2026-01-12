@@ -372,9 +372,14 @@ async function handleNewSetup(setup: BackburnerSetup) {
   }
 
   // Try all Golden Pocket bots (only process setups that have fibLevels from the GP detector)
+  const isGPSetup = 'fibLevels' in setup && 'tp1Price' in setup && 'stopPrice' in setup;
+  if (isGPSetup && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
+    console.log(`[GP-BOT] GP setup received: ${setup.symbol} ${setup.direction} ${setup.state} - attempting trades`);
+  }
   for (const [botId, bot] of goldenPocketBots) {
     const position = bot.openPosition(setup);
     if (position) {
+      console.log(`[GP-BOT:${botId}] OPENED: ${position.symbol} ${position.direction}`);
       broadcast('position_opened', { bot: botId, position });
     }
   }
@@ -398,8 +403,18 @@ async function handleNewSetup(setup: BackburnerSetup) {
     }
   }
 
-  // Send notification
+  // Send notification (works for both regular and GP setups)
   await notifier.notifyNewSetup(setup);
+
+  // Extra notification for GP triggered setups
+  if (isGPSetup && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
+    const gpSetup = setup as any;
+    const ticker = setup.symbol.replace('USDT', '');
+    const dir = setup.direction.toUpperCase();
+    const stateIcon = setup.state === 'deep_extreme' ? '🔥' : '🎯';
+    const retrace = (gpSetup.retracementPercent * 100).toFixed(1);
+    console.log(`[GP ALERT] ${stateIcon} ${ticker} ${dir} @ ${retrace}% retracement`);
+  }
 
   // Broadcast setup
   broadcast('new_setup', setup);
@@ -3293,9 +3308,11 @@ function getHtmlPage(): string {
             const pnlEl = document.getElementById(key + 'PnL');
             const statusEl = document.getElementById(key + 'Status');
             if (balEl) balEl.textContent = formatCurrency(bot.balance);
+            // Show unrealized PnL if position is open, otherwise show realized
+            const displayPnL = bot.position ? bot.unrealizedPnL : bot.stats.totalPnL;
             if (pnlEl) {
-              pnlEl.textContent = formatCurrency(bot.stats.totalPnL);
-              pnlEl.className = bot.stats.totalPnL >= 0 ? 'positive' : 'negative';
+              pnlEl.textContent = formatCurrency(displayPnL);
+              pnlEl.className = displayPnL >= 0 ? 'positive' : 'negative';
             }
             if (statusEl) {
               if (bot.position) {
@@ -3329,13 +3346,18 @@ function getHtmlPage(): string {
             const pnlEl = document.getElementById(elementId + 'PnL');
             const winRateEl = document.getElementById(elementId + 'WinRate');
             const trailingEl = document.getElementById(elementId + 'Trailing');
+            const posCountEl = document.getElementById(elementId + 'PositionCount');
             if (balEl) balEl.textContent = formatCurrency(bot.balance);
+            // Show unrealized if there are open positions, otherwise realized
+            const hasOpenPositions = bot.openPositions && bot.openPositions.length > 0;
+            const displayPnL = hasOpenPositions ? (bot.unrealizedPnL || 0) : bot.stats.totalPnL;
             if (pnlEl) {
-              pnlEl.textContent = formatCurrency(bot.stats.totalPnL);
-              pnlEl.className = bot.stats.totalPnL >= 0 ? 'positive' : 'negative';
+              pnlEl.textContent = formatCurrency(displayPnL);
+              pnlEl.className = displayPnL >= 0 ? 'positive' : 'negative';
             }
             if (winRateEl) winRateEl.textContent = bot.stats.winRate.toFixed(0) + '%';
             if (trailingEl) trailingEl.textContent = bot.stats.trailingActivatedCount || 0;
+            if (posCountEl) posCountEl.textContent = (bot.openPositions || []).length;
           }
         }
       }
