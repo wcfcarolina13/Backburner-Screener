@@ -520,6 +520,11 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
     }
   }
 
+  // Send notification if setup just became triggered/deep_extreme (state transition)
+  if (setup.state === 'triggered' || setup.state === 'deep_extreme') {
+    await notifier.notifyNewSetup(setup);
+  }
+
   // Focus Mode: If a position was just opened in the target bot, track it
   if (newlyOpened && focusMode.isEnabled()) {
     const targetBotId = focusMode.getConfig().targetBot;
