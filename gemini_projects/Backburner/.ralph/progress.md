@@ -4,8 +4,8 @@
 
 ## Summary
 
-- Iterations completed: 5
-- Current status: UI improvements - hyperlinks, settings modal, localStorage persistence
+- Iterations completed: 6
+- Current status: TCG-compliant Backburner implementation (5 major fixes)
 
 ## How This Works
 
@@ -153,6 +153,56 @@ Added `shouldTradeSetup()` filter function at web-server.ts:38-62:
   - +45 lines for settings modal HTML
   - +50 lines for settings JS functions (openSettings, closeSettings, updateLinkSetting, clearSavedList)
   - Modified renderSetupsTable, renderGoldenPocketTable, renderSavedListTable to use getMexcUrl()
+
+**Build**: Passes successfully
+
+### Iteration 6 - TCG-Compliant Backburner Implementation
+**Date**: 2026-01-13
+**Task**: Implement proper TCG methodology based on ChatGPT feedback
+
+**Problem Identified**: User shared ChatGPT analysis revealing 5 major deviations from proper TCG Backburner methodology:
+
+1. **Missing timeframe hierarchy** - 5m signals should mark hourly higher lows; 1h signals should mark daily higher lows
+2. **ROI-based stops** - Using fixed 20% ROI stops instead of structure-based stops below pullback low
+3. **"Is below" vs "crossed"** - Triggering on RSI being below 30, not on the cross event
+4. **Fixed % trailing** - Using fixed percentage trailing instead of trailing under last higher low
+5. **No position building** - Missing tiered entry logic (Entry 1 @ RSI<30, Entry 2 @ RSI<20)
+
+**Solutions Implemented**:
+
+1. **Timeframe hierarchy enforcement** (Fix 1):
+   - Added `detectHTFTrend()` function to indicators.ts
+   - Checks if higher timeframe supports setup direction
+   - For longs: HTF must be bullish; for shorts: HTF must be bearish
+   - Added `htfConfirmed` field to BackburnerSetup type
+
+2. **Structure-based stops** (Fix 2):
+   - Added `findPullbackLow()` and `findBounceHigh()` functions to indicators.ts
+   - Finds actual swing structure during pullback phase
+   - Added `calculateStructureStop()` to set stop below pullback low (longs) or above bounce high (shorts)
+   - Updated paper-trading.ts and paper-trading-trailing.ts to use `structureStopPrice` with ROI fallback
+
+3. **RSI transition detection** (Fix 3):
+   - Added `detectRSICross()` function to indicators.ts
+   - Entry triggers on RSI crossing below 30 (long) or above 70 (short)
+   - Tracks `previousRSI`, `rsiCrossedThreshold`, and `rsiCrossTime` in setup
+
+4. **Technical trailing data** (Fix 4):
+   - Added `findRecentSwingLows()` and `findRecentSwingHighs()` to indicators.ts
+   - Populates `recentSwingLows` and `recentSwingHighs` arrays in setup
+   - Paper trading can use these for structure-based trailing
+
+5. **Position building logic** (Fix 5):
+   - Added `detectRSITrend()` function to identify if RSI is still dropping/rising
+   - Added `canAddPosition` (true if RSI still worsening) and `positionTier` (1 or 2) fields
+   - Tier 1 entry @ RSI<30, Tier 2 only available if RSI reaches <20 while still dropping
+
+**Files modified**:
+- src/types.ts (+20 lines - TCG-compliant fields in BackburnerSetup interface)
+- src/indicators.ts (+250 lines - 8 new helper functions)
+- src/backburner-detector.ts (~100 lines rewritten - detectNewSetup with all 5 fixes)
+- src/paper-trading.ts (~20 lines - structureStopPrice support in calculateTargets)
+- src/paper-trading-trailing.ts (~20 lines - structureStopPrice support in calculateInitialStopLoss)
 
 **Build**: Passes successfully
 

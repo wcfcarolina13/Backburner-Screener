@@ -145,26 +145,42 @@ export class PaperTradingEngine {
   }
 
   /**
-   * Calculate take profit and stop loss prices
+   * Calculate TP/SL targets - now structure-aware (TCG compliant)
+   * Prefers structure-based stop (below pullback low) over fixed % stop
    */
   private calculateTargets(
     entryPrice: number,
-    direction: 'long' | 'short'
+    direction: 'long' | 'short',
+    structureStopPrice?: number
   ): { takeProfit: number; stopLoss: number } {
     const tpPercent = this.config.takeProfitPercent / 100;
     const slPercent = this.config.stopLossPercent / 100;
 
-    if (direction === 'long') {
-      return {
-        takeProfit: entryPrice * (1 + tpPercent),
-        stopLoss: entryPrice * (1 - slPercent),
-      };
+    let stopLoss: number;
+
+    // TCG-COMPLIANT: Use structure-based stop if available
+    if (structureStopPrice !== undefined) {
+      const stopDistance = Math.abs(structureStopPrice - entryPrice) / entryPrice;
+      // Only use structure stop if it's between 0.5% and 10% from entry
+      if (stopDistance >= 0.005 && stopDistance <= 0.10) {
+        stopLoss = structureStopPrice;
+      } else {
+        // Fall back to fixed %
+        stopLoss = direction === 'long'
+          ? entryPrice * (1 - slPercent)
+          : entryPrice * (1 + slPercent);
+      }
     } else {
-      return {
-        takeProfit: entryPrice * (1 - tpPercent),
-        stopLoss: entryPrice * (1 + slPercent),
-      };
+      stopLoss = direction === 'long'
+        ? entryPrice * (1 - slPercent)
+        : entryPrice * (1 + slPercent);
     }
+
+    const takeProfit = direction === 'long'
+      ? entryPrice * (1 + tpPercent)
+      : entryPrice * (1 - tpPercent);
+
+    return { takeProfit, stopLoss };
   }
 
   /**
@@ -204,7 +220,12 @@ export class PaperTradingEngine {
     }
 
     const entryPrice = setup.currentPrice;
-    const { takeProfit, stopLoss } = this.calculateTargets(entryPrice, setup.direction);
+    // TCG-COMPLIANT: Pass structure-based stop price if available
+    const { takeProfit, stopLoss } = this.calculateTargets(
+      entryPrice,
+      setup.direction,
+      setup.structureStopPrice
+    );
 
     const position: PaperPosition = {
       id: this.generatePositionId(setup),

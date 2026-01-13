@@ -618,3 +618,262 @@ export function detectDivergence(
 
   return null;
 }
+
+// ============================================================================
+// TCG BACKBURNER HELPERS
+// ============================================================================
+
+/**
+ * Find recent swing lows in candles (for structure-based trailing)
+ * A swing low is a candle with lows on both sides higher than its low
+ */
+export function findRecentSwingLows(
+  candles: Candle[],
+  lookback = 3,
+  maxSwings = 3
+): { price: number; time: number; index: number }[] {
+  const swingLows: { price: number; time: number; index: number }[] = [];
+
+  // Start from lookback, end before last lookback candles
+  for (let i = lookback; i < candles.length - lookback; i++) {
+    const current = candles[i];
+    let isSwingLow = true;
+
+    // Check if all candles on both sides have higher lows
+    for (let j = 1; j <= lookback; j++) {
+      if (candles[i - j].low <= current.low || candles[i + j].low <= current.low) {
+        isSwingLow = false;
+        break;
+      }
+    }
+
+    if (isSwingLow) {
+      swingLows.push({
+        price: current.low,
+        time: current.timestamp,
+        index: i,
+      });
+    }
+  }
+
+  // Return most recent N swing lows
+  return swingLows.slice(-maxSwings);
+}
+
+/**
+ * Find recent swing highs in candles (for structure-based trailing)
+ * A swing high is a candle with highs on both sides lower than its high
+ */
+export function findRecentSwingHighs(
+  candles: Candle[],
+  lookback = 3,
+  maxSwings = 3
+): { price: number; time: number; index: number }[] {
+  const swingHighs: { price: number; time: number; index: number }[] = [];
+
+  for (let i = lookback; i < candles.length - lookback; i++) {
+    const current = candles[i];
+    let isSwingHigh = true;
+
+    for (let j = 1; j <= lookback; j++) {
+      if (candles[i - j].high >= current.high || candles[i + j].high >= current.high) {
+        isSwingHigh = false;
+        break;
+      }
+    }
+
+    if (isSwingHigh) {
+      swingHighs.push({
+        price: current.high,
+        time: current.timestamp,
+        index: i,
+      });
+    }
+  }
+
+  return swingHighs.slice(-maxSwings);
+}
+
+/**
+ * Find the lowest price during a pullback period
+ * Used for structure-based stop loss (stop goes below pullback low)
+ */
+export function findPullbackLow(
+  candles: Candle[],
+  impulseEndIndex: number
+): { price: number; time: number; index: number } | null {
+  if (impulseEndIndex >= candles.length - 1) return null;
+
+  const pullbackCandles = candles.slice(impulseEndIndex + 1);
+  if (pullbackCandles.length === 0) return null;
+
+  let lowest = pullbackCandles[0];
+  let lowestIndex = impulseEndIndex + 1;
+
+  for (let i = 0; i < pullbackCandles.length; i++) {
+    if (pullbackCandles[i].low < lowest.low) {
+      lowest = pullbackCandles[i];
+      lowestIndex = impulseEndIndex + 1 + i;
+    }
+  }
+
+  return {
+    price: lowest.low,
+    time: lowest.timestamp,
+    index: lowestIndex,
+  };
+}
+
+/**
+ * Find the highest price during a bounce period (for shorts)
+ * Used for structure-based stop loss (stop goes above bounce high)
+ */
+export function findBounceHigh(
+  candles: Candle[],
+  impulseEndIndex: number
+): { price: number; time: number; index: number } | null {
+  if (impulseEndIndex >= candles.length - 1) return null;
+
+  const bounceCandles = candles.slice(impulseEndIndex + 1);
+  if (bounceCandles.length === 0) return null;
+
+  let highest = bounceCandles[0];
+  let highestIndex = impulseEndIndex + 1;
+
+  for (let i = 0; i < bounceCandles.length; i++) {
+    if (bounceCandles[i].high > highest.high) {
+      highest = bounceCandles[i];
+      highestIndex = impulseEndIndex + 1 + i;
+    }
+  }
+
+  return {
+    price: highest.high,
+    time: highest.timestamp,
+    index: highestIndex,
+  };
+}
+
+/**
+ * Detect RSI trend direction (dropping, rising, or flat)
+ * Used to determine if position building is safe (only add when RSI still dropping)
+ */
+export function detectRSITrend(
+  rsiValues: { value: number; timestamp: number }[],
+  lookback = 3
+): 'dropping' | 'rising' | 'flat' {
+  if (rsiValues.length < lookback + 1) return 'flat';
+
+  const recent = rsiValues.slice(-lookback);
+  let droppingCount = 0;
+  let risingCount = 0;
+
+  for (let i = 1; i < recent.length; i++) {
+    const diff = recent[i].value - recent[i - 1].value;
+    if (diff < -1) droppingCount++;
+    else if (diff > 1) risingCount++;
+  }
+
+  if (droppingCount > risingCount && droppingCount >= lookback - 1) return 'dropping';
+  if (risingCount > droppingCount && risingCount >= lookback - 1) return 'rising';
+  return 'flat';
+}
+
+/**
+ * Detect if RSI just crossed a threshold (for entry on transition)
+ * Returns true if RSI crossed the threshold between previous and current
+ */
+export function detectRSICross(
+  previousRSI: number,
+  currentRSI: number,
+  threshold: number,
+  direction: 'below' | 'above'
+): boolean {
+  if (direction === 'below') {
+    // Was above (or at) threshold, now below
+    return previousRSI >= threshold && currentRSI < threshold;
+  } else {
+    // Was below (or at) threshold, now above
+    return previousRSI <= threshold && currentRSI > threshold;
+  }
+}
+
+/**
+ * Improved higher timeframe trend detection
+ * Checks for actual trend structure (higher highs + higher lows or lower lows + lower highs)
+ * Not just price vs SMA
+ */
+export function detectHTFTrend(
+  candles: Candle[],
+  lookback = 20
+): { trend: 'bullish' | 'bearish' | 'neutral'; confidence: number } {
+  if (candles.length < lookback) {
+    return { trend: 'neutral', confidence: 0 };
+  }
+
+  const recentCandles = candles.slice(-lookback);
+
+  // Find swing highs and lows
+  const swingHighs = findRecentSwingHighs(recentCandles, 2, 4);
+  const swingLows = findRecentSwingLows(recentCandles, 2, 4);
+
+  if (swingHighs.length < 2 || swingLows.length < 2) {
+    // Fall back to SMA-based detection
+    const closes = candles.map(c => c.close);
+    const sma = calculateSMA(closes, Math.min(20, candles.length - 1));
+    if (sma.length === 0) return { trend: 'neutral', confidence: 0 };
+
+    const currentPrice = candles[candles.length - 1].close;
+    const priceVsSMA = (currentPrice - sma[sma.length - 1]) / sma[sma.length - 1] * 100;
+
+    if (priceVsSMA > 2) return { trend: 'bullish', confidence: 0.5 };
+    if (priceVsSMA < -2) return { trend: 'bearish', confidence: 0.5 };
+    return { trend: 'neutral', confidence: 0.3 };
+  }
+
+  // Check for higher highs and higher lows (bullish)
+  const lastTwoHighs = swingHighs.slice(-2);
+  const lastTwoLows = swingLows.slice(-2);
+
+  const higherHighs = lastTwoHighs[1].price > lastTwoHighs[0].price;
+  const higherLows = lastTwoLows[1].price > lastTwoLows[0].price;
+  const lowerHighs = lastTwoHighs[1].price < lastTwoHighs[0].price;
+  const lowerLows = lastTwoLows[1].price < lastTwoLows[0].price;
+
+  if (higherHighs && higherLows) {
+    return { trend: 'bullish', confidence: 0.85 };
+  }
+  if (lowerHighs && lowerLows) {
+    return { trend: 'bearish', confidence: 0.85 };
+  }
+  if (higherLows) {
+    return { trend: 'bullish', confidence: 0.6 };
+  }
+  if (lowerHighs) {
+    return { trend: 'bearish', confidence: 0.6 };
+  }
+
+  return { trend: 'neutral', confidence: 0.4 };
+}
+
+/**
+ * Calculate structure-based stop price
+ * For longs: below the pullback low with a small buffer
+ * For shorts: above the bounce high with a small buffer
+ */
+export function calculateStructureStop(
+  direction: 'long' | 'short',
+  pullbackLow: number | undefined,
+  bounceHigh: number | undefined,
+  bufferPercent = 0.5 // 0.5% buffer below/above the structure
+): number | null {
+  if (direction === 'long' && pullbackLow !== undefined) {
+    // Stop below pullback low
+    return pullbackLow * (1 - bufferPercent / 100);
+  }
+  if (direction === 'short' && bounceHigh !== undefined) {
+    // Stop above bounce high
+    return bounceHigh * (1 + bufferPercent / 100);
+  }
+  return null;
+}

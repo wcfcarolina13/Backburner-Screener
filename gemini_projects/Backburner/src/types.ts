@@ -79,6 +79,28 @@ export interface BackburnerSetup {
 
   // Higher timeframe trend (for multi-timeframe confirmation)
   higherTFBullish?: boolean;
+  htfConfirmed?: boolean;    // True if HTF trend aligns with setup direction
+
+  // TCG-compliant structure-based stop loss
+  // For longs: stop below pullback low (the low that RSI extreme occurred at)
+  // For shorts: stop above bounce high (the high that RSI extreme occurred at)
+  pullbackLow?: number;      // Lowest price during the pullback (for longs)
+  bounceHigh?: number;       // Highest price during the bounce (for shorts)
+  structureStopPrice?: number;  // Calculated stop price based on structure
+
+  // RSI transition tracking (entry on cross, not just "is below")
+  rsiCrossedThreshold?: boolean;  // Did RSI cross the threshold (30 or 70)?
+  rsiCrossTime?: number;          // When did the cross happen?
+  previousRSI?: number;           // RSI value before current (to detect cross)
+
+  // Position building support
+  rsiTrend?: 'dropping' | 'rising' | 'flat';  // Is RSI still worsening?
+  canAddPosition?: boolean;   // Safe to add at RSI<20 (still dropping)?
+  positionTier?: 1 | 2;       // Tier 1 = RSI<30, Tier 2 = RSI<20
+
+  // Technical trailing - track swing lows/highs for structure-based trailing
+  recentSwingLows?: { price: number; time: number }[];   // Last 3 swing lows
+  recentSwingHighs?: { price: number; time: number }[];  // Last 3 swing highs
 
   // Market type and risk
   marketType: MarketType;    // spot or futures

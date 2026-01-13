@@ -8,6 +8,15 @@ import {
   isHigherTFBullish,
   calculateAvgVolume,
   detectDivergence,
+  // TCG-compliant helpers
+  findPullbackLow,
+  findBounceHigh,
+  detectRSITrend,
+  detectRSICross,
+  detectHTFTrend,
+  calculateStructureStop,
+  findRecentSwingLows,
+  findRecentSwingHighs,
 } from './indicators.js';
 
 /**
@@ -116,6 +125,13 @@ export class BackburnerDetector {
 
   /**
    * Detect a new Backburner setup for a specific direction
+   *
+   * TCG-Compliant Implementation:
+   * 1. Timeframe hierarchy: 5m requires HTF bullish/bearish alignment
+   * 2. Structure-based stops: track pullback low for stop placement
+   * 3. Entry on RSI transition: trigger on cross event, not just "is below"
+   * 4. Position building: track if RSI still dropping for safe adds
+   * 5. Technical trailing data: collect swing points for structure trailing
    */
   private detectNewSetup(
     symbol: string,
@@ -140,6 +156,46 @@ export class BackburnerDetector {
     }
     if (direction === 'short' && impulse.direction !== 'down') {
       return null;
+    }
+
+    // ==========================================================================
+    // FIX 1: TIMEFRAME HIERARCHY
+    // TCG: "5m signal marks hourly higher low; 1h signal marks daily higher low"
+    // ==========================================================================
+    let htfConfirmed = true; // Default to true if no HTF data
+
+    if (higherTFBullish !== undefined) {
+      // For LONG setups: HTF must be bullish
+      // For SHORT setups: HTF must be bearish
+      if (direction === 'long' && !higherTFBullish) {
+        htfConfirmed = false;
+        // Don't reject outright - store for UI display, but mark as unconfirmed
+      }
+      if (direction === 'short' && higherTFBullish) {
+        htfConfirmed = false;
+      }
+    }
+
+    // ==========================================================================
+    // FIX 3: ENTRY ON RSI TRANSITION (not just "is below")
+    // TCG: "Entry when RSI crosses below 30"
+    // ==========================================================================
+    const previousRSI = rsiValues.length >= 2 ? rsiValues[rsiValues.length - 2].value : currentRSI;
+    let rsiCrossedThreshold = false;
+    let rsiCrossTime: number | undefined;
+
+    if (direction === 'long') {
+      // Detect cross BELOW 30
+      rsiCrossedThreshold = detectRSICross(previousRSI, currentRSI, this.config.rsiOversoldThreshold, 'below');
+      if (rsiCrossedThreshold) {
+        rsiCrossTime = candles[candles.length - 1].timestamp;
+      }
+    } else {
+      // Detect cross ABOVE 70
+      rsiCrossedThreshold = detectRSICross(previousRSI, currentRSI, this.config.rsiOverboughtThreshold, 'above');
+      if (rsiCrossedThreshold) {
+        rsiCrossTime = candles[candles.length - 1].timestamp;
+      }
     }
 
     // LONG: Check if we're in pullback territory after UP impulse
@@ -197,6 +253,62 @@ export class BackburnerDetector {
         return null;
       }
     }
+
+    // ==========================================================================
+    // FIX 2: STRUCTURE-BASED STOPS
+    // TCG: "Stop goes under the pullback low / signal low"
+    // ==========================================================================
+    let pullbackLow: number | undefined;
+    let bounceHigh: number | undefined;
+    let structureStopPrice: number | undefined;
+
+    if (direction === 'long') {
+      const pullbackResult = findPullbackLow(candles, impulse.endIndex);
+      if (pullbackResult) {
+        pullbackLow = pullbackResult.price;
+        structureStopPrice = calculateStructureStop('long', pullbackLow, undefined, 0.5) ?? undefined;
+      }
+    } else {
+      const bounceResult = findBounceHigh(candles, impulse.endIndex);
+      if (bounceResult) {
+        bounceHigh = bounceResult.price;
+        structureStopPrice = calculateStructureStop('short', undefined, bounceHigh, 0.5) ?? undefined;
+      }
+    }
+
+    // ==========================================================================
+    // FIX 5: POSITION BUILDING
+    // TCG: "Tier only while RSI is still extreme and worsening"
+    // ==========================================================================
+    const rsiTrend = detectRSITrend(rsiValues, 3);
+
+    // Determine position tier: 1 = RSI<30/RSI>70, 2 = RSI<20/RSI>80
+    let positionTier: 1 | 2 = 1;
+    if (direction === 'long' && currentRSI < this.config.rsiDeepOversoldThreshold) {
+      positionTier = 2;
+    } else if (direction === 'short' && currentRSI > this.config.rsiDeepOverboughtThreshold) {
+      positionTier = 2;
+    }
+
+    // Can add position if:
+    // - RSI is still dropping (for longs) or rising (for shorts)
+    // - OR we're at Tier 1 and haven't added Tier 2 yet
+    const canAddPosition =
+      (direction === 'long' && rsiTrend === 'dropping') ||
+      (direction === 'short' && rsiTrend === 'rising');
+
+    // ==========================================================================
+    // FIX 4: TECHNICAL TRAILING DATA
+    // TCG: "Walk up stop under the last higher low"
+    // ==========================================================================
+    const recentSwingLows = findRecentSwingLows(candles, 3, 3).map(s => ({
+      price: s.price,
+      time: s.time,
+    }));
+    const recentSwingHighs = findRecentSwingHighs(candles, 3, 3).map(s => ({
+      price: s.price,
+      time: s.time,
+    }));
 
     // Analyze volume
     const impulseCandles = candles.slice(impulse.startIndex, impulse.endIndex + 1);
@@ -256,6 +368,21 @@ export class BackburnerDetector {
       volumeContracting,
       higherTFBullish,
       divergence: setupDivergence,
+
+      // TCG-compliant fields
+      htfConfirmed,
+      pullbackLow,
+      bounceHigh,
+      structureStopPrice,
+      rsiCrossedThreshold,
+      rsiCrossTime,
+      previousRSI,
+      rsiTrend,
+      canAddPosition,
+      positionTier,
+      recentSwingLows,
+      recentSwingHighs,
+
       // These will be set by the screener with actual values
       marketType: 'spot',
       liquidityRisk: 'medium',

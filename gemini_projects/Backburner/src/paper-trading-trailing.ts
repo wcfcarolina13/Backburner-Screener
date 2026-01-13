@@ -180,7 +180,29 @@ export class TrailingStopEngine {
     return { margin, notional };
   }
 
-  private calculateInitialStopLoss(entryPrice: number, direction: 'long' | 'short'): number {
+  /**
+   * Calculate initial stop loss - now structure-aware (TCG compliant)
+   * Prefers structure-based stop (below pullback low) over fixed ROI stop
+   */
+  private calculateInitialStopLoss(
+    entryPrice: number,
+    direction: 'long' | 'short',
+    structureStopPrice?: number
+  ): number {
+    // TCG-COMPLIANT: Use structure-based stop if available
+    // "Stop goes under the pullback low / signal low"
+    if (structureStopPrice !== undefined) {
+      // Validate the structure stop is reasonable (not too far or too close)
+      const stopDistance = Math.abs(structureStopPrice - entryPrice) / entryPrice;
+
+      // Structure stop should be between 0.5% and 10% from entry
+      // If outside this range, fall back to ROI-based stop
+      if (stopDistance >= 0.005 && stopDistance <= 0.10) {
+        return structureStopPrice;
+      }
+    }
+
+    // FALLBACK: Use ROI-based stop (original behavior)
     // initialStopLossPercent is ROI% (e.g., 20% = max 20% loss on margin)
     // Convert to price% by dividing by leverage
     // Example: 20% ROI stop with 10x leverage = 2% price move
@@ -272,7 +294,12 @@ export class TrailingStopEngine {
     );
 
     // Use effective entry price for stop loss calculation
-    const initialStopLoss = this.calculateInitialStopLoss(effectiveEntryPrice, setup.direction);
+    // TCG-COMPLIANT: Pass structure-based stop price if available
+    const initialStopLoss = this.calculateInitialStopLoss(
+      effectiveEntryPrice,
+      setup.direction,
+      setup.structureStopPrice  // New TCG-compliant field
+    );
 
     const position: TrailingPosition = {
       id: this.generatePositionId(setup),
