@@ -1901,14 +1901,17 @@ function getHtmlPage(): string {
 
     <!-- Focus Mode Panel -->
     <div id="focusModePanel" class="card" style="margin-bottom: 16px; border-left: 3px solid #f0883e; display: none;">
-      <div class="card-header" style="background: linear-gradient(135deg, #21262d 0%, #161b22 100%);">
-        <span class="card-title">🎯 Focus Mode - Trade Copying</span>
+      <div class="card-header" style="background: linear-gradient(135deg, #21262d 0%, #161b22 100%); cursor: pointer;" onclick="toggleSection('focusMode')">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="section-toggle" id="focusModeToggle">▼</span>
+          <span class="card-title">🎯 Focus Mode - Trade Copying</span>
+        </div>
         <div style="display: flex; gap: 8px; align-items: center;">
           <span id="focusPositionCount" style="font-size: 12px; color: #8b949e;">0/5 positions</span>
-          <button id="focusToggleBtn" onclick="toggleFocusMode()" style="padding: 4px 12px; border-radius: 4px; border: 1px solid #f0883e; background: #21262d; color: #f0883e; font-size: 11px; font-weight: 600; cursor: pointer;">
+          <button id="focusToggleBtn" onclick="event.stopPropagation(); toggleFocusMode()" style="padding: 4px 12px; border-radius: 4px; border: 1px solid #f0883e; background: #21262d; color: #f0883e; font-size: 11px; font-weight: 600; cursor: pointer;">
             Enable
           </button>
-          <button onclick="testFocusNotification()" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 11px; cursor: pointer;" title="Test notification">
+          <button onclick="event.stopPropagation(); testFocusNotification()" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 11px; cursor: pointer;" title="Test notification">
             🔔
           </button>
         </div>
@@ -2339,116 +2342,153 @@ function getHtmlPage(): string {
     <!-- Bot Cards - 8 bots in grid -->
     <div class="grid" id="botCardsGrid">
       <div class="card bot-card" id="fixedTPCard" style="border-left: 3px solid #238636;">
-        <div class="card-header">
-          <span class="card-title">🎯 Fixed 20/20</span>
+        <div class="card-header" style="cursor: pointer;" onclick="toggleSection('fixedTP')">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="section-toggle" id="fixedTPToggle">▼</span>
+            <span class="card-title">🎯 Fixed 20/20</span>
+          </div>
           <div style="display: flex; gap: 8px; align-items: center;">
-            <button onclick="showBotHistory('fixedTP', '🎯 Fixed 20/20')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="fixedHistoryCount">0</span></button>
+            <button onclick="event.stopPropagation(); showBotHistory('fixedTP', '🎯 Fixed 20/20')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="fixedHistoryCount">0</span></button>
             <span id="fixedPositionCount">0</span>
           </div>
         </div>
-        <div id="fixedPositionsTable"><div class="empty-state">No positions</div></div>
+        <div id="fixedTPContent"><div id="fixedPositionsTable"><div class="empty-state">No positions</div></div></div>
       </div>
       <div class="card bot-card" id="trailing1pctCard" style="border-left: 3px solid #8957e5;">
-        <div class="card-header">
-          <span class="card-title">📉 Trail Light</span>
+        <div class="card-header" style="cursor: pointer;" onclick="toggleSection('trailing1pct')">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="section-toggle" id="trailing1pctToggle">▼</span>
+            <span class="card-title">📉 Trail Light</span>
+          </div>
           <div style="display: flex; gap: 8px; align-items: center;">
-            <button onclick="showBotHistory('trailing1pct', '📉 Trail Light')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="trail1pctHistoryCount">0</span></button>
+            <button onclick="event.stopPropagation(); showBotHistory('trailing1pct', '📉 Trail Light')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="trail1pctHistoryCount">0</span></button>
             <span id="trail1pctPositionCount">0</span>
           </div>
         </div>
-        <div id="trail1pctPositionsTable"><div class="empty-state">No positions</div></div>
+        <div id="trailing1pctContent"><div id="trail1pctPositionsTable"><div class="empty-state">No positions</div></div></div>
       </div>
       <div class="card bot-card" id="trailing10pct10xCard" style="border-left: 3px solid #d29922;">
-        <div class="card-header">
-          <span class="card-title">📈 Trail Standard</span>
+        <div class="card-header" style="cursor: pointer;" onclick="toggleSection('trailing10pct10x')">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="section-toggle" id="trailing10pct10xToggle">▼</span>
+            <span class="card-title">📈 Trail Standard</span>
+          </div>
           <div style="display: flex; gap: 8px; align-items: center;">
-            <button onclick="showBotHistory('trailing10pct10x', '📈 Trail Standard')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="trail10pct10xHistoryCount">0</span></button>
+            <button onclick="event.stopPropagation(); showBotHistory('trailing10pct10x', '📈 Trail Standard')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="trail10pct10xHistoryCount">0</span></button>
             <span id="trail10pct10xPositionCount">0</span>
           </div>
         </div>
-        <div id="trail10pct10xPositionsTable"><div class="empty-state">No positions</div></div>
+        <div id="trailing10pct10xContent"><div id="trail10pct10xPositionsTable"><div class="empty-state">No positions</div></div></div>
       </div>
       <div class="card bot-card" id="trailing10pct20xCard" style="border-left: 3px solid #f85149;">
-        <div class="card-header">
-          <span class="card-title">💀 Trail Aggressive</span>
+        <div class="card-header" style="cursor: pointer;" onclick="toggleSection('trailing10pct20x')">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="section-toggle" id="trailing10pct20xToggle">▼</span>
+            <span class="card-title">💀 Trail Aggressive</span>
+          </div>
           <div style="display: flex; gap: 8px; align-items: center;">
-            <button onclick="showBotHistory('trailing10pct20x', '💀 Trail Aggressive')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="trail10pct20xHistoryCount">0</span></button>
+            <button onclick="event.stopPropagation(); showBotHistory('trailing10pct20x', '💀 Trail Aggressive')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="trail10pct20xHistoryCount">0</span></button>
             <span id="trail10pct20xPositionCount">0</span>
           </div>
         </div>
-        <div id="trail10pct20xPositionsTable"><div class="empty-state">No positions</div></div>
+        <div id="trailing10pct20xContent"><div id="trail10pct20xPositionsTable"><div class="empty-state">No positions</div></div></div>
       </div>
       <div class="card bot-card" id="trailWideCard" style="border-left: 3px solid #58a6ff;">
-        <div class="card-header">
-          <span class="card-title">🌊 Trail Wide</span>
+        <div class="card-header" style="cursor: pointer;" onclick="toggleSection('trailWide')">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="section-toggle" id="trailWideToggle">▼</span>
+            <span class="card-title">🌊 Trail Wide</span>
+          </div>
           <div style="display: flex; gap: 8px; align-items: center;">
-            <button onclick="showBotHistory('trailWide', '🌊 Trail Wide')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="trailWideHistoryCount">0</span></button>
+            <button onclick="event.stopPropagation(); showBotHistory('trailWide', '🌊 Trail Wide')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="trailWideHistoryCount">0</span></button>
             <span id="trailWidePositionCount">0</span>
           </div>
         </div>
-        <div id="trailWidePositionsTable"><div class="empty-state">No positions</div></div>
+        <div id="trailWideContent"><div id="trailWidePositionsTable"><div class="empty-state">No positions</div></div></div>
       </div>
       <div class="card bot-card" id="confluenceCard" style="border-left: 3px solid #a371f7;">
-        <div class="card-header">
-          <span class="card-title">🔗 Multi-TF</span>
+        <div class="card-header" style="cursor: pointer;" onclick="toggleSection('confluence')">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="section-toggle" id="confluenceToggle">▼</span>
+            <span class="card-title">🔗 Multi-TF</span>
+          </div>
           <div style="display: flex; gap: 8px; align-items: center;">
-            <button onclick="showBotHistory('confluence', '🔗 Multi-TF')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="confluenceHistoryCount">0</span></button>
+            <button onclick="event.stopPropagation(); showBotHistory('confluence', '🔗 Multi-TF')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="confluenceHistoryCount">0</span></button>
             <span id="confluencePositionCount">0</span>
           </div>
         </div>
-        <div id="confluenceTriggersBox" style="margin-bottom: 8px; font-size: 11px; color: #8b949e;"></div>
-        <div id="confluencePositionsTable"><div class="empty-state">No positions</div></div>
+        <div id="confluenceContent">
+          <div id="confluenceTriggersBox" style="margin-bottom: 8px; font-size: 11px; color: #8b949e;"></div>
+          <div id="confluencePositionsTable"><div class="empty-state">No positions</div></div>
+        </div>
       </div>
       <div class="card bot-card" id="tripleLightCard" style="border-left: 3px solid #f0e68c;">
-        <div class="card-header">
-          <span class="card-title">🚦 Triple Light</span>
+        <div class="card-header" style="cursor: pointer;" onclick="toggleSection('tripleLight')">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="section-toggle" id="tripleLightToggle">▼</span>
+            <span class="card-title">🚦 Triple Light</span>
+          </div>
           <div style="display: flex; gap: 8px; align-items: center;">
-            <button onclick="showBotHistory('tripleLight', '🚦 Triple Light')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="tripleLightHistoryCount">0</span></button>
+            <button onclick="event.stopPropagation(); showBotHistory('tripleLight', '🚦 Triple Light')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="tripleLightHistoryCount">0</span></button>
             <span id="tripleLightPositionCount">0</span>
           </div>
         </div>
-        <div id="tripleLightSignalsBox" style="margin-bottom: 8px; font-size: 11px; color: #8b949e;"></div>
-        <div id="tripleLightPositionsTable"><div class="empty-state">No positions</div></div>
+        <div id="tripleLightContent">
+          <div id="tripleLightSignalsBox" style="margin-bottom: 8px; font-size: 11px; color: #8b949e;"></div>
+          <div id="tripleLightPositionsTable"><div class="empty-state">No positions</div></div>
+        </div>
       </div>
       <div class="card bot-card" id="btcExtremeCard" style="border-left: 3px solid #ff6b35;">
-        <div class="card-header">
-          <span class="card-title">₿ Contrarian</span>
+        <div class="card-header" style="cursor: pointer;" onclick="toggleSection('btcExtreme')">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="section-toggle" id="btcExtremeToggle">▼</span>
+            <span class="card-title">₿ Contrarian</span>
+          </div>
           <div style="display: flex; gap: 8px; align-items: center;">
-            <button onclick="showBotHistory('btcExtreme', '₿ Contrarian')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="btcExtremeHistoryCount">0</span></button>
+            <button onclick="event.stopPropagation(); showBotHistory('btcExtreme', '₿ Contrarian')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="btcExtremeHistoryCount">0</span></button>
             <span id="btcExtremePositionCount">0</span>
           </div>
         </div>
-        <div id="btcExtremePositionTable"><div class="empty-state">No position</div></div>
+        <div id="btcExtremeContent"><div id="btcExtremePositionTable"><div class="empty-state">No position</div></div></div>
       </div>
       <div class="card bot-card" id="btcTrendCard" style="border-left: 3px solid #00d4aa;">
-        <div class="card-header">
-          <span class="card-title">₿ Momentum</span>
+        <div class="card-header" style="cursor: pointer;" onclick="toggleSection('btcTrend')">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="section-toggle" id="btcTrendToggle">▼</span>
+            <span class="card-title">₿ Momentum</span>
+          </div>
           <div style="display: flex; gap: 8px; align-items: center;">
-            <button onclick="showBotHistory('btcTrend', '₿ Momentum')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="btcTrendHistoryCount">0</span></button>
+            <button onclick="event.stopPropagation(); showBotHistory('btcTrend', '₿ Momentum')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="btcTrendHistoryCount">0</span></button>
             <span id="btcTrendPositionCount">0</span>
           </div>
         </div>
-        <div id="btcTrendPositionTable"><div class="empty-state">No position</div></div>
+        <div id="btcTrendContent"><div id="btcTrendPositionTable"><div class="empty-state">No position</div></div></div>
       </div>
       <div class="card bot-card" id="trendOverrideCard" style="border-left: 3px solid #e040fb;">
-        <div class="card-header">
-          <span class="card-title">↕ Override</span>
+        <div class="card-header" style="cursor: pointer;" onclick="toggleSection('trendOverride')">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="section-toggle" id="trendOverrideToggle">▼</span>
+            <span class="card-title">↕ Override</span>
+          </div>
           <div style="display: flex; gap: 8px; align-items: center;">
-            <button onclick="showBotHistory('trendOverride', '↕ Override')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="trendOverrideHistoryCount">0</span></button>
+            <button onclick="event.stopPropagation(); showBotHistory('trendOverride', '↕ Override')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="trendOverrideHistoryCount">0</span></button>
             <span id="trendOverridePositionCount">0</span>
           </div>
         </div>
-        <div id="trendOverridePositionTable"><div class="empty-state">No position</div></div>
+        <div id="trendOverrideContent"><div id="trendOverridePositionTable"><div class="empty-state">No position</div></div></div>
       </div>
       <div class="card bot-card" id="trendFlipCard" style="border-left: 3px solid #00bcd4;">
-        <div class="card-header">
-          <span class="card-title">🔄 Flip</span>
+        <div class="card-header" style="cursor: pointer;" onclick="toggleSection('trendFlip')">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="section-toggle" id="trendFlipToggle">▼</span>
+            <span class="card-title">🔄 Flip</span>
+          </div>
           <div style="display: flex; gap: 8px; align-items: center;">
-            <button onclick="showBotHistory('trendFlip', '🔄 Flip')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="trendFlipHistoryCount">0</span></button>
+            <button onclick="event.stopPropagation(); showBotHistory('trendFlip', '🔄 Flip')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="trendFlipHistoryCount">0</span></button>
             <span id="trendFlipPositionCount">0</span>
           </div>
         </div>
-        <div id="trendFlipPositionTable"><div class="empty-state">No position</div></div>
+        <div id="trendFlipContent"><div id="trendFlipPositionTable"><div class="empty-state">No position</div></div></div>
       </div>
     </div>
 
@@ -2667,6 +2707,19 @@ function getHtmlPage(): string {
       btcBiasStats: true,
       mexcSim: true,
       goldenPocket: true,
+      // Focus Mode and Bot Cards
+      focusMode: true,
+      fixedTP: true,
+      trailing1pct: true,
+      trailing10pct10x: true,
+      trailing10pct20x: true,
+      trailWide: true,
+      confluence: true,
+      tripleLight: true,
+      btcExtreme: true,
+      btcTrend: true,
+      trendOverride: true,
+      trendFlip: true,
     };
 
     function toggleSection(sectionId) {
