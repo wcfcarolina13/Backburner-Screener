@@ -1595,8 +1595,8 @@ function getHtmlPage(): string {
     .section-title { font-weight: 600; font-size: 14px; color: #f0f6fc; }
     .section-toggle { color: #8b949e; font-size: 16px; transition: transform 0.2s ease; }
     .section-toggle.collapsed { transform: rotate(-90deg); }
-    .section-content { transition: max-height 0.3s ease, opacity 0.3s ease; overflow: hidden; }
-    .section-content.collapsed { max-height: 0 !important; opacity: 0; margin-bottom: 0; }
+    .section-content { overflow: hidden; transition: all 0.3s ease; }
+    .section-content.collapsed { display: none; }
     .bot-toggles-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
     .bot-toggle-mini { flex: 0 0 auto; min-width: 80px; padding: 4px 8px; background: #161b22; border: 2px solid #30363d; border-radius: 6px; cursor: pointer; font-size: 10px; }
     .bot-toggle-mini:hover { border-color: #58a6ff !important; }
@@ -1964,70 +1964,70 @@ function getHtmlPage(): string {
     </div>
     <div class="section-content" id="altcoinBotsContent">
       <div class="bot-toggles-row">
-        <div class="bot-toggle" id="toggleFixedTP" onclick="event.stopPropagation(); toggleBot('fixedTP')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #238636; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleFixedTP" onclick="event.stopPropagation(); toggleBot('fixedTP')" style="flex: 1; min-width: 85px; padding: 6px 10px; background: #161b22; border: 2px solid #238636; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #3fb950; font-size: 10px;">🎯 Fix</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #3fb950;"></span>
+            <span style="font-weight: 600; color: #3fb950; font-size: 11px;">🎯 Fixed</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #3fb950;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleTrailing1pct" onclick="event.stopPropagation(); toggleBot('trailing1pct')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #8957e5; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleTrailing1pct" onclick="event.stopPropagation(); toggleBot('trailing1pct')" style="flex: 1; min-width: 85px; padding: 6px 10px; background: #161b22; border: 2px solid #8957e5; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #a371f7; font-size: 10px;">📈 1%</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #a371f7;"></span>
+            <span style="font-weight: 600; color: #a371f7; font-size: 11px;">📈 Trail 1%</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #a371f7;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleTrailing10pct10x" onclick="event.stopPropagation(); toggleBot('trailing10pct10x')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #d29922; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleTrailing10pct10x" onclick="event.stopPropagation(); toggleBot('trailing10pct10x')" style="flex: 1; min-width: 85px; padding: 6px 10px; background: #161b22; border: 2px solid #d29922; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #d29922; font-size: 10px;">🔥 Std</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #d29922;"></span>
+            <span style="font-weight: 600; color: #d29922; font-size: 11px;">🔥 10%10x</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #d29922;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleTrailing10pct20x" onclick="event.stopPropagation(); toggleBot('trailing10pct20x')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #f85149; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleTrailing10pct20x" onclick="event.stopPropagation(); toggleBot('trailing10pct20x')" style="flex: 1; min-width: 85px; padding: 6px 10px; background: #161b22; border: 2px solid #f85149; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #f85149; font-size: 10px;">💀 Agg</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #f85149;"></span>
+            <span style="font-weight: 600; color: #f85149; font-size: 11px;">💀 10%20x</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #f85149;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleTrailWide" onclick="event.stopPropagation(); toggleBot('trailWide')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #58a6ff; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleTrailWide" onclick="event.stopPropagation(); toggleBot('trailWide')" style="flex: 1; min-width: 85px; padding: 6px 10px; background: #161b22; border: 2px solid #58a6ff; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #58a6ff; font-size: 10px;">🌊 Wide</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #58a6ff;"></span>
+            <span style="font-weight: 600; color: #58a6ff; font-size: 11px;">🌊 Wide</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #58a6ff;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleConfluence" onclick="event.stopPropagation(); toggleBot('confluence')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #a371f7; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleConfluence" onclick="event.stopPropagation(); toggleBot('confluence')" style="flex: 1; min-width: 85px; padding: 6px 10px; background: #161b22; border: 2px solid #a371f7; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #a371f7; font-size: 10px;">🔗 MTF</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #a371f7;"></span>
+            <span style="font-weight: 600; color: #a371f7; font-size: 11px;">🔗 Multi-TF</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #a371f7;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleTripleLight" onclick="event.stopPropagation(); toggleBot('tripleLight')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #f0e68c; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleTripleLight" onclick="event.stopPropagation(); toggleBot('tripleLight')" style="flex: 1; min-width: 85px; padding: 6px 10px; background: #161b22; border: 2px solid #f0e68c; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #f0e68c; font-size: 10px;">🚦 3x</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #f0e68c;"></span>
+            <span style="font-weight: 600; color: #f0e68c; font-size: 11px;">🚦 Triple</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #f0e68c;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleBtcExtreme" onclick="event.stopPropagation(); toggleBot('btcExtreme')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #ff6b35; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleBtcExtreme" onclick="event.stopPropagation(); toggleBot('btcExtreme')" style="flex: 1; min-width: 85px; padding: 6px 10px; background: #161b22; border: 2px solid #ff6b35; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #ff6b35; font-size: 10px;">₿ Ctr</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #ff6b35;"></span>
+            <span style="font-weight: 600; color: #ff6b35; font-size: 11px;">₿ Contra</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #ff6b35;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleBtcTrend" onclick="event.stopPropagation(); toggleBot('btcTrend')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #00d4aa; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleBtcTrend" onclick="event.stopPropagation(); toggleBot('btcTrend')" style="flex: 1; min-width: 85px; padding: 6px 10px; background: #161b22; border: 2px solid #00d4aa; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #00d4aa; font-size: 10px;">₿ Mtm</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #00d4aa;"></span>
+            <span style="font-weight: 600; color: #00d4aa; font-size: 11px;">₿ Moment</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #00d4aa;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleTrendOverride" onclick="event.stopPropagation(); toggleBot('trendOverride')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #e040fb; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleTrendOverride" onclick="event.stopPropagation(); toggleBot('trendOverride')" style="flex: 1; min-width: 85px; padding: 6px 10px; background: #161b22; border: 2px solid #e040fb; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #e040fb; font-size: 10px;">↕ Ovr</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #e040fb;"></span>
+            <span style="font-weight: 600; color: #e040fb; font-size: 11px;">↕ Override</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #e040fb;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleTrendFlip" onclick="event.stopPropagation(); toggleBot('trendFlip')" style="flex: 1; min-width: 70px; padding: 5px 8px; background: #161b22; border: 2px solid #00bcd4; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleTrendFlip" onclick="event.stopPropagation(); toggleBot('trendFlip')" style="flex: 1; min-width: 85px; padding: 6px 10px; background: #161b22; border: 2px solid #00bcd4; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #00bcd4; font-size: 10px;">🔄 Flip</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #00bcd4;"></span>
+            <span style="font-weight: 600; color: #00bcd4; font-size: 11px;">🔄 Flip</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #00bcd4;"></span>
           </div>
         </div>
       </div>
@@ -2102,52 +2102,52 @@ function getHtmlPage(): string {
         BTC-only bots that trade based on macro bias. Hold through neutral, exit on opposite bias or stop. Require bias to cycle/strengthen after stop-out for re-entry.
       </div>
       <div class="bot-toggles-row">
-        <div class="bot-toggle" id="toggleBias100x20trail" onclick="event.stopPropagation(); toggleBot('bias100x20trail')" style="flex: 1; min-width: 100px; padding: 5px 8px; background: #161b22; border: 2px solid #ffd700; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleBias100x20trail" onclick="event.stopPropagation(); toggleBot('bias100x20trail')" style="flex: 1; min-width: 110px; padding: 6px 10px; background: #161b22; border: 2px solid #ffd700; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #ffd700; font-size: 10px;">100% 20x T</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #ffd700;"></span>
+            <span style="font-weight: 600; color: #ffd700; font-size: 11px;">100% 20x Trail</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #ffd700;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleBias100x50trail" onclick="event.stopPropagation(); toggleBot('bias100x50trail')" style="flex: 1; min-width: 100px; padding: 5px 8px; background: #161b22; border: 2px solid #ff8c00; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleBias100x50trail" onclick="event.stopPropagation(); toggleBot('bias100x50trail')" style="flex: 1; min-width: 110px; padding: 6px 10px; background: #161b22; border: 2px solid #ff8c00; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #ff8c00; font-size: 10px;">100% 50x T</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #ff8c00;"></span>
+            <span style="font-weight: 600; color: #ff8c00; font-size: 11px;">100% 50x Trail</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #ff8c00;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleBias10x20trail" onclick="event.stopPropagation(); toggleBot('bias10x20trail')" style="flex: 1; min-width: 100px; padding: 5px 8px; background: #161b22; border: 2px solid #98fb98; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleBias10x20trail" onclick="event.stopPropagation(); toggleBot('bias10x20trail')" style="flex: 1; min-width: 110px; padding: 6px 10px; background: #161b22; border: 2px solid #98fb98; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #98fb98; font-size: 10px;">10% 20x T</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #98fb98;"></span>
+            <span style="font-weight: 600; color: #98fb98; font-size: 11px;">10% 20x Trail</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #98fb98;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleBias10x50trail" onclick="event.stopPropagation(); toggleBot('bias10x50trail')" style="flex: 1; min-width: 100px; padding: 5px 8px; background: #161b22; border: 2px solid #00ced1; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleBias10x50trail" onclick="event.stopPropagation(); toggleBot('bias10x50trail')" style="flex: 1; min-width: 110px; padding: 6px 10px; background: #161b22; border: 2px solid #00ced1; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #00ced1; font-size: 10px;">10% 50x T</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #00ced1;"></span>
+            <span style="font-weight: 600; color: #00ced1; font-size: 11px;">10% 50x Trail</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #00ced1;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleBias100x20hard" onclick="event.stopPropagation(); toggleBot('bias100x20hard')" style="flex: 1; min-width: 100px; padding: 5px 8px; background: #161b22; border: 2px solid #dc143c; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleBias100x20hard" onclick="event.stopPropagation(); toggleBot('bias100x20hard')" style="flex: 1; min-width: 110px; padding: 6px 10px; background: #161b22; border: 2px solid #dc143c; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #dc143c; font-size: 10px;">100% 20x H</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #dc143c;"></span>
+            <span style="font-weight: 600; color: #dc143c; font-size: 11px;">100% 20x Hard</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #dc143c;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleBias100x50hard" onclick="event.stopPropagation(); toggleBot('bias100x50hard')" style="flex: 1; min-width: 100px; padding: 5px 8px; background: #161b22; border: 2px solid #8b0000; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleBias100x50hard" onclick="event.stopPropagation(); toggleBot('bias100x50hard')" style="flex: 1; min-width: 110px; padding: 6px 10px; background: #161b22; border: 2px solid #8b0000; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #ff6666; font-size: 10px;">100% 50x H</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #ff6666;"></span>
+            <span style="font-weight: 600; color: #ff6666; font-size: 11px;">100% 50x Hard</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #ff6666;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleBias10x20hard" onclick="event.stopPropagation(); toggleBot('bias10x20hard')" style="flex: 1; min-width: 100px; padding: 5px 8px; background: #161b22; border: 2px solid #9370db; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleBias10x20hard" onclick="event.stopPropagation(); toggleBot('bias10x20hard')" style="flex: 1; min-width: 110px; padding: 6px 10px; background: #161b22; border: 2px solid #9370db; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #9370db; font-size: 10px;">10% 20x H</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #9370db;"></span>
+            <span style="font-weight: 600; color: #9370db; font-size: 11px;">10% 20x Hard</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #9370db;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleBias10x50hard" onclick="event.stopPropagation(); toggleBot('bias10x50hard')" style="flex: 1; min-width: 100px; padding: 5px 8px; background: #161b22; border: 2px solid #4169e1; border-radius: 6px; cursor: pointer;">
+        <div class="bot-toggle" id="toggleBias10x50hard" onclick="event.stopPropagation(); toggleBot('bias10x50hard')" style="flex: 1; min-width: 110px; padding: 6px 10px; background: #161b22; border: 2px solid #4169e1; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #4169e1; font-size: 10px;">10% 50x H</span>
-            <span class="toggle-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #4169e1;"></span>
+            <span style="font-weight: 600; color: #4169e1; font-size: 11px;">10% 50x Hard</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #4169e1;"></span>
           </div>
         </div>
       </div>
@@ -2675,7 +2675,6 @@ function getHtmlPage(): string {
       if (content && toggle) {
         if (sectionState[sectionId]) {
           content.classList.remove('collapsed');
-          content.style.maxHeight = content.scrollHeight + 'px';
           toggle.classList.remove('collapsed');
         } else {
           content.classList.add('collapsed');
@@ -2703,7 +2702,6 @@ function getHtmlPage(): string {
         const toggle = document.getElementById(id + 'Toggle');
         if (content && toggle) {
           content.classList.remove('collapsed');
-          content.style.maxHeight = content.scrollHeight + 'px';
           toggle.classList.remove('collapsed');
         }
       });
