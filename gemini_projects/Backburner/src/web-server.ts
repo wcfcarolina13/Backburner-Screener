@@ -36,24 +36,44 @@ const app = express();
 const ALLOWED_TIMEFRAMES: Timeframe[] = ['5m', '15m'];  // Exclude 1h (0% win rate)
 
 /**
- * Check if a setup should be traded based on timeframe and BTC trend
- * Returns false to skip setups that historically lose money
+ * Check if a setup should be traded based on TCG methodology
+ * Returns false to skip setups that don't meet quality criteria
  */
 function shouldTradeSetup(setup: BackburnerSetup, btcBias: string): boolean {
-  // Skip 1h timeframe entirely (0% win rate for longs, 13% for shorts)
+  // Skip 1h timeframe entirely (0% win rate for longs, 13% for shorts from backtest)
   if (!ALLOWED_TIMEFRAMES.includes(setup.timeframe)) {
+    console.log(`[FILTER] Skip ${setup.symbol} - 1h timeframe disabled`);
     return false;
   }
 
-  // For 5m timeframe: require BTC trend alignment to avoid contrarian losses
-  // 5m had ~35% win rate overall, but contrarian trades were the main losers
+  // ==========================================================================
+  // TCG FIX 1: REQUIRE HTF ALIGNMENT
+  // "5m signal marks hourly higher low" - only trade if HTF confirms direction
+  // ==========================================================================
+  if (setup.htfConfirmed === false) {
+    console.log(`[FILTER] Skip ${setup.symbol} ${setup.timeframe} ${setup.direction} - HTF not aligned`);
+    return false;
+  }
+
+  // ==========================================================================
+  // TCG FIX 3: REQUIRE RSI CROSS (not just "is below 30")
+  // Only enter on fresh RSI threshold crosses, not stale oversold conditions
+  // ==========================================================================
+  if (setup.rsiCrossedThreshold === false) {
+    console.log(`[FILTER] Skip ${setup.symbol} ${setup.timeframe} ${setup.direction} - no RSI cross detected`);
+    return false;
+  }
+
+  // For 5m timeframe: also require BTC trend alignment to avoid contrarian losses
   if (setup.timeframe === '5m') {
     // Long setup + BTC bearish = contrarian → skip
     if (setup.direction === 'long' && (btcBias === 'short' || btcBias === 'strong_short')) {
+      console.log(`[FILTER] Skip ${setup.symbol} 5m LONG - BTC bearish (${btcBias})`);
       return false;
     }
     // Short setup + BTC bullish = contrarian → skip
     if (setup.direction === 'short' && (btcBias === 'long' || btcBias === 'strong_long')) {
+      console.log(`[FILTER] Skip ${setup.symbol} 5m SHORT - BTC bullish (${btcBias})`);
       return false;
     }
   }
