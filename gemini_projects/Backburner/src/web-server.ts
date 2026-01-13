@@ -23,6 +23,43 @@ import { getDataPersistence } from './data-persistence.js';
 import type { BackburnerSetup, Timeframe } from './types.js';
 
 const app = express();
+
+// ============================================================================
+// TIMEFRAME FILTER CONFIG
+// Based on backtest analysis (Jan 2026):
+// - 1h LONG: 0% win rate, -$1,058 total → DISABLED
+// - 1h SHORT: 13% win rate, -$1,291 total → DISABLED
+// - 15m LONG: 57% win rate, +$6 total → ENABLED (best performer)
+// - 15m SHORT: 47% win rate, -$490 total → ENABLED
+// - 5m trades: 35-38% win rate → ENABLED with BTC trend filter
+// ============================================================================
+const ALLOWED_TIMEFRAMES: Timeframe[] = ['5m', '15m'];  // Exclude 1h (0% win rate)
+
+/**
+ * Check if a setup should be traded based on timeframe and BTC trend
+ * Returns false to skip setups that historically lose money
+ */
+function shouldTradeSetup(setup: BackburnerSetup, btcBias: string): boolean {
+  // Skip 1h timeframe entirely (0% win rate for longs, 13% for shorts)
+  if (!ALLOWED_TIMEFRAMES.includes(setup.timeframe)) {
+    return false;
+  }
+
+  // For 5m timeframe: require BTC trend alignment to avoid contrarian losses
+  // 5m had ~35% win rate overall, but contrarian trades were the main losers
+  if (setup.timeframe === '5m') {
+    // Long setup + BTC bearish = contrarian → skip
+    if (setup.direction === 'long' && (btcBias === 'short' || btcBias === 'strong_short')) {
+      return false;
+    }
+    // Short setup + BTC bullish = contrarian → skip
+    if (setup.direction === 'short' && (btcBias === 'long' || btcBias === 'strong_long')) {
+      return false;
+    }
+  }
+
+  return true;
+}
 const PORT = process.env.PORT || 3000;
 
 // Store connected SSE clients
@@ -308,14 +345,30 @@ function broadcast(event: string, data: any) {
 
 // Event handlers
 async function handleNewSetup(setup: BackburnerSetup) {
-  // Try to open positions on all trailing bots
-  const fixedPosition = fixedTPBot.openPosition(setup);
-  const trail1pctPosition = trailing1pctBot.openPosition(setup);
-  const trail10pct10xPosition = trailing10pct10xBot.openPosition(setup);
-  const trail10pct20xPosition = trailing10pct20xBot.openPosition(setup);
-  const trailWidePosition = trailWideBot.openPosition(setup);
-  const confluencePosition = confluenceBot.openPosition(setup);
-  const tripleLightPosition = tripleLightBot.handleNewSetup(setup);
+  // FILTER: Skip setups that historically lose money (1h timeframe, contrarian 5m)
+  const passesFilter = shouldTradeSetup(setup, currentBtcBias);
+
+  // Only open positions for main bots if setup passes filter
+  let fixedPosition = null;
+  let trail1pctPosition = null;
+  let trail10pct10xPosition = null;
+  let trail10pct20xPosition = null;
+  let trailWidePosition = null;
+  let confluencePosition = null;
+  let tripleLightPosition = null;
+
+  if (passesFilter) {
+    fixedPosition = fixedTPBot.openPosition(setup);
+    trail1pctPosition = trailing1pctBot.openPosition(setup);
+    trail10pct10xPosition = trailing10pct10xBot.openPosition(setup);
+    trail10pct20xPosition = trailing10pct20xBot.openPosition(setup);
+    trailWidePosition = trailWideBot.openPosition(setup);
+    confluencePosition = confluenceBot.openPosition(setup);
+    tripleLightPosition = tripleLightBot.handleNewSetup(setup);
+  } else {
+    // Log skipped setups for debugging
+    console.log(`[FILTER] Skipped ${setup.symbol} ${setup.timeframe} ${setup.direction} (BTC bias: ${currentBtcBias})`);
+  }
 
   // Get active timeframes for this symbol to check for confluence
   const allSetups = screener.getAllSetups();
@@ -422,7 +475,7 @@ async function handleNewSetup(setup: BackburnerSetup) {
 }
 
 async function handleSetupUpdated(setup: BackburnerSetup) {
-  // First try to update existing positions
+  // First try to update existing positions (always update regardless of filter)
   let fixedPosition = fixedTPBot.updatePosition(setup);
   let trail1pctPosition = trailing1pctBot.updatePosition(setup);
   let trail10pct10xPosition = trailing10pct10xBot.updatePosition(setup);
@@ -431,52 +484,56 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
   let confluencePosition = confluenceBot.updatePosition(setup);
   let tripleLightPosition = tripleLightBot.handleSetupUpdated(setup);
 
+  // FILTER: Check if setup passes timeframe/BTC trend filter before opening NEW positions
+  const passesFilter = shouldTradeSetup(setup, currentBtcBias);
+
   // If no position exists and setup just became triggered/deep_extreme, try to open
   // This handles the watching -> triggered state transition
+  // ONLY open if setup passes filter
   let newlyOpened = false;
-  if (!fixedPosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
+  if (passesFilter && !fixedPosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
     fixedPosition = fixedTPBot.openPosition(setup);
     if (fixedPosition) {
       broadcast('position_opened', { bot: 'fixedTP', position: fixedPosition });
       newlyOpened = true;
     }
   }
-  if (!trail1pctPosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
+  if (passesFilter && !trail1pctPosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
     trail1pctPosition = trailing1pctBot.openPosition(setup);
     if (trail1pctPosition) {
       broadcast('position_opened', { bot: 'trailing1pct', position: trail1pctPosition });
       newlyOpened = true;
     }
   }
-  if (!trail10pct10xPosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
+  if (passesFilter && !trail10pct10xPosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
     trail10pct10xPosition = trailing10pct10xBot.openPosition(setup);
     if (trail10pct10xPosition) {
       broadcast('position_opened', { bot: 'trailing10pct10x', position: trail10pct10xPosition });
       newlyOpened = true;
     }
   }
-  if (!trail10pct20xPosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
+  if (passesFilter && !trail10pct20xPosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
     trail10pct20xPosition = trailing10pct20xBot.openPosition(setup);
     if (trail10pct20xPosition) {
       broadcast('position_opened', { bot: 'trailing10pct20x', position: trail10pct20xPosition });
       newlyOpened = true;
     }
   }
-  if (!trailWidePosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
+  if (passesFilter && !trailWidePosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
     trailWidePosition = trailWideBot.openPosition(setup);
     if (trailWidePosition) {
       broadcast('position_opened', { bot: 'trailWide', position: trailWidePosition });
       newlyOpened = true;
     }
   }
-  if (!confluencePosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
+  if (passesFilter && !confluencePosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
     confluencePosition = confluenceBot.openPosition(setup);
     if (confluencePosition) {
       broadcast('position_opened', { bot: 'confluence', position: confluencePosition });
       newlyOpened = true;
     }
   }
-  if (!tripleLightPosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
+  if (passesFilter && !tripleLightPosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
     tripleLightPosition = tripleLightBot.handleNewSetup(setup);
     if (tripleLightPosition) {
       broadcast('position_opened', { bot: 'tripleLight', position: tripleLightPosition });
@@ -485,7 +542,8 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
   }
 
   // Try MEXC simulation bots too (they also only open on triggered/deep_extreme)
-  if (setup.state === 'triggered' || setup.state === 'deep_extreme') {
+  // ONLY open if setup passes filter
+  if (passesFilter && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
     for (const [botId, bot] of mexcSimBots) {
       const existingPos = bot.getOpenPositions().find(
         p => p.symbol === setup.symbol && p.direction === setup.direction &&

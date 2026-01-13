@@ -4,8 +4,8 @@
 
 ## Summary
 
-- Iterations completed: 3
-- Current status: RSI divergence detection enhanced + cross-strategy signals added
+- Iterations completed: 4
+- Current status: Timeframe + BTC trend filtering implemented based on backtest analysis
 
 ## How This Works
 
@@ -80,4 +80,40 @@ Implemented three major enhancements:
 - src/web-server.ts (+70 lines - Div column for GP, X-Sig columns for both tables)
 
 **Commit**: 87cc0cd "feat: Add RSI divergence detection to GP + cross-strategy signals"
+
+### Iteration 4 - Backtest Analysis & Timeframe Filtering
+**Date**: 2026-01-13
+**Task**: Analyze trade data and implement filters to improve bot performance
+
+**Problem Identified**: User noticed Backburner triggers seemed flawed, triggering contrarian setups against BTC's movements.
+
+**Backtest Analysis** (312 closed trades across 4 days):
+| Timeframe | Direction | Trades | Win Rate | PnL |
+|-----------|-----------|--------|----------|-----|
+| 1h LONG | 27 | **0%** | -$1,058 |
+| 1h SHORT | 68 | **13%** | -$1,291 |
+| 15m LONG | 69 | **57%** | +$6 |
+| 15m SHORT | 57 | 47% | -$490 |
+| 5m LONG | 66 | 38% | -$559 |
+| 5m SHORT | 25 | 32% | -$410 |
+
+**Key Findings**:
+1. **1h timeframe is catastrophic** - 0% win rate for longs, 13% for shorts, 100% stopped out
+2. **15m LONG is the only profitable combo** - 57% win rate with actual TP hits
+3. **No TP hits on 1h** - all 95 trades exited via stop loss
+4. **5m trades suffer from contrarian entries** against BTC trend
+
+**Solution Implemented**:
+Added `shouldTradeSetup()` filter function at web-server.ts:38-62:
+1. **Disable 1h timeframe entirely** - Only allow `['5m', '15m']`
+2. **Add BTC trend filter for 5m**:
+   - Skip long setups when BTC is bearish (short/strong_short)
+   - Skip short setups when BTC is bullish (long/strong_long)
+3. Applied filter to both `handleNewSetup()` and `handleSetupUpdated()` functions
+4. Existing positions still get updated (so they can close properly)
+
+**Files modified**:
+- src/web-server.ts (~40 lines - filter function + handler modifications)
+
+**Build**: Passes successfully
 
