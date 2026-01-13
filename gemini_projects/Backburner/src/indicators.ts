@@ -16,12 +16,13 @@ export interface FibonacciLevels {
   level500: number;  // 50% retracement
   level618: number;  // 61.8% retracement (Golden Pocket top)
   level650: number;  // 65% retracement (Golden Pocket middle)
-  level786: number;  // 78.6% retracement (invalidation level)
+  level786: number;  // 78.6% retracement (traditional invalidation)
+  level850: number;  // 85% retracement (wider stop level)
 
   // Golden Pocket zone
   goldenPocketTop: number;     // 0.618 level
-  goldenPocketBottom: number;  // 0.65 level
-  invalidationLevel: number;   // 0.786 level
+  goldenPocketBottom: number;  // 0.65 level (tightened entry zone)
+  invalidationLevel: number;   // 0.85 level (wider stop for better R:R)
 }
 
 /**
@@ -50,9 +51,10 @@ export function calculateFibonacciLevels(
       level618: high - (range * 0.618),
       level650: high - (range * 0.650),
       level786: high - (range * 0.786),
+      level850: high - (range * 0.850),
       goldenPocketTop: high - (range * 0.618),
       goldenPocketBottom: high - (range * 0.650),
-      invalidationLevel: high - (range * 0.786),
+      invalidationLevel: high - (range * 0.850),  // Wider stop at 0.85 for better R:R
     };
   } else {
     // For downward impulse, retracement goes UP from low toward high
@@ -68,38 +70,51 @@ export function calculateFibonacciLevels(
       level618: low + (range * 0.618),
       level650: low + (range * 0.650),
       level786: low + (range * 0.786),
+      level850: low + (range * 0.850),
       goldenPocketTop: low + (range * 0.618),
       goldenPocketBottom: low + (range * 0.650),
-      invalidationLevel: low + (range * 0.786),
+      invalidationLevel: low + (range * 0.850),  // Wider stop at 0.85 for better R:R
     };
   }
 }
 
 /**
- * Check if price is in the Golden Pocket zone (0.618 - 0.65)
+ * Check if price is in the Golden Pocket zone
+ * TIGHTENED: Now only 0.618 - 0.635 (was 0.618 - 0.65)
+ * This ensures entries closer to optimal 0.618 level for better R:R
  */
 export function isInGoldenPocket(
   price: number,
   fibLevels: FibonacciLevels
 ): boolean {
+  const range = fibLevels.high - fibLevels.low;
+  // Tighter zone: 0.618 to 0.635 (only ~1.7% of the range)
+  const tightTop = fibLevels.direction === 'up'
+    ? fibLevels.high - (range * 0.618)
+    : fibLevels.low + (range * 0.618);
+  const tightBottom = fibLevels.direction === 'up'
+    ? fibLevels.high - (range * 0.635)
+    : fibLevels.low + (range * 0.635);
+
   if (fibLevels.direction === 'up') {
-    // For longs: price should be between 0.618 and 0.65 (below the top)
-    return price <= fibLevels.goldenPocketTop && price >= fibLevels.goldenPocketBottom;
+    // For longs: price should be between 0.618 and 0.635 (tighter zone)
+    return price <= tightTop && price >= tightBottom;
   } else {
-    // For shorts: price should be between 0.618 and 0.65 (above the bottom)
-    return price >= fibLevels.goldenPocketTop && price <= fibLevels.goldenPocketBottom;
+    // For shorts: price should be between 0.618 and 0.635 (tighter zone)
+    return price >= tightTop && price <= tightBottom;
   }
 }
 
 /**
- * Check if price has broken the invalidation level (0.786)
+ * Check if price has broken the invalidation level (0.85)
+ * WIDENED from 0.786 to 0.85 for better R:R ratio
  */
 export function isInvalidated(
   price: number,
   fibLevels: FibonacciLevels
 ): boolean {
   if (fibLevels.direction === 'up') {
-    // For longs: invalidated if price closes below 0.786
+    // For longs: invalidated if price closes below 0.85
     return price < fibLevels.invalidationLevel;
   } else {
     // For shorts: invalidated if price closes above 0.786

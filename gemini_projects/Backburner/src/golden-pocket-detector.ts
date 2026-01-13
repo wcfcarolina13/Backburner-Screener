@@ -197,15 +197,30 @@ export class GoldenPocketDetector {
     }
 
     // Determine setup state based on direction and RSI
+    // IMPROVED: Now requires RSI confirmation for triggered state
     let state: SetupState;
     if (inGoldenPocket) {
-      // In the entry zone - this is actionable
+      // In the entry zone - check RSI for confirmation
       if (direction === 'long') {
-        // For longs, deep extreme = oversold RSI
-        state = currentRSI < 30 ? 'deep_extreme' : 'triggered';
+        // For longs: require RSI < 40 for triggered, < 30 for deep_extreme
+        if (currentRSI < 30) {
+          state = 'deep_extreme';
+        } else if (currentRSI < 40) {
+          state = 'triggered';
+        } else {
+          // RSI not oversold enough - just watch
+          state = 'watching';
+        }
       } else {
-        // For shorts, deep extreme = overbought RSI
-        state = currentRSI > 70 ? 'deep_extreme' : 'triggered';
+        // For shorts: require RSI > 60 for triggered, > 70 for deep_extreme
+        if (currentRSI > 70) {
+          state = 'deep_extreme';
+        } else if (currentRSI > 60) {
+          state = 'triggered';
+        } else {
+          // RSI not overbought enough - just watch
+          state = 'watching';
+        }
       }
     } else if (isApproaching) {
       // Approaching the zone - watch it
@@ -214,8 +229,8 @@ export class GoldenPocketDetector {
       // Not retraced enough yet
       return null;
     } else {
-      // Between 65% and 78.6% - risky but could still be valid
-      state = 'reversing';
+      // Between 63.5% and 85% - watching zone (was triggering before, now more conservative)
+      state = 'watching';
     }
 
     // Only create setups that are at least watching
@@ -232,15 +247,15 @@ export class GoldenPocketDetector {
     let stopPrice: number;
 
     if (direction === 'long') {
-      // Long: TP1 at 0.382 (partial), TP2 at swing high (0.0), stop below 0.786
+      // Long: TP1 at 0.382 (partial), TP2 at swing high (0.0), stop at 0.85 (wider)
       tp1Price = fibLevels.level382;
       tp2Price = fibLevels.high;
-      stopPrice = fibLevels.invalidationLevel;
+      stopPrice = fibLevels.invalidationLevel;  // Now at 0.85 for better R:R
     } else {
-      // Short: TP1 at 0.382 (partial), TP2 at swing low (0.0), stop above 0.786
+      // Short: TP1 at 0.382 (partial), TP2 at swing low (0.0), stop at 0.85 (wider)
       tp1Price = fibLevels.level382;
       tp2Price = fibLevels.low;
-      stopPrice = fibLevels.invalidationLevel;
+      stopPrice = fibLevels.invalidationLevel;  // Now at 0.85 for better R:R
     }
 
     const setup: GoldenPocketSetup = {
