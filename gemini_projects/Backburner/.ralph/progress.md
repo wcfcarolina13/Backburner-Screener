@@ -4,8 +4,8 @@
 
 ## Summary
 
-- Iterations completed: 2
-- Current status: Server infrastructure verified and hot reload enabled
+- Iterations completed: 3
+- Current status: RSI divergence detection enhanced + cross-strategy signals added
 
 ## How This Works
 
@@ -46,4 +46,38 @@ Verified server infrastructure and enabled hot reload for development:
 - 69a3430 "ralph: Enable hot reload for dev:web and verify server infrastructure"
 
 **Status**: ALL CRITERIA COMPLETE
+
+### Iteration 3 - RSI Divergence & Cross-Strategy Signals
+**Date**: 2026-01-13
+**Task**: Improve divergence detection and add cross-strategy signal matching
+
+Implemented three major enhancements:
+
+1. **Relaxed swing detection threshold**:
+   - Changed swingLookback from 5 to 3 bars in detectDivergence function
+   - This finds more swing points for divergence comparison
+   - Files: src/indicators.ts, src/backburner-detector.ts
+
+2. **Added divergence detection to Golden Pocket detector**:
+   - Imported detectDivergence and calculateRSI to GP detector
+   - Added divergence detection in both detectNewSetup() and updateExistingSetup()
+   - Only includes divergences that align with setup direction (bullish for long, bearish for short)
+   - Added Div column to GP table in web-server.ts
+   - File: src/golden-pocket-detector.ts, src/web-server.ts
+
+3. **Added cross-strategy signal indicators (X-Sig column)**:
+   - Added getCrossStrategySignal() function to detect when same symbol has setups in both BB and GP
+   - Shows 🎯✓ (green) when GP aligns with BB signal
+   - Shows 🎯✗ (red) when GP conflicts with BB signal
+   - Shows 🎯⚠ (yellow) when mixed signals exist
+   - GP tab shows 🔥✓/🔥✗/🔥⚠ for BB signals
+   - File: src/web-server.ts
+
+**Files modified**:
+- src/indicators.ts (1 line - default swingLookback changed)
+- src/backburner-detector.ts (1 line - explicit swingLookback=3)
+- src/golden-pocket-detector.ts (+50 lines - divergence detection)
+- src/web-server.ts (+70 lines - Div column for GP, X-Sig columns for both tables)
+
+**Commit**: 87cc0cd "feat: Add RSI divergence detection to GP + cross-strategy signals"
 
