@@ -1961,7 +1961,7 @@ function getHtmlPage(): string {
     <!-- Section: Altcoin Bots -->
     <div class="section-header" onclick="toggleSection('altcoinBots')">
       <span class="section-title">📊 Altcoin Backburner Bots (11)</span>
-      <span class="section-toggle" id="altcoinBotsToggle" onclick="toggleSection('altcoinBots')">▼</span>
+      <span class="section-toggle" id="altcoinBotsToggle">▼</span>
     </div>
     <div class="section-content" id="altcoinBotsContent">
       <div class="bot-toggles-row">
@@ -2096,7 +2096,7 @@ function getHtmlPage(): string {
     <!-- Section: BTC Bias Bots -->
     <div class="section-header" onclick="toggleSection('btcBiasBots')" style="margin-top: 12px;">
       <span class="section-title">₿ BTC Bias Bots (8)</span>
-      <span class="section-toggle" id="btcBiasBotsToggle" onclick="toggleSection('btcBiasBots')">▼</span>
+      <span class="section-toggle" id="btcBiasBotsToggle">▼</span>
     </div>
     <div class="section-content" id="btcBiasBotsContent">
       <div style="font-size: 11px; color: #8b949e; margin-bottom: 8px; padding: 6px 10px; background: #0d1117; border-radius: 4px;">
@@ -2157,7 +2157,7 @@ function getHtmlPage(): string {
     <!-- BTC Bias Bots Stats (collapsible) -->
     <div class="section-header" onclick="toggleSection('btcBiasStats')" style="margin-top: 12px;">
       <span class="section-title">₿ BTC Bias Bot Stats</span>
-      <span class="section-toggle" id="btcBiasStatsToggle" onclick="toggleSection('btcBiasStats')">▼</span>
+      <span class="section-toggle" id="btcBiasStatsToggle">▼</span>
     </div>
     <div class="section-content" id="btcBiasStatsContent">
       <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 12px;">
@@ -2207,7 +2207,7 @@ function getHtmlPage(): string {
     <!-- Section: MEXC Simulation Bots -->
     <div class="section-header" onclick="toggleSection('mexcSim')" style="margin-top: 12px;">
       <span class="section-title">📈 MEXC Simulation Bots (6)</span>
-      <span class="section-toggle" id="mexcSimToggle" onclick="toggleSection('mexcSim')">▼</span>
+      <span class="section-toggle" id="mexcSimToggle">▼</span>
     </div>
     <div class="section-content" id="mexcSimContent">
       <div style="font-size: 11px; color: #8b949e; margin-bottom: 8px; padding: 6px 10px; background: #0d1117; border-radius: 4px;">
@@ -2250,7 +2250,7 @@ function getHtmlPage(): string {
     <!-- Section: Golden Pocket Bots -->
     <div class="section-header" onclick="toggleSection('goldenPocket')" style="margin-top: 12px;">
       <span class="section-title">🎯 Golden Pocket Bots (4)</span>
-      <span class="section-toggle" id="goldenPocketToggle" onclick="toggleSection('goldenPocket')">▼</span>
+      <span class="section-toggle" id="goldenPocketToggle">▼</span>
     </div>
     <div class="section-content" id="goldenPocketContent">
       <div style="font-size: 11px; color: #8b949e; margin-bottom: 8px; padding: 6px 10px; background: #0d1117; border-radius: 4px;">
@@ -2670,15 +2670,20 @@ function getHtmlPage(): string {
     };
 
     function toggleSection(sectionId) {
+      console.log('[toggleSection] Called for: ' + sectionId);
       // Toggle state
       sectionState[sectionId] = !sectionState[sectionId];
       const isExpanded = sectionState[sectionId];
+      console.log('[toggleSection] New state for ' + sectionId + ': ' + (isExpanded ? 'expanded' : 'collapsed'));
       const content = document.getElementById(sectionId + 'Content');
       const toggle = document.getElementById(sectionId + 'Toggle');
       if (content && toggle) {
         // Use direct style manipulation for reliable hiding
         content.style.display = isExpanded ? 'block' : 'none';
         toggle.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)';
+        console.log('[toggleSection] Applied styles - display: ' + content.style.display + ', transform: ' + toggle.style.transform);
+      } else {
+        console.warn('[toggleSection] Elements not found for ' + sectionId + '. Content: ' + !!content + ', Toggle: ' + !!toggle);
       }
     }
 
