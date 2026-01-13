@@ -2915,11 +2915,11 @@ function getHtmlPage(): string {
       // Filter bar
       let html = '<div style="display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; align-items: center;">';
       html += '<span style="color: #8b949e; font-size: 11px; margin-right: 4px;">Filter:</span>';
-      html += '<button id="gpFilter_watching" onclick="toggleGpFilter(\'watching\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #8b949e; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.watching ? '1' : '0.4') + ';">watching</button>';
-      html += '<button id="gpFilter_triggered" onclick="toggleGpFilter(\'triggered\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #3fb950; background: #21262d; color: #3fb950; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.triggered ? '1' : '0.4') + ';">triggered</button>';
-      html += '<button id="gpFilter_deep_extreme" onclick="toggleGpFilter(\'deep_extreme\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #f0883e; background: #21262d; color: #f0883e; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.deep_extreme ? '1' : '0.4') + ';">deep</button>';
-      html += '<button id="gpFilter_reversing" onclick="toggleGpFilter(\'reversing\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #58a6ff; background: #21262d; color: #58a6ff; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.reversing ? '1' : '0.4') + ';">reversing</button>';
-      html += '<button id="gpFilter_played_out" onclick="toggleGpFilter(\'played_out\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #6e7681; background: #21262d; color: #6e7681; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.played_out ? '1' : '0.4') + ';">played out</button>';
+      html += '<button id="gpFilter_watching" onclick="toggleGpFilter(\\'watching\\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #8b949e; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.watching ? '1' : '0.4') + ';">watching</button>';
+      html += '<button id="gpFilter_triggered" onclick="toggleGpFilter(\\'triggered\\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #3fb950; background: #21262d; color: #3fb950; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.triggered ? '1' : '0.4') + ';">triggered</button>';
+      html += '<button id="gpFilter_deep_extreme" onclick="toggleGpFilter(\\'deep_extreme\\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #f0883e; background: #21262d; color: #f0883e; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.deep_extreme ? '1' : '0.4') + ';">deep</button>';
+      html += '<button id="gpFilter_reversing" onclick="toggleGpFilter(\\'reversing\\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #58a6ff; background: #21262d; color: #58a6ff; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.reversing ? '1' : '0.4') + ';">reversing</button>';
+      html += '<button id="gpFilter_played_out" onclick="toggleGpFilter(\\'played_out\\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #6e7681; background: #21262d; color: #6e7681; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.played_out ? '1' : '0.4') + ';">played out</button>';
       html += '<span style="color: #6e7681; font-size: 10px; margin-left: 8px;">(' + (setups?.length || 0) + '/' + (totalCount || 0) + ')</span>';
       html += '</div>';
 
@@ -2955,7 +2955,7 @@ function getHtmlPage(): string {
         const inList = savedList.has(key);
 
         html += '<tr style="border-bottom: 1px solid #21262d;' + (inList ? ' background: #1c2128;' : '') + '">';
-        html += '<td style="padding: 8px;"><input type="checkbox" data-setup-key="' + key + '" onclick="toggleSetupSelection(\'' + key + '\')" ' + (isSelected ? 'checked' : '') + ' style="cursor: pointer;">' + (inList ? '<span title="In list" style="color: #58a6ff; margin-left: 4px;">📋</span>' : '') + '</td>';
+        html += '<td style="padding: 8px;"><input type="checkbox" data-setup-key="' + key + '" onclick="toggleSetupSelection(\\'' + key + '\\')" ' + (isSelected ? 'checked' : '') + ' style="cursor: pointer;">' + (inList ? '<span title="In list" style="color: #58a6ff; margin-left: 4px;">📋</span>' : '') + '</td>';
         html += '<td style="padding: 8px; font-weight: 600;"><a href="' + mexcUrl + '" target="_blank" style="color: #58a6ff; text-decoration: none;" title="Open on MEXC Futures">' + ticker + '</a></td>';
         html += '<td style="padding: 8px; color: ' + dirColor + ';">' + dirIcon + ' ' + s.direction.toUpperCase() + '</td>';
         html += '<td style="padding: 8px;">' + s.timeframe + '</td>';
@@ -3007,7 +3007,7 @@ function getHtmlPage(): string {
         const isGP = 'fibLevels' in s;
 
         html += '<tr style="border-bottom: 1px solid #21262d;">';
-        html += '<td style="padding: 8px;"><input type="checkbox" data-setup-key="' + key + '" onclick="toggleSetupSelection(\'' + key + '\')" ' + (isSelected ? 'checked' : '') + ' style="cursor: pointer;"></td>';
+        html += '<td style="padding: 8px;"><input type="checkbox" data-setup-key="' + key + '" onclick="toggleSetupSelection(\\'' + key + '\\')" ' + (isSelected ? 'checked' : '') + ' style="cursor: pointer;"></td>';
         html += '<td style="padding: 8px; font-weight: 600;"><a href="' + mexcUrl + '" target="_blank" style="color: #58a6ff; text-decoration: none;" title="Open on MEXC Futures">' + ticker + '</a></td>';
         html += '<td style="padding: 8px; color: ' + (isGP ? '#f0883e' : '#8b949e') + ';">' + (isGP ? '🎯 GP' : '🔥 BB') + '</td>';
         html += '<td style="padding: 8px; color: ' + dirColor + ';">' + dirIcon + ' ' + s.direction.toUpperCase() + '</td>';
