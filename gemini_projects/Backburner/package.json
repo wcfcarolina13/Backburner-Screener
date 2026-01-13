@@ -9,7 +9,7 @@
     "start": "node dist/web-server.js",
     "web": "node dist/web-server.js",
     "dev": "tsx src/index.ts",
-    "dev:web": "tsx src/web-server.ts",
+    "dev:web": "tsx watch src/web-server.ts",
     "watch": "tsx watch src/index.ts",
     "check": "tsx src/check-symbol.ts",
     "analyze": "tsx src/analyze.ts"

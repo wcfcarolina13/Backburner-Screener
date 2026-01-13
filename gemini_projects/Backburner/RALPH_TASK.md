@@ -18,10 +18,10 @@ Fix three main issues with the Backburner trading dashboard:
 1. [x] **Fix dropdown collapse**: Collapsible sections (altcoinBots, btcBiasBots, btcBiasStats, mexcSim, goldenPocket) should properly expand and collapse when clicked
 2. [x] **Debug section toggle**: Add console logging to toggleSection() to verify it's being called and state is updating
 3. [x] **Fix event propagation**: Ensure onclick events on section headers don't conflict with child element events
-4. [ ] **Server startup verification**: Add startup logging and ensure server binds to port 3000 correctly
-5. [ ] **Process management**: Add graceful shutdown handling (SIGINT/SIGTERM) to clean up any spawned processes
-6. [ ] **Hot reload setup**: Ensure `npm run dev` properly watches files and restarts on changes
-7. [ ] **All tests pass**: Run `npm run build` successfully with no errors
+4. [x] **Server startup verification**: Add startup logging and ensure server binds to port 3000 correctly
+5. [x] **Process management**: Add graceful shutdown handling (SIGINT/SIGTERM) to clean up any spawned processes
+6. [x] **Hot reload setup**: Ensure `npm run dev` properly watches files and restarts on changes
+7. [x] **All tests pass**: Run `npm run build` successfully with no errors
 8. [ ] **Code is committed**: All fixes committed with descriptive messages
 
 ## Technical Context

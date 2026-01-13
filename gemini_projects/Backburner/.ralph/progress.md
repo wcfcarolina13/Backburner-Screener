@@ -4,8 +4,8 @@
 
 ## Summary
 
-- Iterations completed: 1
-- Current status: Fixed dropdown collapse issue
+- Iterations completed: 2
+- Current status: Server infrastructure verified and hot reload enabled
 
 ## How This Works
 
@@ -28,4 +28,19 @@ Fixed the collapsible section toggle issue in web-server.ts:
 
 **Files modified**:
 - src/web-server.ts (10 insertions, 5 deletions)
+
+### Iteration 2 - Server Infrastructure Verification
+**Date**: 2026-01-13
+**Completed Criteria**: 4, 5, 6, 7
+
+Verified server infrastructure and enabled hot reload for development:
+- **Criterion 4 (Server startup logging)**: Already implemented at web-server.ts:4270-4278. Server logs startup messages and URL when binding to port 3000.
+- **Criterion 5 (Graceful shutdown)**: Already implemented at web-server.ts:4308-4333. Handles SIGINT, SIGTERM, uncaughtException, and unhandledRejection with proper cleanup via `saveAllPositions()`.
+- **Criterion 6 (Hot reload)**: Updated package.json to use `tsx watch` for dev:web script (changed from `tsx src/web-server.ts` to `tsx watch src/web-server.ts`). This enables automatic file watching and server restart on changes.
+- **Criterion 7 (Build passes)**: Verified `npm run build` completes successfully with no TypeScript errors.
+
+**Files modified**:
+- package.json (changed dev:web script to enable watch mode)
+
+**Next**: Commit changes (criterion 8)
 
