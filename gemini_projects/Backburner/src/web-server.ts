@@ -1593,10 +1593,11 @@ function getHtmlPage(): string {
     }
     .section-header:hover { border-color: #58a6ff; }
     .section-title { font-weight: 600; font-size: 14px; color: #f0f6fc; }
-    .section-toggle { color: #8b949e; font-size: 16px; transition: transform 0.2s ease; }
+    .section-toggle { color: #8b949e; font-size: 16px; transition: transform 0.2s ease; cursor: pointer; padding: 4px 8px; border-radius: 4px; }
+    .section-toggle:hover { background: rgba(88, 166, 255, 0.2); }
     .section-toggle.collapsed { transform: rotate(-90deg); }
     .section-content { overflow: hidden; transition: all 0.3s ease; }
-    .section-content.collapsed { display: none; }
+    .section-content.collapsed { display: none !important; }
     .bot-toggles-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
     .bot-toggle-mini { flex: 0 0 auto; min-width: 80px; padding: 4px 8px; background: #161b22; border: 2px solid #30363d; border-radius: 6px; cursor: pointer; font-size: 10px; }
     .bot-toggle-mini:hover { border-color: #58a6ff !important; }
@@ -1960,7 +1961,7 @@ function getHtmlPage(): string {
     <!-- Section: Altcoin Bots -->
     <div class="section-header" onclick="toggleSection('altcoinBots')">
       <span class="section-title">📊 Altcoin Backburner Bots (11)</span>
-      <span class="section-toggle" id="altcoinBotsToggle">▼</span>
+      <span class="section-toggle" id="altcoinBotsToggle" onclick="toggleSection('altcoinBots')">▼</span>
     </div>
     <div class="section-content" id="altcoinBotsContent">
       <div class="bot-toggles-row">
@@ -2095,7 +2096,7 @@ function getHtmlPage(): string {
     <!-- Section: BTC Bias Bots -->
     <div class="section-header" onclick="toggleSection('btcBiasBots')" style="margin-top: 12px;">
       <span class="section-title">₿ BTC Bias Bots (8)</span>
-      <span class="section-toggle" id="btcBiasBotsToggle">▼</span>
+      <span class="section-toggle" id="btcBiasBotsToggle" onclick="toggleSection('btcBiasBots')">▼</span>
     </div>
     <div class="section-content" id="btcBiasBotsContent">
       <div style="font-size: 11px; color: #8b949e; margin-bottom: 8px; padding: 6px 10px; background: #0d1117; border-radius: 4px;">
@@ -2156,7 +2157,7 @@ function getHtmlPage(): string {
     <!-- BTC Bias Bots Stats (collapsible) -->
     <div class="section-header" onclick="toggleSection('btcBiasStats')" style="margin-top: 12px;">
       <span class="section-title">₿ BTC Bias Bot Stats</span>
-      <span class="section-toggle" id="btcBiasStatsToggle">▼</span>
+      <span class="section-toggle" id="btcBiasStatsToggle" onclick="toggleSection('btcBiasStats')">▼</span>
     </div>
     <div class="section-content" id="btcBiasStatsContent">
       <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 12px;">
@@ -2206,7 +2207,7 @@ function getHtmlPage(): string {
     <!-- Section: MEXC Simulation Bots -->
     <div class="section-header" onclick="toggleSection('mexcSim')" style="margin-top: 12px;">
       <span class="section-title">📈 MEXC Simulation Bots (6)</span>
-      <span class="section-toggle" id="mexcSimToggle">▼</span>
+      <span class="section-toggle" id="mexcSimToggle" onclick="toggleSection('mexcSim')">▼</span>
     </div>
     <div class="section-content" id="mexcSimContent">
       <div style="font-size: 11px; color: #8b949e; margin-bottom: 8px; padding: 6px 10px; background: #0d1117; border-radius: 4px;">
@@ -2249,7 +2250,7 @@ function getHtmlPage(): string {
     <!-- Section: Golden Pocket Bots -->
     <div class="section-header" onclick="toggleSection('goldenPocket')" style="margin-top: 12px;">
       <span class="section-title">🎯 Golden Pocket Bots (4)</span>
-      <span class="section-toggle" id="goldenPocketToggle">▼</span>
+      <span class="section-toggle" id="goldenPocketToggle" onclick="toggleSection('goldenPocket')">▼</span>
     </div>
     <div class="section-content" id="goldenPocketContent">
       <div style="font-size: 11px; color: #8b949e; margin-bottom: 8px; padding: 6px 10px; background: #0d1117; border-radius: 4px;">
@@ -2669,17 +2670,25 @@ function getHtmlPage(): string {
     };
 
     function toggleSection(sectionId) {
+      // Debug: verify function is called
+      console.log('toggleSection called:', sectionId);
       sectionState[sectionId] = !sectionState[sectionId];
+      const isExpanded = sectionState[sectionId];
       const content = document.getElementById(sectionId + 'Content');
       const toggle = document.getElementById(sectionId + 'Toggle');
+      console.log('Elements:', { content: !!content, toggle: !!toggle, isExpanded });
       if (content && toggle) {
-        if (sectionState[sectionId]) {
+        if (isExpanded) {
           content.classList.remove('collapsed');
           toggle.classList.remove('collapsed');
+          console.log('Expanded section:', sectionId);
         } else {
           content.classList.add('collapsed');
           toggle.classList.add('collapsed');
+          console.log('Collapsed section:', sectionId);
         }
+      } else {
+        console.error('Could not find elements for section:', sectionId);
       }
     }
 
