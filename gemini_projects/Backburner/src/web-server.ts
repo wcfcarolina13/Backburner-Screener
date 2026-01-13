@@ -1687,6 +1687,10 @@ function getHtmlPage(): string {
             style="padding: 8px 12px; border-radius: 6px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-weight: 600; cursor: pointer;">
             ?
           </button>
+          <button onclick="openSettings()" title="Settings"
+            style="padding: 8px 12px; border-radius: 6px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-weight: 600; cursor: pointer;">
+            ⚙️
+          </button>
         </div>
       </div>
     </header>
@@ -1934,6 +1938,46 @@ function getHtmlPage(): string {
               <span style="color: #58a6ff;">↩️ reversing</span> - Price moving toward target
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000; padding: 20px; overflow-y: auto;">
+      <div style="max-width: 450px; margin: 80px auto; background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <h2 style="color: #58a6ff; margin: 0;">⚙️ Settings</h2>
+          <button onclick="closeSettings()" style="background: none; border: none; color: #8b949e; font-size: 24px; cursor: pointer;">&times;</button>
+        </div>
+
+        <div style="color: #c9d1d9;">
+          <h4 style="margin: 0 0 12px 0; color: #8b949e;">Link Destination</h4>
+          <p style="color: #6e7681; font-size: 12px; margin: 0 0 12px 0;">Where should symbol hyperlinks open?</p>
+
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <label style="display: flex; align-items: center; gap: 10px; padding: 12px; background: #0d1117; border-radius: 8px; cursor: pointer; border: 2px solid transparent;" id="linkOption_bots">
+              <input type="radio" name="linkDestination" value="bots" onchange="updateLinkSetting('bots')" style="accent-color: #58a6ff;">
+              <div>
+                <div style="font-weight: 600;">🤖 Trading Bots</div>
+                <div style="font-size: 11px; color: #8b949e;">Opens MEXC grid bot page for the symbol</div>
+              </div>
+            </label>
+            <label style="display: flex; align-items: center; gap: 10px; padding: 12px; background: #0d1117; border-radius: 8px; cursor: pointer; border: 2px solid transparent;" id="linkOption_futures">
+              <input type="radio" name="linkDestination" value="futures" onchange="updateLinkSetting('futures')" style="accent-color: #58a6ff;">
+              <div>
+                <div style="font-weight: 600;">📊 Futures Trading</div>
+                <div style="font-size: 11px; color: #8b949e;">Opens MEXC futures trading page</div>
+              </div>
+            </label>
+          </div>
+
+          <hr style="border: none; border-top: 1px solid #30363d; margin: 20px 0;">
+
+          <h4 style="margin: 0 0 12px 0; color: #8b949e;">Saved List</h4>
+          <p style="color: #6e7681; font-size: 12px; margin: 0 0 12px 0;">Your saved list contains <span id="settingsSavedCount" style="color: #58a6ff;">0</span> items and is stored in your browser.</p>
+          <button onclick="clearSavedList()" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #f85149; background: transparent; color: #f85149; font-weight: 600; cursor: pointer;">
+            🗑️ Clear Saved List
+          </button>
         </div>
       </div>
     </div>
@@ -2695,6 +2739,52 @@ function getHtmlPage(): string {
       document.getElementById('guideModal').style.display = 'none';
     }
 
+    // Settings modal functions
+    function openSettings() {
+      // Update radio buttons to match current setting
+      const botsRadio = document.querySelector('input[name="linkDestination"][value="bots"]');
+      const futuresRadio = document.querySelector('input[name="linkDestination"][value="futures"]');
+      if (botsRadio) botsRadio.checked = appSettings.linkDestination === 'bots';
+      if (futuresRadio) futuresRadio.checked = appSettings.linkDestination === 'futures';
+
+      // Highlight selected option
+      document.getElementById('linkOption_bots').style.borderColor = appSettings.linkDestination === 'bots' ? '#58a6ff' : 'transparent';
+      document.getElementById('linkOption_futures').style.borderColor = appSettings.linkDestination === 'futures' ? '#58a6ff' : 'transparent';
+
+      // Update saved list count
+      document.getElementById('settingsSavedCount').textContent = savedList.size;
+
+      document.getElementById('settingsModal').style.display = 'block';
+    }
+
+    function closeSettings() {
+      document.getElementById('settingsModal').style.display = 'none';
+    }
+
+    function updateLinkSetting(value) {
+      appSettings.linkDestination = value;
+      persistSettings();
+
+      // Update visual selection
+      document.getElementById('linkOption_bots').style.borderColor = value === 'bots' ? '#58a6ff' : 'transparent';
+      document.getElementById('linkOption_futures').style.borderColor = value === 'futures' ? '#58a6ff' : 'transparent';
+
+      // Re-render tables to update links
+      renderSetupsWithTab();
+      console.log('[Settings] Link destination changed to:', value);
+    }
+
+    function clearSavedList() {
+      if (confirm('Are you sure you want to clear your saved list? This cannot be undone.')) {
+        savedList.clear();
+        persistSavedList();
+        updateSavedListCount();
+        document.getElementById('settingsSavedCount').textContent = '0';
+        renderSetupsWithTab();
+        console.log('[Settings] Saved list cleared');
+      }
+    }
+
     // History modal - stores last fetched state for rendering
     let lastState = null;
 
@@ -2873,9 +2963,68 @@ function getHtmlPage(): string {
     let currentSetupsTab = 'active';
     let allSetupsData = { all: [], active: [], playedOut: [], history: [], goldenPocket: [] };
 
-    // Saved list state
+    // Saved list state (persisted to localStorage)
     let savedList = new Set();  // Keys: symbol-timeframe-direction-marketType
     let selectedSetups = new Set();  // Currently selected in UI
+
+    // Settings state (persisted to localStorage)
+    let appSettings = {
+      linkDestination: 'bots',  // 'bots' or 'futures'
+    };
+
+    // Load saved list and settings from localStorage on startup
+    function loadPersistedData() {
+      try {
+        const savedListData = localStorage.getItem('backburner_savedList');
+        if (savedListData) {
+          const arr = JSON.parse(savedListData);
+          savedList = new Set(arr);
+          console.log('[Settings] Loaded saved list with ' + savedList.size + ' items');
+        }
+        const settingsData = localStorage.getItem('backburner_settings');
+        if (settingsData) {
+          appSettings = { ...appSettings, ...JSON.parse(settingsData) };
+          console.log('[Settings] Loaded settings:', appSettings);
+        }
+      } catch (e) {
+        console.error('[Settings] Failed to load persisted data:', e);
+      }
+    }
+
+    // Persist saved list to localStorage
+    function persistSavedList() {
+      try {
+        localStorage.setItem('backburner_savedList', JSON.stringify([...savedList]));
+      } catch (e) {
+        console.error('[Settings] Failed to persist saved list:', e);
+      }
+    }
+
+    // Persist settings to localStorage
+    function persistSettings() {
+      try {
+        localStorage.setItem('backburner_settings', JSON.stringify(appSettings));
+      } catch (e) {
+        console.error('[Settings] Failed to persist settings:', e);
+      }
+    }
+
+    // Get MEXC URL based on settings (bots or futures)
+    function getMexcUrl(symbol) {
+      const base = symbol.replace('USDT', '');
+      if (appSettings.linkDestination === 'bots') {
+        return 'https://www.mexc.com/futures/trading-bots/grid/' + base + '_USDT';
+      } else {
+        return 'https://www.mexc.com/futures/' + base + '_USDT';
+      }
+    }
+
+    // Initialize persisted data on load
+    loadPersistedData();
+    // Schedule update of saved list count after DOM is ready
+    setTimeout(function() {
+      updateSavedListCount();
+    }, 100);
 
     function getSetupKey(s) {
       return s.symbol + '-' + s.timeframe + '-' + s.direction + '-' + s.marketType;
@@ -2909,6 +3058,7 @@ function getHtmlPage(): string {
     function addSelectedToList() {
       selectedSetups.forEach(key => savedList.add(key));
       updateSavedListCount();
+      persistSavedList();  // Persist to localStorage
       selectedSetups.clear();
       updateSelectionStatus();
       renderSetupsWithTab();
@@ -2917,6 +3067,7 @@ function getHtmlPage(): string {
     function removeSelectedFromList() {
       selectedSetups.forEach(key => savedList.delete(key));
       updateSavedListCount();
+      persistSavedList();  // Persist to localStorage
       selectedSetups.clear();
       updateSelectionStatus();
       renderSetupsWithTab();
@@ -3041,11 +3192,7 @@ function getHtmlPage(): string {
     }
 
     function renderGoldenPocketTable(setups, totalCount) {
-      // Build MEXC futures URL from symbol (e.g., RIVERUSDT -> RIVER_USDT)
-      function getMexcFuturesUrl(symbol) {
-        const base = symbol.replace('USDT', '');
-        return 'https://www.mexc.com/futures/' + base + '_USDT';
-      }
+      // Use shared getMexcUrl function (respects settings)
 
       // Filter bar
       let html = '<div style="display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; align-items: center;">';
@@ -3085,7 +3232,8 @@ function getHtmlPage(): string {
                            s.state === 'deep_extreme' ? '#f0883e' :
                            s.state === 'reversing' ? '#58a6ff' : '#8b949e';
         const ticker = s.symbol.replace('USDT', '');
-        const mexcUrl = getMexcFuturesUrl(s.symbol);
+        const mexcUrl = getMexcUrl(s.symbol);
+        const linkTitle = appSettings.linkDestination === 'bots' ? 'Open MEXC Trading Bots' : 'Open MEXC Futures';
         const lastUpdated = formatTimeAgo(s.lastUpdated || s.detectedAt);
         const key = getSetupKey(s);
         const isSelected = selectedSetups.has(key);
@@ -3093,7 +3241,7 @@ function getHtmlPage(): string {
 
         html += '<tr style="border-bottom: 1px solid #21262d;' + (inList ? ' background: #1c2128;' : '') + '">';
         html += '<td style="padding: 8px;"><input type="checkbox" data-setup-key="' + key + '" onclick="toggleSetupSelection(\\'' + key + '\\')" ' + (isSelected ? 'checked' : '') + ' style="cursor: pointer;">' + (inList ? '<span title="In list" style="color: #58a6ff; margin-left: 4px;">📋</span>' : '') + '</td>';
-        html += '<td style="padding: 8px; font-weight: 600;"><a href="' + mexcUrl + '" target="_blank" style="color: #58a6ff; text-decoration: none;" title="Open on MEXC Futures">' + ticker + '</a></td>';
+        html += '<td style="padding: 8px; font-weight: 600;"><a href="' + mexcUrl + '" target="_blank" style="color: #58a6ff; text-decoration: none;" title="' + linkTitle + '">' + ticker + '</a></td>';
         html += '<td style="padding: 8px; color: ' + dirColor + ';">' + dirIcon + ' ' + s.direction.toUpperCase() + '</td>';
         html += '<td style="padding: 8px;">' + s.timeframe + '</td>';
         html += '<td style="padding: 8px; color: ' + stateColor + ';">' + s.state + '</td>';
@@ -3141,10 +3289,7 @@ function getHtmlPage(): string {
         return '<div class="empty-state">No setups in your saved list. Select setups and click "+ Add to List"</div>';
       }
 
-      function getMexcFuturesUrl(symbol) {
-        const base = symbol.replace('USDT', '');
-        return 'https://www.mexc.com/futures/' + base + '_USDT';
-      }
+      // Use shared getMexcUrl function (respects settings)
 
       let html = '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
       html += '<thead><tr style="border-bottom: 1px solid #30363d;">';
@@ -3164,7 +3309,8 @@ function getHtmlPage(): string {
                            s.state === 'deep_extreme' ? '#f0883e' :
                            s.state === 'reversing' ? '#58a6ff' : '#8b949e';
         const ticker = s.symbol.replace('USDT', '');
-        const mexcUrl = getMexcFuturesUrl(s.symbol);
+        const mexcUrl = getMexcUrl(s.symbol);
+        const linkTitle = appSettings.linkDestination === 'bots' ? 'Open MEXC Trading Bots' : 'Open MEXC Futures';
         const lastUpdated = formatTimeAgo(s.lastUpdated || s.detectedAt);
         const key = getSetupKey(s);
         const isSelected = selectedSetups.has(key);
@@ -3172,7 +3318,7 @@ function getHtmlPage(): string {
 
         html += '<tr style="border-bottom: 1px solid #21262d;">';
         html += '<td style="padding: 8px;"><input type="checkbox" data-setup-key="' + key + '" onclick="toggleSetupSelection(\\'' + key + '\\')" ' + (isSelected ? 'checked' : '') + ' style="cursor: pointer;"></td>';
-        html += '<td style="padding: 8px; font-weight: 600;"><a href="' + mexcUrl + '" target="_blank" style="color: #58a6ff; text-decoration: none;" title="Open on MEXC Futures">' + ticker + '</a></td>';
+        html += '<td style="padding: 8px; font-weight: 600;"><a href="' + mexcUrl + '" target="_blank" style="color: #58a6ff; text-decoration: none;" title="' + linkTitle + '">' + ticker + '</a></td>';
         html += '<td style="padding: 8px; color: ' + (isGP ? '#f0883e' : '#8b949e') + ';">' + (isGP ? '🎯 GP' : '🔥 BB') + '</td>';
         html += '<td style="padding: 8px; color: ' + dirColor + ';">' + dirIcon + ' ' + s.direction.toUpperCase() + '</td>';
         html += '<td style="padding: 8px;">' + s.timeframe + '</td>';
@@ -3946,10 +4092,12 @@ function getHtmlPage(): string {
           } else if (xSig === 'mixed') {
             xSigHtml = '<span style="color: #d29922; cursor: help;" title="GP has both aligned and conflicting signals">🎯⚠</span>';
           }
+          const mexcUrl = getMexcUrl(s.symbol);
+          const linkTitle = appSettings.linkDestination === 'bots' ? 'Open MEXC Trading Bots' : 'Open MEXC Futures';
           return \`<tr style="\${rowStyle}\${inList ? ' background: #1c2128;' : ''}">
             <td><input type="checkbox" data-setup-key="\${key}" onclick="toggleSetupSelection('\${key}')" \${isSelected ? 'checked' : ''} style="cursor: pointer;">\${inList ? '<span title="In list" style="color: #58a6ff; margin-left: 4px;">📋</span>' : ''}</td>
             <td><span class="badge badge-\${s.marketType}">\${s.marketType === 'futures' ? 'F' : 'S'}</span></td>
-            <td><strong>\${s.symbol.replace('USDT', '')}</strong><br><span style="font-size: 10px; color: #6e7681;">\${s.coinName || ''}</span></td>
+            <td><a href="\${mexcUrl}" target="_blank" style="color: #58a6ff; text-decoration: none;" title="\${linkTitle}"><strong>\${s.symbol.replace('USDT', '')}</strong></a><br><span style="font-size: 10px; color: #6e7681;">\${s.coinName || ''}</span></td>
             <td><span class="badge badge-\${s.direction}">\${s.direction.toUpperCase()}</span></td>
             <td>\${s.timeframe}</td>
             <td><span class="badge badge-\${stateClass}">\${s.state.replace('_', ' ')}</span></td>

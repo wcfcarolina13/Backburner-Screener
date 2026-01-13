@@ -4,8 +4,8 @@
 
 ## Summary
 
-- Iterations completed: 4
-- Current status: Timeframe + BTC trend filtering implemented based on backtest analysis
+- Iterations completed: 5
+- Current status: UI improvements - hyperlinks, settings modal, localStorage persistence
 
 ## How This Works
 
@@ -114,6 +114,45 @@ Added `shouldTradeSetup()` filter function at web-server.ts:38-62:
 
 **Files modified**:
 - src/web-server.ts (~40 lines - filter function + handler modifications)
+
+**Build**: Passes successfully
+
+### Iteration 5 - UI Improvements: Hyperlinks, Settings, Persistence
+**Date**: 2026-01-13
+**Task**: Multiple UI improvements requested by user
+
+**Changes Implemented**:
+
+1. **Hyperlinks in Backburner tab**:
+   - Added `getMexcUrl()` function to Backburner table (renderSetupsTable)
+   - Symbol column now links to MEXC (same as GP tab already had)
+
+2. **Changed default link destination to Trading Bots**:
+   - Default URL format: `https://www.mexc.com/futures/trading-bots/grid/SYMBOL_USDT`
+   - Previously was: `https://www.mexc.com/futures/SYMBOL_USDT`
+   - Created unified `getMexcUrl()` function that respects settings
+
+3. **Settings modal**:
+   - Added ⚙️ button in header next to ? (guide) button
+   - Settings modal with radio buttons to toggle link destination:
+     - 🤖 Trading Bots (default) - opens grid bot page
+     - 📊 Futures Trading - opens futures trading page
+   - Also shows saved list count and clear button
+
+4. **Persisted saved lists with localStorage**:
+   - `savedList` Set now persists to `backburner_savedList` in localStorage
+   - `appSettings` object persists to `backburner_settings` in localStorage
+   - `loadPersistedData()` restores both on page load
+   - `persistSavedList()` called when items added/removed
+   - `persistSettings()` called when settings changed
+   - Lists survive page refreshes, rebuilds, and server restarts
+
+**Files modified**:
+- src/web-server.ts:
+  - +50 lines for localStorage persistence functions
+  - +45 lines for settings modal HTML
+  - +50 lines for settings JS functions (openSettings, closeSettings, updateLinkSetting, clearSavedList)
+  - Modified renderSetupsTable, renderGoldenPocketTable, renderSavedListTable to use getMexcUrl()
 
 **Build**: Passes successfully
 
