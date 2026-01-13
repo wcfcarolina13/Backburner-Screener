@@ -4056,7 +4056,7 @@ function getHtmlPage(): string {
       // History tab has a 'Removed' column instead of 'Updated'
       const lastColHeader = tabType === 'history' ? 'Removed' : 'Updated';
 
-      return '<table><thead><tr><th style="width: 30px;"></th><th>Mkt</th><th>Symbol</th><th>Dir</th><th>TF</th><th>State</th><th>RSI</th><th>Div</th><th>X-Sig</th><th>Price</th><th>Impulse</th><th>Triggered</th><th>' + lastColHeader + '</th></tr></thead><tbody>' +
+      return '<table><thead><tr><th style="width: 30px;"></th><th>Mkt</th><th>Symbol</th><th>Dir</th><th>TF</th><th>State</th><th>RSI</th><th>HTF</th><th>Stop</th><th>Tier</th><th>Div</th><th>X-Sig</th><th>Price</th><th>Impulse</th><th>Triggered</th><th>' + lastColHeader + '</th></tr></thead><tbody>' +
         setups.map(s => {
           const stateClass = s.state === 'deep_extreme' ? 'deep' : s.state;
           const rowStyle = tabType === 'history' || s.state === 'played_out' ? 'opacity: 0.7;' : '';
@@ -4094,6 +4094,15 @@ function getHtmlPage(): string {
           }
           const mexcUrl = getMexcUrl(s.symbol);
           const linkTitle = appSettings.linkDestination === 'bots' ? 'Open MEXC Trading Bots' : 'Open MEXC Futures';
+          // TCG-compliant columns
+          const htfHtml = s.htfConfirmed === undefined ? '<span style="color: #6e7681;">-</span>' :
+                          s.htfConfirmed ? '<span style="color: #3fb950;" title="Higher timeframe aligned">✓</span>' :
+                          '<span style="color: #f85149;" title="Higher timeframe NOT aligned">✗</span>';
+          const stopHtml = s.structureStopPrice ? '<span style="font-family: monospace; font-size: 11px; color: #d29922;" title="Structure-based stop (below pullback low)">' + formatPrice(s.structureStopPrice) + '</span>' : '<span style="color: #6e7681;">-</span>';
+          const tierLabel = s.positionTier === 2 ? 'T2' : 'T1';
+          const tierColor = s.positionTier === 2 ? '#a371f7' : '#8b949e';
+          const addIcon = s.canAddPosition ? '<span style="color: #3fb950; margin-left: 2px;" title="RSI still worsening - safe to add">+</span>' : '';
+          const tierHtml = '<span style="color: ' + tierColor + '; font-weight: 600;" title="Position tier: ' + (s.positionTier === 2 ? 'Deep extreme (RSI < 20 or > 80)' : 'Standard (RSI < 30 or > 70)') + '>' + tierLabel + '</span>' + addIcon;
           return \`<tr style="\${rowStyle}\${inList ? ' background: #1c2128;' : ''}">
             <td><input type="checkbox" data-setup-key="\${key}" onclick="toggleSetupSelection('\${key}')" \${isSelected ? 'checked' : ''} style="cursor: pointer;">\${inList ? '<span title="In list" style="color: #58a6ff; margin-left: 4px;">📋</span>' : ''}</td>
             <td><span class="badge badge-\${s.marketType}">\${s.marketType === 'futures' ? 'F' : 'S'}</span></td>
@@ -4102,6 +4111,9 @@ function getHtmlPage(): string {
             <td>\${s.timeframe}</td>
             <td><span class="badge badge-\${stateClass}">\${s.state.replace('_', ' ')}</span></td>
             <td style="font-weight: 600; color: \${rsiColor}">\${s.currentRSI.toFixed(1)}</td>
+            <td style="text-align: center;">\${htfHtml}</td>
+            <td>\${stopHtml}</td>
+            <td style="text-align: center;">\${tierHtml}</td>
             <td style="font-size: 11px;">\${divHtml}</td>
             <td style="font-size: 11px;">\${xSigHtml}</td>
             <td style="font-family: monospace; font-size: 12px;">\${formatPrice(s.currentPrice)}</td>
