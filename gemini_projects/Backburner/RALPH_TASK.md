@@ -22,7 +22,7 @@ Fix three main issues with the Backburner trading dashboard:
 5. [x] **Process management**: Add graceful shutdown handling (SIGINT/SIGTERM) to clean up any spawned processes
 6. [x] **Hot reload setup**: Ensure `npm run dev` properly watches files and restarts on changes
 7. [x] **All tests pass**: Run `npm run build` successfully with no errors
-8. [ ] **Code is committed**: All fixes committed with descriptive messages
+8. [x] **Code is committed**: All fixes committed with descriptive messages
 
 ## Technical Context
 
