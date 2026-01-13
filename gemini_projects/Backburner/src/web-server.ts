@@ -2670,25 +2670,15 @@ function getHtmlPage(): string {
     };
 
     function toggleSection(sectionId) {
-      // Debug: verify function is called
-      console.log('toggleSection called:', sectionId);
+      // Toggle state
       sectionState[sectionId] = !sectionState[sectionId];
       const isExpanded = sectionState[sectionId];
       const content = document.getElementById(sectionId + 'Content');
       const toggle = document.getElementById(sectionId + 'Toggle');
-      console.log('Elements:', { content: !!content, toggle: !!toggle, isExpanded });
       if (content && toggle) {
-        if (isExpanded) {
-          content.classList.remove('collapsed');
-          toggle.classList.remove('collapsed');
-          console.log('Expanded section:', sectionId);
-        } else {
-          content.classList.add('collapsed');
-          toggle.classList.add('collapsed');
-          console.log('Collapsed section:', sectionId);
-        }
-      } else {
-        console.error('Could not find elements for section:', sectionId);
+        // Use direct style manipulation for reliable hiding
+        content.style.display = isExpanded ? 'block' : 'none';
+        toggle.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)';
       }
     }
 
@@ -2698,8 +2688,8 @@ function getHtmlPage(): string {
         const content = document.getElementById(id + 'Content');
         const toggle = document.getElementById(id + 'Toggle');
         if (content && toggle) {
-          content.classList.add('collapsed');
-          toggle.classList.add('collapsed');
+          content.style.display = 'none';
+          toggle.style.transform = 'rotate(-90deg)';
         }
       });
     }
@@ -2710,8 +2700,8 @@ function getHtmlPage(): string {
         const content = document.getElementById(id + 'Content');
         const toggle = document.getElementById(id + 'Toggle');
         if (content && toggle) {
-          content.classList.remove('collapsed');
-          toggle.classList.remove('collapsed');
+          content.style.display = 'block';
+          toggle.style.transform = 'rotate(0deg)';
         }
       });
     }
