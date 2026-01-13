@@ -17,7 +17,7 @@ export const DEFAULT_NOTIFICATION_CONFIG: NotificationConfig = {
   enabled: true,
   sound: true,
   soundName: 'Glass',  // Pleasant chime sound for new setups
-  playedOutSoundName: 'Purr',  // Softer sound for played out
+  playedOutSoundName: 'Blow',  // Distinct "done/over" sound (descending tone)
   onlyTriggered: true,  // Only alert on actionable setups
 };
 
@@ -188,10 +188,12 @@ export class NotificationManager {
     const ticker = setup.symbol.replace('USDT', '');
     const direction = setup.direction.toUpperCase();
     const market = setup.marketType === 'futures' ? 'F' : 'S';
+    const isGP = 'fibLevels' in setup;
+    const typeLabel = isGP ? 'GP' : 'BB';
 
-    const title = `✅ ${ticker} ${direction} Played Out`;
-    const subtitle = `${market} ${setup.timeframe} - Take profit zone reached`;
-    const message = setup.coinName || ticker;
+    const title = `🏁 ${ticker} ${direction} Done`;
+    const subtitle = `${typeLabel} ${market} ${setup.timeframe} - Setup played out`;
+    const message = setup.coinName || `${ticker} trade complete`;
     const sound = this.config.sound ? this.config.playedOutSoundName : undefined;
 
     await sendNotification(title, message, subtitle, sound);

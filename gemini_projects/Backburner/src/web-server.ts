@@ -525,6 +525,11 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
     await notifier.notifyNewSetup(setup);
   }
 
+  // Send notification when setup plays out (distinct "done" sound)
+  if (setup.state === 'played_out') {
+    await notifier.notifyPlayedOut(setup);
+  }
+
   // Focus Mode: If a position was just opened in the target bot, track it
   if (newlyOpened && focusMode.isEnabled()) {
     const targetBotId = focusMode.getConfig().targetBot;
