@@ -2874,6 +2874,30 @@ function getHtmlPage(): string {
       if (el) el.textContent = savedList.size;
     }
 
+    // Cross-strategy signal detection
+    // Returns: null if no match, 'align' if same direction, 'conflict' if opposite directions
+    function getCrossStrategySignal(setup, isGP) {
+      const otherSetups = isGP ? (allSetupsData.all || []) : (allSetupsData.goldenPocket || []);
+      // Look for setups with same symbol (ignoring timeframe for broader matching)
+      const matches = otherSetups.filter(other =>
+        other.symbol === setup.symbol &&
+        other.state !== 'played_out' &&
+        other.state !== 'watching'
+      );
+      if (matches.length === 0) return null;
+
+      // Check if directions align or conflict
+      const alignedMatch = matches.find(m => m.direction === setup.direction);
+      const conflictMatch = matches.find(m => m.direction !== setup.direction);
+
+      if (alignedMatch && conflictMatch) {
+        return 'mixed'; // Both aligned and conflicting signals
+      }
+      if (alignedMatch) return 'align';
+      if (conflictMatch) return 'conflict';
+      return null;
+    }
+
     function getCurrentDisplayedSetups() {
       if (currentSetupsTab === 'active') return allSetupsData.active || [];
       if (currentSetupsTab === 'playedOut') return allSetupsData.playedOut || [];
@@ -2987,6 +3011,8 @@ function getHtmlPage(): string {
       html += '<th style="text-align: left; padding: 8px; color: #8b949e;">Dir</th>';
       html += '<th style="text-align: left; padding: 8px; color: #8b949e;">TF</th>';
       html += '<th style="text-align: left; padding: 8px; color: #8b949e;">State</th>';
+      html += '<th style="text-align: left; padding: 8px; color: #8b949e;">Div</th>';
+      html += '<th style="text-align: left; padding: 8px; color: #8b949e;">X-Sig</th>';
       html += '<th style="text-align: right; padding: 8px; color: #8b949e;">Retrace%</th>';
       html += '<th style="text-align: right; padding: 8px; color: #8b949e;">Entry Zone</th>';
       html += '<th style="text-align: right; padding: 8px; color: #8b949e;">TP1</th>';
@@ -3013,6 +3039,33 @@ function getHtmlPage(): string {
         html += '<td style="padding: 8px; color: ' + dirColor + ';">' + dirIcon + ' ' + s.direction.toUpperCase() + '</td>';
         html += '<td style="padding: 8px;">' + s.timeframe + '</td>';
         html += '<td style="padding: 8px; color: ' + stateColor + ';">' + s.state + '</td>';
+        // Divergence display for GP table
+        let gpDivHtml = '-';
+        if (s.divergence && s.divergence.type) {
+          const divConfig = {
+            'bullish': { label: '⬆', color: '#3fb950' },
+            'bearish': { label: '⬇', color: '#f85149' },
+            'hidden_bullish': { label: '⬆H', color: '#58a6ff' },
+            'hidden_bearish': { label: '⬇H', color: '#ff7b72' }
+          };
+          const cfg = divConfig[s.divergence.type];
+          if (cfg) {
+            const strengthDots = s.divergence.strength === 'strong' ? '●●●' : s.divergence.strength === 'moderate' ? '●●○' : '●○○';
+            gpDivHtml = '<span style="color: ' + cfg.color + '; cursor: help;" title="' + (s.divergence.description || s.divergence.type) + '">' + cfg.label + ' ' + strengthDots + '</span>';
+          }
+        }
+        html += '<td style="padding: 8px; font-size: 11px;">' + gpDivHtml + '</td>';
+        // Cross-strategy signal for GP table
+        const gpXSig = getCrossStrategySignal(s, true);
+        let gpXSigHtml = '-';
+        if (gpXSig === 'align') {
+          gpXSigHtml = '<span style="color: #3fb950; cursor: help;" title="BB signal aligns (same direction)">🔥✓</span>';
+        } else if (gpXSig === 'conflict') {
+          gpXSigHtml = '<span style="color: #f85149; cursor: help;" title="BB signal conflicts (opposite direction)">🔥✗</span>';
+        } else if (gpXSig === 'mixed') {
+          gpXSigHtml = '<span style="color: #d29922; cursor: help;" title="BB has both aligned and conflicting signals">🔥⚠</span>';
+        }
+        html += '<td style="padding: 8px; font-size: 11px;">' + gpXSigHtml + '</td>';
         html += '<td style="padding: 8px; text-align: right;">' + (s.retracementPercent * 100).toFixed(1) + '%</td>';
         html += '<td style="padding: 8px; text-align: right; color: #f0883e;">' + (s.fibLevels?.level618?.toFixed(6) || '-') + ' - ' + (s.fibLevels?.level65?.toFixed(6) || '-') + '</td>';
         html += '<td style="padding: 8px; text-align: right; color: #3fb950;">' + (s.tp1Price?.toFixed(6) || '-') + '</td>';
@@ -3799,7 +3852,7 @@ function getHtmlPage(): string {
       // History tab has a 'Removed' column instead of 'Updated'
       const lastColHeader = tabType === 'history' ? 'Removed' : 'Updated';
 
-      return '<table><thead><tr><th style="width: 30px;"></th><th>Mkt</th><th>Symbol</th><th>Dir</th><th>TF</th><th>State</th><th>RSI</th><th>Div</th><th>Price</th><th>Impulse</th><th>Triggered</th><th>' + lastColHeader + '</th></tr></thead><tbody>' +
+      return '<table><thead><tr><th style="width: 30px;"></th><th>Mkt</th><th>Symbol</th><th>Dir</th><th>TF</th><th>State</th><th>RSI</th><th>Div</th><th>X-Sig</th><th>Price</th><th>Impulse</th><th>Triggered</th><th>' + lastColHeader + '</th></tr></thead><tbody>' +
         setups.map(s => {
           const stateClass = s.state === 'deep_extreme' ? 'deep' : s.state;
           const rowStyle = tabType === 'history' || s.state === 'played_out' ? 'opacity: 0.7;' : '';
@@ -3825,6 +3878,16 @@ function getHtmlPage(): string {
               divHtml = '<span style="color: ' + cfg.color + '; cursor: help;" title="' + (s.divergence.description || s.divergence.type) + '">' + cfg.label + ' ' + strengthDots + '</span>';
             }
           }
+          // Cross-strategy signal
+          const xSig = getCrossStrategySignal(s, false);
+          let xSigHtml = '-';
+          if (xSig === 'align') {
+            xSigHtml = '<span style="color: #3fb950; cursor: help;" title="GP signal aligns (same direction)">🎯✓</span>';
+          } else if (xSig === 'conflict') {
+            xSigHtml = '<span style="color: #f85149; cursor: help;" title="GP signal conflicts (opposite direction)">🎯✗</span>';
+          } else if (xSig === 'mixed') {
+            xSigHtml = '<span style="color: #d29922; cursor: help;" title="GP has both aligned and conflicting signals">🎯⚠</span>';
+          }
           return \`<tr style="\${rowStyle}\${inList ? ' background: #1c2128;' : ''}">
             <td><input type="checkbox" data-setup-key="\${key}" onclick="toggleSetupSelection('\${key}')" \${isSelected ? 'checked' : ''} style="cursor: pointer;">\${inList ? '<span title="In list" style="color: #58a6ff; margin-left: 4px;">📋</span>' : ''}</td>
             <td><span class="badge badge-\${s.marketType}">\${s.marketType === 'futures' ? 'F' : 'S'}</span></td>
@@ -3834,6 +3897,7 @@ function getHtmlPage(): string {
             <td><span class="badge badge-\${stateClass}">\${s.state.replace('_', ' ')}</span></td>
             <td style="font-weight: 600; color: \${rsiColor}">\${s.currentRSI.toFixed(1)}</td>
             <td style="font-size: 11px;">\${divHtml}</td>
+            <td style="font-size: 11px;">\${xSigHtml}</td>
             <td style="font-family: monospace; font-size: 12px;">\${formatPrice(s.currentPrice)}</td>
             <td style="color: \${impulseColor}; font-weight: 500;">\${impulseSign}\${s.impulsePercentMove?.toFixed(1) || '?'}%</td>
             <td style="color: #8b949e; font-size: 11px;">\${formatTimeAgo(s.triggeredAt || s.detectedAt)}</td>

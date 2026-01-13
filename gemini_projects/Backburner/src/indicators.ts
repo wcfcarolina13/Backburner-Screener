@@ -473,7 +473,7 @@ export function detectDivergence(
   candles: Candle[],
   rsiValues: RSIResult[],
   lookbackBars: number = 50,
-  swingLookback: number = 5
+  swingLookback: number = 3  // Reduced from 5 to find more swing points
 ): DivergenceResult | null {
   if (candles.length < lookbackBars || rsiValues.length < lookbackBars) {
     return null;

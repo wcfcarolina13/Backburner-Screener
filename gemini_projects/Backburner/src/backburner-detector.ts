@@ -217,7 +217,7 @@ export class BackburnerDetector {
       value: r.value,
       timestamp: r.timestamp,
     }));
-    const divergenceResult = detectDivergence(candles, rsiResultsForDivergence, 50, 5);
+    const divergenceResult = detectDivergence(candles, rsiResultsForDivergence, 50, 3);
 
     // Only include divergence if it supports the setup direction
     let setupDivergence: BackburnerSetup['divergence'] = undefined;

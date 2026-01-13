@@ -10,6 +10,7 @@ import {
   isInGoldenPocket,
   isInvalidated,
   getFibRetracementPercent,
+  detectDivergence,
   type FibonacciLevels,
 } from './indicators.js';
 
@@ -172,6 +173,29 @@ export class GoldenPocketDetector {
     // Calculate RSI for additional context
     const currentRSI = getCurrentRSI(candles, 14) || 50;
 
+    // Check for RSI-price divergence that aligns with the setup direction
+    const rsiValues = calculateRSI(candles, 14);
+    const rsiResultsForDivergence = rsiValues.map(r => ({
+      value: r.value,
+      timestamp: r.timestamp,
+    }));
+    const divergenceResult = detectDivergence(candles, rsiResultsForDivergence, 50, 3);
+
+    // Only include divergence if it supports the setup direction
+    let setupDivergence: BackburnerSetup['divergence'] = undefined;
+    if (divergenceResult) {
+      const isBullishDiv = divergenceResult.type === 'bullish' || divergenceResult.type === 'hidden_bullish';
+      const isBearishDiv = divergenceResult.type === 'bearish' || divergenceResult.type === 'hidden_bearish';
+
+      if ((direction === 'long' && isBullishDiv) || (direction === 'short' && isBearishDiv)) {
+        setupDivergence = {
+          type: divergenceResult.type!,
+          strength: divergenceResult.strength,
+          description: divergenceResult.description,
+        };
+      }
+    }
+
     // Determine setup state based on direction and RSI
     let state: SetupState;
     if (inGoldenPocket) {
@@ -258,6 +282,9 @@ export class GoldenPocketDetector {
       tp2Price,
       stopPrice,
 
+      // Divergence
+      divergence: setupDivergence,
+
       // Default metadata (will be set by screener)
       marketType: 'futures',
       liquidityRisk: 'high', // Hype coins are typically high risk
@@ -339,6 +366,31 @@ export class GoldenPocketDetector {
     setup.currentRSI = currentRSI;
     setup.lastUpdated = Date.now();
     setup.retracementPercent = getFibRetracementPercent(currentPrice, setup.fibLevels);
+
+    // Update divergence detection
+    const rsiValues = calculateRSI(candles, 14);
+    const rsiResultsForDivergence = rsiValues.map(r => ({
+      value: r.value,
+      timestamp: r.timestamp,
+    }));
+    const divergenceResult = detectDivergence(candles, rsiResultsForDivergence, 50, 3);
+
+    if (divergenceResult) {
+      const isBullishDiv = divergenceResult.type === 'bullish' || divergenceResult.type === 'hidden_bullish';
+      const isBearishDiv = divergenceResult.type === 'bearish' || divergenceResult.type === 'hidden_bearish';
+
+      if ((setup.direction === 'long' && isBullishDiv) || (setup.direction === 'short' && isBearishDiv)) {
+        setup.divergence = {
+          type: divergenceResult.type!,
+          strength: divergenceResult.strength,
+          description: divergenceResult.description,
+        };
+      } else {
+        setup.divergence = undefined;
+      }
+    } else {
+      setup.divergence = undefined;
+    }
 
     const key = this.getSetupKey(setup.symbol, setup.timeframe, setup.direction);
 
