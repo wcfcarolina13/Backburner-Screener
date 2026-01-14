@@ -346,3 +346,18 @@ data/
 
 **Build**: ✅ Passes successfully
 
+### Iteration 9 - MEXC API Failures on Render
+**Date**: 2026-01-14
+**Task**: Investigate and fix why Render deployment shows 0 symbols
+
+**Problem**: Dashboard deploys successfully to Render but MEXC API calls fail:
+```
+Failed to fetch page 1 after retries
+Failed to fetch page 2 after retries
+Failed to fetch page 3 after retries
+Failed to fetch page 4 after retries
+[STATE] Monitoring 0S + 0F symbols | 0 active | 0 played out
+```
+
+**Status**: Investigation in progress...
+

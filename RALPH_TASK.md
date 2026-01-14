@@ -1,54 +1,63 @@
 ---
-task: Fix Backburner web UI issues - dropdowns, background sessions, and server accessibility
+task: Fix MEXC API failures on Render deployment - 0 symbols loading
 test_command: "cd /Users/roti/gemini_projects/Backburner && npm run build"
 ---
 
-# Task: Fix Backburner Web UI Issues
+# Task: Fix MEXC API Failures on Render
 
-Fix three main issues with the Backburner trading dashboard:
+The Backburner dashboard deploys successfully to Render but shows "0 symbols" because MEXC API calls are failing.
+
+## Problem Evidence
+
+From Render logs:
+```
+Failed to fetch page 1 after retries
+Failed to fetch page 2 after retries
+Failed to fetch page 3 after retries
+Failed to fetch page 4 after retries
+[STATE] Monitoring 0S + 0F symbols | 0 active | 0 played out
+0 symbols
+```
+
+The self-ping mechanism IS working:
+```
+[PING] Self-ping OK
+```
 
 ## Requirements
 
-1. Dropdowns/collapsible sections should toggle properly (expand/collapse)
-2. Background sessions should be trackable and terminable
-3. Web server should be accessible at http://localhost:3000 and update properly
+1. Investigate why MEXC API calls fail on Render but work locally
+2. Implement a solution that allows symbol data to load on Render
+3. Ensure the dashboard displays symbols correctly on the hosted version
 
 ## Success Criteria
 
-1. [x] **Fix dropdown collapse**: Collapsible sections (altcoinBots, btcBiasBots, btcBiasStats, mexcSim, goldenPocket) should properly expand and collapse when clicked
-2. [x] **Debug section toggle**: Add console logging to toggleSection() to verify it's being called and state is updating
-3. [x] **Fix event propagation**: Ensure onclick events on section headers don't conflict with child element events
-4. [x] **Server startup verification**: Add startup logging and ensure server binds to port 3000 correctly
-5. [x] **Process management**: Add graceful shutdown handling (SIGINT/SIGTERM) to clean up any spawned processes
-6. [x] **Hot reload setup**: Ensure `npm run dev` properly watches files and restarts on changes
-7. [x] **All tests pass**: Run `npm run build` successfully with no errors
-8. [x] **Code is committed**: All fixes committed with descriptive messages
+1. [ ] **Diagnose API failure**: Identify root cause (IP blocking, rate limiting, geo-restriction, etc.)
+2. [ ] **Research MEXC API**: Check if MEXC blocks cloud IPs or requires authentication
+3. [ ] **Implement fallback/fix**: Either proxy requests, use different endpoint, or cache data
+4. [ ] **Verify on Render**: Dashboard shows symbols and data on https://backburner-screener-1.onrender.com
+5. [ ] **All tests pass**: Run `npm run build` successfully with no errors
+6. [ ] **Code is committed**: All fixes committed with descriptive messages
 
 ## Technical Context
 
-The web server is in `src/web-server.ts` - a large file (~3500+ lines) containing:
-- Express server setup
-- SSE (Server-Sent Events) for real-time updates
-- Multiple trading bot instances
-- Inline HTML/CSS/JS template for the dashboard UI
+### Current Architecture
+- `src/screener.ts` - BackburnerScreener class fetches MEXC symbols
+- `src/mexc-api.ts` - MEXC API wrapper for fetching exchange data
+- Pagination: Fetches symbols in 4 pages (likely ~500 symbols each)
 
-The collapsible sections use:
-- `sectionState` object to track expanded/collapsed state
-- `toggleSection(sectionId)` function to toggle
-- Elements: `{sectionId}Content` (the content div) and `{sectionId}Toggle` (the arrow indicator)
+### Potential Causes
+1. **IP Blocking**: MEXC may block requests from known cloud provider IPs (AWS, GCP, Render)
+2. **Geo-restrictions**: Render's Oregon datacenter may be in a blocked region
+3. **Rate Limiting**: Cloud IPs may have stricter rate limits
+4. **Missing Headers**: User-Agent or other headers may be required
 
-Known section IDs: altcoinBots, btcBiasBots, btcBiasStats, mexcSim, goldenPocket
-
-## Current Issues
-
-1. **Dropdowns not collapsing**: The `toggleSection` function exists but sections may not be toggling due to:
-   - Event bubbling/propagation issues (onclick on both header and toggle span)
-   - CSS display property not being applied correctly
-   - Initial state not matching DOM state
-
-2. **Background sessions**: Notifications appearing suggests processes are running but not tracked
-
-3. **Server not accessible**: Could be port conflict, binding issue, or crash on startup
+### Potential Solutions
+1. **Proxy Service**: Route API calls through a proxy that isn't blocked
+2. **CORS Proxy**: Use a public CORS proxy for the requests
+3. **Data Caching**: Pre-fetch symbol data and include it in the build
+4. **Alternative API**: Use a different data source (CoinGecko, etc.)
+5. **Server-side Proxy**: Set up a simple proxy endpoint
 
 ---
 
