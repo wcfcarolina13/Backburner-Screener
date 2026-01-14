@@ -5,7 +5,6 @@ import {
   getCurrentRSI,
   detectImpulseMove,
   isVolumeContracting,
-  isHigherTFBullish,
   calculateAvgVolume,
   detectDivergence,
   // TCG-compliant helpers
@@ -82,9 +81,18 @@ export class BackburnerDetector {
     const currentPrice = candles[candles.length - 1].close;
 
     // Check higher timeframe trend if available
-    const higherTFBullish = higherTFCandles
-      ? isHigherTFBullish(higherTFCandles)
-      : undefined;
+    // Use proper structure-based trend detection (higher highs + higher lows = bullish)
+    // This is more robust than simple price > SMA comparison
+    let higherTFBullish: boolean | undefined;
+    if (higherTFCandles && higherTFCandles.length >= 20) {
+      const htfTrend = detectHTFTrend(higherTFCandles, 20);
+      // Only trust the trend if confidence is above 50%
+      if (htfTrend.confidence >= 0.5) {
+        higherTFBullish = htfTrend.trend === 'bullish';
+      }
+      // If confidence is low or trend is neutral, leave as undefined
+      // This will allow setups but mark them as unconfirmed
+    }
 
     // Check for existing setups and update them
     for (const direction of ['long', 'short'] as SetupDirection[]) {
@@ -167,12 +175,19 @@ export class BackburnerDetector {
     if (higherTFBullish !== undefined) {
       // For LONG setups: HTF must be bullish
       // For SHORT setups: HTF must be bearish
+      // TCG principle: "5m signal marks hourly higher low, 1h signal marks daily higher low"
+      // Setups MUST align with higher timeframe trend
       if (direction === 'long' && !higherTFBullish) {
         htfConfirmed = false;
-        // Don't reject outright - store for UI display, but mark as unconfirmed
+        // REJECT long setups when HTF is bearish
+        // This prevents buying dips in downtrending coins
+        return null;
       }
       if (direction === 'short' && higherTFBullish) {
         htfConfirmed = false;
+        // REJECT short setups when HTF is bullish
+        // This prevents calling shorts on uptrending coins
+        return null;
       }
     }
 
