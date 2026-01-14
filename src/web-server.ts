@@ -5,7 +5,7 @@ import { BackburnerScreener } from './screener.js';
 import { PaperTradingEngine } from './paper-trading.js';
 import { TrailingStopEngine } from './paper-trading-trailing.js';
 import { ConfluenceBot } from './confluence-bot.js';
-import { TripleLightBot } from './triple-light-bot.js';
+// Triple Light bot removed - underperforming
 import { BTCExtremeBot } from './btc-extreme-bot.js';
 import { BTCTrendBot } from './btc-trend-bot.js';
 import { TrendOverrideBot } from './trend-override-bot.js';
@@ -98,7 +98,6 @@ const botVisibility: Record<string, boolean> = {
   trendFlip: true,
   trailWide: true,      // 20% trigger, 10% L1 lock
   confluence: true,     // Multi-TF confluence (5m + 15m/1h)
-  tripleLight: true,    // Asset-level 3-green-light bot
   btcExtreme: true,
   btcTrend: true,
   // BTC Bias bots (8 variants)
@@ -222,21 +221,8 @@ const confluenceBot = new ConfluenceBot({
   confluenceWindowMs: 5 * 60 * 1000,  // 5 minutes
 }, 'confluence');
 
-// Bot 7: Triple Light (Asset-Level Signal Aggregation)
-// Tracks 5m, 15m, 1h signals per asset. Only enters when ALL 3 show green light.
-// ONE position per asset (not per timeframe). Exits when all signals expire.
-const tripleLightBot = new TripleLightBot({
-  initialBalance: 2000,
-  positionSizePercent: 10,  // 10% of account per trade
-  leverage: 20,             // 20x leverage
-  initialStopLossPercent: 20,
-  trailTriggerPercent: 10,
-  trailStepPercent: 10,
-  level1LockPercent: 0,     // Breakeven at L1
-  maxOpenPositions: 100,
-  trackedTimeframes: ['5m', '15m', '1h'],
-  minLightsToEnter: 3,      // Only enter on strong signals (all 3 green)
-}, 'triple');
+// Bot 7: Triple Light - REMOVED (underperforming)
+// Was: Tracks 5m, 15m, 1h signals per asset. Only enters when ALL 3 show green light.
 
 // Bot 8: BTC Contrarian (50x leverage) - BTCUSDT only
 // Fades extreme RSI conditions (buys oversold, sells overbought)
@@ -380,7 +366,6 @@ async function handleNewSetup(setup: BackburnerSetup) {
   let trail10pct20xPosition = null;
   let trailWidePosition = null;
   let confluencePosition = null;
-  let tripleLightPosition = null;
 
   if (passesFilter) {
     fixedPosition = fixedTPBot.openPosition(setup);
@@ -389,7 +374,6 @@ async function handleNewSetup(setup: BackburnerSetup) {
     trail10pct20xPosition = trailing10pct20xBot.openPosition(setup);
     trailWidePosition = trailWideBot.openPosition(setup);
     confluencePosition = confluenceBot.openPosition(setup);
-    tripleLightPosition = tripleLightBot.handleNewSetup(setup);
   } else {
     // Log skipped setups for debugging
     console.log(`[FILTER] Skipped ${setup.symbol} ${setup.timeframe} ${setup.direction} (BTC bias: ${currentBtcBias})`);
@@ -437,9 +421,6 @@ async function handleNewSetup(setup: BackburnerSetup) {
   }
   if (confluencePosition) {
     broadcast('position_opened', { bot: 'confluence', position: confluencePosition });
-  }
-  if (tripleLightPosition) {
-    broadcast('position_opened', { bot: 'tripleLight', position: tripleLightPosition });
   }
 
   // Try MEXC simulation bots (only if setup passes filter)
@@ -513,7 +494,6 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
   let trail10pct20xPosition = trailing10pct20xBot.updatePosition(setup);
   let trailWidePosition = trailWideBot.updatePosition(setup);
   let confluencePosition = confluenceBot.updatePosition(setup);
-  let tripleLightPosition = tripleLightBot.handleSetupUpdated(setup);
 
   // FILTER: Check if setup passes timeframe/BTC trend filter before opening NEW positions
   const passesFilter = shouldTradeSetup(setup, currentBtcBias);
@@ -561,13 +541,6 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
     confluencePosition = confluenceBot.openPosition(setup);
     if (confluencePosition) {
       broadcast('position_opened', { bot: 'confluence', position: confluencePosition });
-      newlyOpened = true;
-    }
-  }
-  if (passesFilter && !tripleLightPosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
-    tripleLightPosition = tripleLightBot.handleNewSetup(setup);
-    if (tripleLightPosition) {
-      broadcast('position_opened', { bot: 'tripleLight', position: tripleLightPosition });
       newlyOpened = true;
     }
   }
@@ -696,17 +669,29 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
     }
   }
 
-  if (tripleLightPosition) {
-    if (tripleLightPosition.status !== 'open') {
-      broadcast('position_closed', { bot: 'tripleLight', position: tripleLightPosition });
-    } else {
-      broadcast('position_updated', { bot: 'tripleLight', position: tripleLightPosition });
-    }
-  }
-
-  // Update MEXC simulation bots
+  // Update MEXC simulation bots and broadcast position changes
   for (const [botId, bot] of mexcSimBots) {
+    const openBefore = bot.getOpenPositions().map(p => p.id);
     bot.updatePosition(setup, setup.currentPrice);
+    const openAfter = bot.getOpenPositions().map(p => p.id);
+
+    // Check if a position was closed (id was in openBefore but not in openAfter)
+    const closedIds = openBefore.filter(id => !openAfter.includes(id));
+    if (closedIds.length > 0) {
+      const closedPos = bot.getClosedPositions().find(p => closedIds.includes(p.id));
+      if (closedPos) {
+        broadcast('position_closed', { bot: botId, position: closedPos });
+      }
+    }
+
+    // Broadcast updates for positions that are still open
+    const position = bot.getOpenPositions().find(
+      p => p.symbol === setup.symbol && p.direction === setup.direction &&
+           p.timeframe === setup.timeframe && p.marketType === setup.marketType
+    );
+    if (position) {
+      broadcast('position_updated', { bot: botId, position });
+    }
   }
 
   // Focus Mode: Track trailing stop updates
@@ -750,7 +735,6 @@ function handleSetupRemoved(setup: BackburnerSetup) {
   trailing10pct20xBot.handleSetupRemoved(setup);
   trailWideBot.handleSetupRemoved(setup);
   confluenceBot.handleSetupRemoved(setup);
-  tripleLightBot.handleSetupRemoved(setup);
 
   // Handle MEXC simulation bots
   for (const [botId, bot] of mexcSimBots) {
@@ -887,20 +871,7 @@ function getFullState() {
       activeTriggers: confluenceBot.getActiveTriggers(),
       visible: botVisibility.confluence,
     },
-    // Bot 7: Triple Light (Asset-level 3-green-light system)
-    tripleLightBot: {
-      name: 'Triple Light',
-      description: '5m+15m+1h all green, 10% pos, 20x',
-      config: tripleLightBot.getConfig(),
-      balance: tripleLightBot.getBalance(),
-      unrealizedPnL: tripleLightBot.getUnrealizedPnL(),
-      openPositions: tripleLightBot.getOpenPositions(),
-      closedPositions: tripleLightBot.getClosedPositions(20),
-      stats: tripleLightBot.getStats(),
-      assetSignals: tripleLightBot.getAssetSignals(),
-      visible: botVisibility.tripleLight,
-    },
-    // Bot 8: BTC Contrarian (50x leverage, extreme RSI)
+    // Bot 7: BTC Contrarian (50x leverage, extreme RSI)
     btcExtremeBot: {
       name: 'BTC Contrarian',
       description: 'BTC only, 50x, fades extreme RSI',
@@ -1079,9 +1050,6 @@ app.post('/api/reset', express.json(), (req, res) => {
   } else if (bot === 'btcTrend') {
     btcTrendBot.reset();
     res.json({ success: true, bot: 'btcTrend', balance: btcTrendBot.getBalance() });
-  } else if (bot === 'tripleLight') {
-    tripleLightBot.reset();
-    res.json({ success: true, bot: 'tripleLight', balance: tripleLightBot.getBalance() });
   } else if (mexcSimBots.has(bot)) {
     const mexcBot = mexcSimBots.get(bot)!;
     mexcBot.reset();
@@ -1094,7 +1062,6 @@ app.post('/api/reset', express.json(), (req, res) => {
     trailing10pct20xBot.reset();
     trailWideBot.reset();
     confluenceBot.reset();
-    tripleLightBot.reset();
     btcExtremeBot.reset();
     btcTrendBot.reset();
     // Reset MEXC simulation bots
@@ -1111,7 +1078,6 @@ app.post('/api/reset', express.json(), (req, res) => {
         trailing10pct20x: trailing10pct20xBot.getBalance(),
         trailWide: trailWideBot.getBalance(),
         confluence: confluenceBot.getBalance(),
-        tripleLight: tripleLightBot.getBalance(),
         btcExtreme: btcExtremeBot.getBalance(),
         btcTrend: btcTrendBot.getBalance(),
         ...Object.fromEntries(Array.from(mexcSimBots.entries()).map(([k, b]) => [k, b.getBalance()])),
@@ -1142,9 +1108,6 @@ app.post('/api/toggle-bot', express.json(), (req, res) => {
   } else if (bot === 'confluence') {
     botVisibility.confluence = visible !== false;
     res.json({ success: true, bot: 'confluence', visible: botVisibility.confluence });
-  } else if (bot === 'tripleLight') {
-    botVisibility.tripleLight = visible !== false;
-    res.json({ success: true, bot: 'tripleLight', visible: botVisibility.tripleLight });
   } else if (bot === 'btcExtreme') {
     botVisibility.btcExtreme = visible !== false;
     res.json({ success: true, bot: 'btcExtreme', visible: botVisibility.btcExtreme });
@@ -2150,12 +2113,6 @@ function getHtmlPage(): string {
             <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #a371f7;"></span>
           </div>
         </div>
-        <div class="bot-toggle" id="toggleTripleLight" onclick="event.stopPropagation(); toggleBot('tripleLight')" style="flex: 1; min-width: 85px; padding: 6px 10px; background: #161b22; border: 2px solid #f0e68c; border-radius: 6px; cursor: pointer;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #f0e68c; font-size: 11px;">🚦 Triple</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #f0e68c;"></span>
-          </div>
-        </div>
         <div class="bot-toggle" id="toggleBtcExtreme" onclick="event.stopPropagation(); toggleBot('btcExtreme')" style="flex: 1; min-width: 85px; padding: 6px 10px; background: #161b22; border: 2px solid #ff6b35; border-radius: 6px; cursor: pointer;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <span style="font-weight: 600; color: #ff6b35; font-size: 11px;">₿ Contra</span>
@@ -2214,11 +2171,6 @@ function getHtmlPage(): string {
         <div class="stat-value" id="confluenceBalance" style="font-size: 18px;">$2,000</div>
         <div class="stat-label">MTF | P&L: <span id="confluencePnL" class="positive">$0</span> | Unreal: <span id="confluenceUnrealPnL" class="positive">$0</span></div>
         <div class="stat-label" style="margin-top: 2px;"><span id="confluenceWinRate">0%</span> win (<span id="confluenceTrades">0</span> trades) | Costs: <span id="confluenceCosts" style="color: #f85149;">$0</span></div>
-      </div>
-      <div class="stat-box" style="border-left: 3px solid #f0e68c;">
-        <div class="stat-value" id="tripleLightBalance" style="font-size: 18px;">$2,000</div>
-        <div class="stat-label">3x | P&L: <span id="tripleLightPnL" class="positive">$0</span> | Unreal: <span id="tripleLightUnrealPnL" class="positive">$0</span></div>
-        <div class="stat-label" style="margin-top: 2px;"><span id="tripleLightWinRate">0%</span> win (<span id="tripleLightTrades">0</span> trades) | Costs: <span id="tripleLightCosts" style="color: #f85149;">$0</span></div>
       </div>
       <div class="stat-box" style="border-left: 3px solid #ff6b35;">
         <div class="stat-value" id="btcExtremeBalance" style="font-size: 18px;">$2,000</div>
@@ -2568,22 +2520,6 @@ function getHtmlPage(): string {
           <div id="confluencePositionsTable"><div class="empty-state">No positions</div></div>
         </div>
       </div>
-      <div class="card bot-card" id="tripleLightCard" style="border-left: 3px solid #f0e68c;">
-        <div class="card-header" style="cursor: pointer;" onclick="toggleSection('tripleLight')">
-          <div style="display: flex; align-items: center; gap: 6px;">
-            <span class="section-toggle" id="tripleLightToggle">▼</span>
-            <span class="card-title">🚦 Triple Light</span>
-          </div>
-          <div style="display: flex; gap: 8px; align-items: center;">
-            <button onclick="event.stopPropagation(); showBotHistory('tripleLight', '🚦 Triple Light')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="tripleLightHistoryCount">0</span></button>
-            <span id="tripleLightPositionCount">0</span>
-          </div>
-        </div>
-        <div id="tripleLightContent">
-          <div id="tripleLightSignalsBox" style="margin-bottom: 8px; font-size: 11px; color: #8b949e;"></div>
-          <div id="tripleLightPositionsTable"><div class="empty-state">No positions</div></div>
-        </div>
-      </div>
       <div class="card bot-card" id="btcExtremeCard" style="border-left: 3px solid #ff6b35;">
         <div class="card-header" style="cursor: pointer;" onclick="toggleSection('btcExtreme')">
           <div style="display: flex; align-items: center; gap: 6px;">
@@ -2859,7 +2795,6 @@ function getHtmlPage(): string {
         'trailing10pct20x': { prop: 'trailing10pct20xBot', trailing: true },
         'trailWide': { prop: 'trailWideBot', trailing: true },
         'confluence': { prop: 'confluenceBot', trailing: true },
-        'tripleLight': { prop: 'tripleLightBot', trailing: true },
         'btcExtreme': { prop: 'btcExtremeBot', trailing: true, btc: true },
         'btcTrend': { prop: 'btcTrendBot', trailing: true, btc: true },
         'trendOverride': { prop: 'trendOverrideBot', trailing: true },
@@ -2907,7 +2842,6 @@ function getHtmlPage(): string {
       trailing10pct20x: true,
       trailWide: true,
       confluence: true,
-      tripleLight: true,
       btcExtreme: true,
       btcTrend: true,
       trendOverride: true,
@@ -2996,7 +2930,7 @@ function getHtmlPage(): string {
     // Bot visibility state (synced with server)
     let botVisibility = {
       fixedTP: true, trailing1pct: true, trailing10pct10x: true, trailing10pct20x: true,
-      trailWide: true, confluence: true, tripleLight: true,
+      trailWide: true, confluence: true,
       btcExtreme: true, btcTrend: true, trendOverride: true, trendFlip: true,
       // BTC Bias bots
       bias100x20trail: true, bias100x50trail: true, bias10x20trail: true, bias10x50trail: true,
@@ -3639,10 +3573,6 @@ function getHtmlPage(): string {
       setDisplay(['confluenceCard'], botVisibility.confluence ? 'block' : 'none');
       setToggle('toggleConfluence', botVisibility.confluence, '#39d4e8');
 
-      // Triple Light bot (lime)
-      setDisplay(['tripleLightCard'], botVisibility.tripleLight ? 'block' : 'none');
-      setToggle('toggleTripleLight', botVisibility.tripleLight, '#7ee787');
-
       // BTC Extreme bot (orange)
       setDisplay(['btcExtremeCard'], botVisibility.btcExtreme ? 'block' : 'none');
       setToggle('toggleBtcExtreme', botVisibility.btcExtreme, '#ff6b35');
@@ -3788,21 +3718,7 @@ function getHtmlPage(): string {
       document.getElementById('confluenceTrades').textContent = confluenceStats.totalTrades;
       document.getElementById('confluenceCosts').textContent = formatCurrency(confluenceStats.totalExecutionCosts || 0);
 
-      // Update Triple Light bot stats (Bot 7)
-      const tripleLightStats = state.tripleLightBot.stats;
-      const tripleLightUnreal = state.tripleLightBot.unrealizedPnL;
-      document.getElementById('tripleLightBalance').textContent = formatCurrency(tripleLightStats.currentBalance);
-      const tripleLightPnL = document.getElementById('tripleLightPnL');
-      tripleLightPnL.textContent = formatCurrency(tripleLightStats.totalPnL);
-      tripleLightPnL.className = tripleLightStats.totalPnL >= 0 ? 'positive' : 'negative';
-      const tripleLightUnrealEl = document.getElementById('tripleLightUnrealPnL');
-      tripleLightUnrealEl.textContent = formatCurrency(tripleLightUnreal);
-      tripleLightUnrealEl.className = tripleLightUnreal >= 0 ? 'positive' : 'negative';
-      document.getElementById('tripleLightWinRate').textContent = tripleLightStats.winRate.toFixed(0) + '%';
-      document.getElementById('tripleLightTrades').textContent = tripleLightStats.totalTrades;
-      document.getElementById('tripleLightCosts').textContent = formatCurrency(tripleLightStats.totalExecutionCosts || 0);
-
-      // Update BTC Extreme bot stats (Bot 8)
+      // Update BTC Extreme bot stats
       const btcExtremeStats = state.btcExtremeBot.stats;
       const btcExtremeUnreal = state.btcExtremeBot.unrealizedPnL;
       document.getElementById('btcExtremeBalance').textContent = formatCurrency(btcExtremeStats.currentBalance);
@@ -4014,23 +3930,6 @@ function getHtmlPage(): string {
         triggersBox.innerHTML = 'Waiting for multi-TF triggers...';
       }
 
-      // Update Triple Light positions (Bot 7)
-      document.getElementById('tripleLightPositionCount').textContent = state.tripleLightBot.openPositions.length;
-      document.getElementById('tripleLightPositionsTable').innerHTML = renderTripleLightPositionsTable(state.tripleLightBot.openPositions);
-      // Update triple light signals display
-      const assetSignals = state.tripleLightBot.assetSignals || [];
-      const signalsBox = document.getElementById('tripleLightSignalsBox');
-      if (assetSignals.length > 0) {
-        signalsBox.innerHTML = assetSignals.slice(0, 8).map(s => {
-          const lights = '🟢'.repeat(s.greenLights) + '⚫'.repeat(3 - s.greenLights);
-          const color = s.greenLights === 3 ? '#f0e68c' : (s.greenLights >= 2 ? '#6e7681' : '#3d4148');
-          return '<span style="margin-right: 8px; color: ' + color + ';">' +
-            s.symbol.replace('USDT', '') + ' ' + (s.direction || '-').toUpperCase() + ' ' + lights + '</span>';
-        }).join('');
-      } else {
-        signalsBox.innerHTML = 'Waiting for 3-green-light signals...';
-      }
-
       // Update history counts (for badge display in buttons)
       document.getElementById('fixedHistoryCount').textContent = state.fixedTPBot.closedPositions.length;
       document.getElementById('trail1pctHistoryCount').textContent = state.trailing1pctBot.closedPositions.length;
@@ -4038,7 +3937,6 @@ function getHtmlPage(): string {
       document.getElementById('trail10pct20xHistoryCount').textContent = state.trailing10pct20xBot.closedPositions.length;
       document.getElementById('trailWideHistoryCount').textContent = state.trailWideBot.closedPositions.length;
       document.getElementById('confluenceHistoryCount').textContent = state.confluenceBot.closedPositions.length;
-      document.getElementById('tripleLightHistoryCount').textContent = state.tripleLightBot.closedPositions.length;
       document.getElementById('btcExtremeHistoryCount').textContent = state.btcExtremeBot.closedPositions.length;
       document.getElementById('btcTrendHistoryCount').textContent = state.btcTrendBot.closedPositions.length;
 
@@ -4206,33 +4104,6 @@ function getHtmlPage(): string {
             <td><strong>\${p.symbol.replace('USDT', '')}</strong></td>
             <td>\${p.timeframe || '?'}</td>
             <td><span class="badge badge-\${p.direction}">\${p.direction.toUpperCase()}</span></td>
-            <td style="color: #8b949e; font-size: 11px;">\${formatCurrency(p.marginUsed)}<br><span style="font-size: 10px;">\${p.leverage}x</span></td>
-            <td>\${p.entryPrice.toPrecision(5)}</td>
-            <td>\${p.currentPrice.toPrecision(5)}</td>
-            <td class="pnl \${p.unrealizedPnL >= 0 ? 'positive' : 'negative'}">\${formatCurrency(p.unrealizedPnL)}<br><span style="font-size: 10px;">(\${formatPercent(returnOnMargin)} ROI)</span></td>
-            <td style="color: \${trailColor}; font-weight: 600;">\${trailText}</td>
-            <td>\${p.currentStopLossPrice.toPrecision(4)}</td>
-          </tr>\`;
-        }).join('') +
-        '</tbody></table>';
-    }
-
-    function renderTripleLightPositionsTable(positions) {
-      if (positions.length === 0) return '<div class="empty-state">No open positions</div>';
-
-      return '<table><thead><tr><th>Symbol</th><th>Dir</th><th>Lights</th><th>Margin</th><th>Entry</th><th>Current</th><th>P&L</th><th>Trail</th><th>SL</th></tr></thead><tbody>' +
-        positions.map(p => {
-          const trailColor = p.trailLevel > 0 ? '#a371f7' : '#8b949e';
-          const trailText = p.trailLevel > 0 ? 'L' + p.trailLevel + ' (' + ((p.trailLevel - 1) * 10) + '%+)' : 'Not yet';
-          // Calculate return on margin (ROI)
-          const returnOnMargin = p.marginUsed > 0 ? (p.unrealizedPnL / p.marginUsed) * 100 : 0;
-          // Green lights display
-          const currentLights = p.currentGreenLights || p.entryGreenLights || 0;
-          const lights = '🟢'.repeat(currentLights) + '⚫'.repeat(3 - currentLights);
-          return \`<tr>
-            <td><strong>\${p.symbol.replace('USDT', '')}</strong></td>
-            <td><span class="badge badge-\${p.direction}">\${p.direction.toUpperCase()}</span></td>
-            <td style="font-size: 12px;">\${lights}</td>
             <td style="color: #8b949e; font-size: 11px;">\${formatCurrency(p.marginUsed)}<br><span style="font-size: 10px;">\${p.leverage}x</span></td>
             <td>\${p.entryPrice.toPrecision(5)}</td>
             <td>\${p.currentPrice.toPrecision(5)}</td>
@@ -4852,7 +4723,6 @@ async function main() {
       await trailing10pct20xBot.updateAllPositionPrices(getPrice);
       await trailWideBot.updateAllPositionPrices(getPrice);
       await confluenceBot.updateOrphanedPositions(getCurrentPrice);
-      await tripleLightBot.updateOrphanedPositions(getCurrentPrice);
       await trendOverrideBot.updateOrphanedPositions(getCurrentPrice);
       await trendFlipBot.updateOrphanedPositions(getCurrentPrice, currentBtcBias);
       // Update MEXC simulation bots (all positions, not just orphaned)
