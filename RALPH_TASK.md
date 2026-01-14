@@ -32,12 +32,19 @@ The self-ping mechanism IS working:
 
 ## Success Criteria
 
-1. [ ] **Diagnose API failure**: Identify root cause (IP blocking, rate limiting, geo-restriction, etc.)
-2. [ ] **Research MEXC API**: Check if MEXC blocks cloud IPs or requires authentication
-3. [ ] **Implement fallback/fix**: Either proxy requests, use different endpoint, or cache data
-4. [ ] **Verify on Render**: Dashboard shows symbols and data on https://backburner-screener-1.onrender.com
-5. [ ] **All tests pass**: Run `npm run build` successfully with no errors
-6. [ ] **Code is committed**: All fixes committed with descriptive messages
+1. [x] **Diagnose API failure**: Identify root cause (IP blocking, rate limiting, geo-restriction, etc.)
+   - Root cause: CoinGecko API blocks cloud provider IPs (datacenter ASN blocking)
+2. [x] **Research MEXC API**: Check if MEXC blocks cloud IPs or requires authentication
+   - MEXC API works fine; the issue was CoinGecko market cap data API
+3. [x] **Implement fallback/fix**: Either proxy requests, use different endpoint, or cache data
+   - Added CoinLore as fallback API for market cap data (no IP blocking)
+   - Falls back to volume-only filtering if both APIs fail
+4. [x] **Verify on Render**: Dashboard shows symbols and data on https://backburner-screener-1.onrender.com
+   - Verified working with CoinLore fallback
+5. [x] **All tests pass**: Run `npm run build` successfully with no errors
+   - Build passes ✅
+6. [x] **Code is committed**: All fixes committed with descriptive messages
+   - Commits: 3294454, e105d1a, e5f2085
 
 ## Technical Context
 

@@ -340,6 +340,36 @@ const notifier = new NotificationManager({
 // Focus Mode - for manual trade copying with notifications
 const focusMode = getFocusModeManager();
 
+// Helper function to get positions from any target bot
+function getTargetBotPositions(targetBotId: string): any[] {
+  switch (targetBotId) {
+    case 'trailing10pct10x': return trailing10pct10xBot.getOpenPositions();
+    case 'trailing10pct20x': return trailing10pct20xBot.getOpenPositions();
+    case 'trailWide': return trailWideBot.getOpenPositions();
+    case 'trailing1pct': return trailing1pctBot.getOpenPositions();
+    case 'fixedTP': return fixedTPBot.getOpenPositions();
+    case 'confluence': return confluenceBot.getOpenPositions();
+    case 'trendOverride': return trendOverrideBot.getOpenPositions();
+    case 'trendFlip': return trendFlipBot.getOpenPositions();
+    case 'btcExtreme': {
+      const pos = btcExtremeBot.getPosition();
+      return pos ? [pos] : [];
+    }
+    case 'btcTrend': {
+      const pos = btcTrendBot.getPosition();
+      return pos ? [pos] : [];
+    }
+    case 'gp-conservative':
+    case 'gp-standard':
+    case 'gp-aggressive':
+    case 'gp-yolo': {
+      const gpBot = goldenPocketBots.get(targetBotId);
+      return gpBot ? gpBot.getOpenPositions() : [];
+    }
+    default: return [];
+  }
+}
+
 // State
 let currentStatus = 'Starting...';
 let scanProgress = { completed: 0, total: 0, phase: '' };
@@ -450,18 +480,27 @@ async function handleNewSetup(setup: BackburnerSetup) {
     console.log(`[GP-BOT] Skipped ${setup.symbol} ${setup.timeframe} ${setup.direction} - failed filter (BTC: ${currentBtcBias})`);
   }
 
-  // Focus Mode: Track positions from target bot (Trail Standard by default)
+  // Focus Mode: Track positions from target bot
   if (focusMode.isEnabled()) {
     const targetBotId = focusMode.getConfig().targetBot;
     let targetPosition = null;
-    if (targetBotId === 'trailing10pct10x' && trail10pct10xPosition) {
-      targetPosition = trail10pct10xPosition;
-    } else if (targetBotId === 'trailing10pct20x' && trail10pct20xPosition) {
-      targetPosition = trail10pct20xPosition;
-    } else if (targetBotId === 'trailWide' && trailWidePosition) {
-      targetPosition = trailWidePosition;
-    } else if (targetBotId === 'trailing1pct' && trail1pctPosition) {
-      targetPosition = trail1pctPosition;
+
+    // Match target bot to the newly created position
+    if (targetBotId === 'trailing10pct10x') targetPosition = trail10pct10xPosition;
+    else if (targetBotId === 'trailing10pct20x') targetPosition = trail10pct20xPosition;
+    else if (targetBotId === 'trailWide') targetPosition = trailWidePosition;
+    else if (targetBotId === 'trailing1pct') targetPosition = trail1pctPosition;
+    else if (targetBotId === 'fixedTP') targetPosition = fixedPosition;
+    else if (targetBotId === 'confluence') targetPosition = confluencePosition;
+    // GP bots - find newly opened position for this setup
+    else if (targetBotId.startsWith('gp-')) {
+      const gpBot = goldenPocketBots.get(targetBotId);
+      if (gpBot) {
+        const gpPositions = gpBot.getOpenPositions();
+        targetPosition = gpPositions.find((p: any) =>
+          p.symbol === setup.symbol && p.direction === setup.direction
+        );
+      }
     }
 
     if (targetPosition) {
@@ -600,15 +639,30 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
   if (newlyOpened && focusMode.isEnabled()) {
     const targetBotId = focusMode.getConfig().targetBot;
     let targetPosition = null;
-    if (targetBotId === 'trailing10pct10x' && trail10pct10xPosition && trail10pct10xPosition.status === 'open') {
+
+    // Match target bot to the position
+    if (targetBotId === 'trailing10pct10x' && trail10pct10xPosition?.status === 'open') {
       targetPosition = trail10pct10xPosition;
-    } else if (targetBotId === 'trailing10pct20x' && trail10pct20xPosition && trail10pct20xPosition.status === 'open') {
+    } else if (targetBotId === 'trailing10pct20x' && trail10pct20xPosition?.status === 'open') {
       targetPosition = trail10pct20xPosition;
-    } else if (targetBotId === 'trailWide' && trailWidePosition && trailWidePosition.status === 'open') {
+    } else if (targetBotId === 'trailWide' && trailWidePosition?.status === 'open') {
       targetPosition = trailWidePosition;
-    } else if (targetBotId === 'trailing1pct' && trail1pctPosition && trail1pctPosition.status === 'open') {
+    } else if (targetBotId === 'trailing1pct' && trail1pctPosition?.status === 'open') {
       targetPosition = trail1pctPosition;
+    } else if (targetBotId === 'fixedTP' && fixedPosition?.status === 'open') {
+      targetPosition = fixedPosition;
+    } else if (targetBotId === 'confluence' && confluencePosition?.status === 'open') {
+      targetPosition = confluencePosition;
+    } else if (targetBotId.startsWith('gp-')) {
+      const gpBot = goldenPocketBots.get(targetBotId);
+      if (gpBot) {
+        const gpPositions = gpBot.getOpenPositions();
+        targetPosition = gpPositions.find((p: any) =>
+          p.symbol === setup.symbol && p.direction === setup.direction && p.status === 'open'
+        );
+      }
     }
+
     if (targetPosition) {
       // Check if Focus Mode is already tracking this position
       const focusPositions = focusMode.getActivePositions();
@@ -701,6 +755,7 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
     let targetPosition = null;
     let positionClosed = false;
 
+    // Match target bot to position
     if (targetBotId === 'trailing10pct10x' && trail10pct10xPosition) {
       targetPosition = trail10pct10xPosition;
       positionClosed = trail10pct10xPosition.status !== 'open';
@@ -713,6 +768,21 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
     } else if (targetBotId === 'trailing1pct' && trail1pctPosition) {
       targetPosition = trail1pctPosition;
       positionClosed = trail1pctPosition.status !== 'open';
+    } else if (targetBotId === 'fixedTP' && fixedPosition) {
+      targetPosition = fixedPosition;
+      positionClosed = fixedPosition.status !== 'open';
+    } else if (targetBotId === 'confluence' && confluencePosition) {
+      targetPosition = confluencePosition;
+      positionClosed = confluencePosition.status !== 'open';
+    } else if (targetBotId.startsWith('gp-')) {
+      const gpBot = goldenPocketBots.get(targetBotId);
+      if (gpBot) {
+        const gpPositions = gpBot.getOpenPositions();
+        targetPosition = gpPositions.find((p: any) =>
+          p.symbol === setup.symbol && p.direction === setup.direction
+        );
+        positionClosed = !!(targetPosition && targetPosition.status !== 'open');
+      }
     }
 
     if (targetPosition) {
@@ -982,16 +1052,7 @@ function getFullState() {
     focusMode: (() => {
       // Sync Focus Mode with current positions from target bot
       const targetBotId = focusMode.getConfig().targetBot;
-      let targetBotPositions: any[] = [];
-      if (targetBotId === 'trailing10pct10x') {
-        targetBotPositions = trailing10pct10xBot.getOpenPositions();
-      } else if (targetBotId === 'trailing10pct20x') {
-        targetBotPositions = trailing10pct20xBot.getOpenPositions();
-      } else if (targetBotId === 'trailWide') {
-        targetBotPositions = trailWideBot.getOpenPositions();
-      } else if (targetBotId === 'trailing1pct') {
-        targetBotPositions = trailing1pctBot.getOpenPositions();
-      }
+      const targetBotPositions = getTargetBotPositions(targetBotId);
       focusMode.syncWithBotPositions(targetBotPositions);
       return focusMode.getState();
     })(),
@@ -2030,21 +2091,44 @@ function getHtmlPage(): string {
         <!-- Config row -->
         <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #21262d;">
           <div style="font-size: 11px; color: #8b949e;">
-            Mirror: <select id="focusTargetBot" onchange="updateFocusConfig()" style="background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #c9d1d9; padding: 2px 8px; font-size: 11px;">
-              <option value="trailing10pct10x">Trail Standard (Best)</option>
-              <option value="trailWide">Trail Wide</option>
-              <option value="trailing10pct20x">Trail Aggressive</option>
-              <option value="trailing1pct">Trail Light</option>
+            Sort by: <select id="focusSortBy" onchange="sortFocusBotOptions()" style="background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #c9d1d9; padding: 2px 8px; font-size: 11px;">
+              <option value="today">Today's P&L</option>
+              <option value="24h">24h P&L</option>
+              <option value="weekly">Weekly P&L</option>
+              <option value="winrate">Win Rate</option>
             </select>
           </div>
           <div style="font-size: 11px; color: #8b949e;">
-            Balance: $<input type="number" id="focusBalance" value="1000" onchange="updateFocusConfig()" style="width: 60px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #c9d1d9; padding: 2px 4px; font-size: 11px;">
+            Mirror: <select id="focusTargetBot" onchange="updateFocusConfig()" style="background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #c9d1d9; padding: 2px 8px; font-size: 11px; min-width: 180px;">
+              <optgroup label="Trailing Stop Bots">
+                <option value="trailWide">🌊 Trail Wide</option>
+                <option value="trailing10pct10x">📈 Trail Standard (10x)</option>
+                <option value="trailing10pct20x">💀 Trail Aggressive (20x)</option>
+                <option value="trailing1pct">📉 Trail Light (1%)</option>
+              </optgroup>
+              <optgroup label="Backburner RSI Bots">
+                <option value="fixedTP">🎯 Fixed TP/SL</option>
+                <option value="confluence">🔗 Multi-TF Confluence</option>
+                <option value="trendOverride">↕ Trend Override</option>
+                <option value="trendFlip">🔄 Trend Flip</option>
+              </optgroup>
+              <optgroup label="Golden Pocket Bots">
+                <option value="gp-conservative">🎯 GP-Conservative (3% 5x)</option>
+                <option value="gp-standard">🎯 GP-Standard (5% 10x)</option>
+                <option value="gp-aggressive">🎯 GP-Aggressive (5% 15x)</option>
+                <option value="gp-yolo">💀 GP-YOLO (10% 20x)</option>
+              </optgroup>
+              <optgroup label="BTC Bias Bots">
+                <option value="btcExtreme">₿ Contrarian</option>
+                <option value="btcTrend">₿ Momentum</option>
+              </optgroup>
+            </select>
           </div>
           <div style="font-size: 11px; color: #8b949e;">
-            Max %: <input type="number" id="focusMaxPercent" value="5" min="1" max="100" onchange="updateFocusConfig()" style="width: 40px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #c9d1d9; padding: 2px 4px; font-size: 11px;">
+            Your Balance: $<input type="number" id="focusBalance" value="1000" onchange="updateFocusConfig()" style="width: 70px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #c9d1d9; padding: 2px 4px; font-size: 11px;">
           </div>
-          <div style="font-size: 11px; color: #8b949e;">
-            Leverage: <input type="number" id="focusLeverage" value="10" min="1" max="100" onchange="updateFocusConfig()" style="width: 40px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #c9d1d9; padding: 2px 4px; font-size: 11px;">x
+          <div id="focusBotInfo" style="font-size: 10px; color: #6e7681; margin-left: auto; text-align: right;">
+            Bot params: <span id="focusBotParams">-</span>
           </div>
         </div>
         <!-- Active positions -->
@@ -2438,7 +2522,12 @@ function getHtmlPage(): string {
       </div>
     </div>
 
-    <!-- Bot Cards - 8 bots in grid -->
+    <!-- Bot Cards Section - Collapsible -->
+    <div class="section-header" onclick="toggleSection('botCards')" style="margin-top: 8px;">
+      <span class="section-title">📋 Active Positions & History (14 bots)</span>
+      <span class="section-toggle" id="botCardsToggle">▼</span>
+    </div>
+    <div class="section-content" id="botCardsContent">
     <div class="grid" id="botCardsGrid">
       <div class="card bot-card" id="fixedTPCard" style="border-left: 3px solid #238636;">
         <div class="card-header" style="cursor: pointer;" onclick="toggleSection('fixedTP')">
@@ -2573,7 +2662,61 @@ function getHtmlPage(): string {
         </div>
         <div id="trendFlipContent"><div id="trendFlipPositionTable"><div class="empty-state">No position</div></div></div>
       </div>
+      <!-- GP Bot Cards -->
+      <div class="card bot-card" id="gpConservativeCard" style="border-left: 3px solid #4caf50;">
+        <div class="card-header" style="cursor: pointer;" onclick="toggleSection('gpConservative')">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="section-toggle" id="gpConservativeToggle">▼</span>
+            <span class="card-title">🎯 GP-Conservative</span>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <button onclick="event.stopPropagation(); showBotHistory('gpConservative', '🎯 GP-Conservative')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="gpConsHistoryCount">0</span></button>
+            <span id="gpConsCardPositionCount">0</span>
+          </div>
+        </div>
+        <div id="gpConservativeContent"><div id="gpConsPositionsTable"><div class="empty-state">No positions</div></div></div>
+      </div>
+      <div class="card bot-card" id="gpStandardCard" style="border-left: 3px solid #8bc34a;">
+        <div class="card-header" style="cursor: pointer;" onclick="toggleSection('gpStandard')">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="section-toggle" id="gpStandardToggle">▼</span>
+            <span class="card-title">🎯 GP-Standard</span>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <button onclick="event.stopPropagation(); showBotHistory('gpStandard', '🎯 GP-Standard')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="gpStdHistoryCount">0</span></button>
+            <span id="gpStdCardPositionCount">0</span>
+          </div>
+        </div>
+        <div id="gpStandardContent"><div id="gpStdPositionsTable"><div class="empty-state">No positions</div></div></div>
+      </div>
+      <div class="card bot-card" id="gpAggressiveCard" style="border-left: 3px solid #ff9800;">
+        <div class="card-header" style="cursor: pointer;" onclick="toggleSection('gpAggressive')">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="section-toggle" id="gpAggressiveToggle">▼</span>
+            <span class="card-title">🎯 GP-Aggressive</span>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <button onclick="event.stopPropagation(); showBotHistory('gpAggressive', '🎯 GP-Aggressive')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="gpAggHistoryCount">0</span></button>
+            <span id="gpAggCardPositionCount">0</span>
+          </div>
+        </div>
+        <div id="gpAggressiveContent"><div id="gpAggPositionsTable"><div class="empty-state">No positions</div></div></div>
+      </div>
+      <div class="card bot-card" id="gpYoloCard" style="border-left: 3px solid #f44336;">
+        <div class="card-header" style="cursor: pointer;" onclick="toggleSection('gpYolo')">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="section-toggle" id="gpYoloToggle">▼</span>
+            <span class="card-title">💀 GP-YOLO</span>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <button onclick="event.stopPropagation(); showBotHistory('gpYolo', '💀 GP-YOLO')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="gpYoloHistoryCount">0</span></button>
+            <span id="gpYoloCardPositionCount">0</span>
+          </div>
+        </div>
+        <div id="gpYoloContent"><div id="gpYoloPositionsTable"><div class="empty-state">No positions</div></div></div>
+      </div>
     </div>
+    </div><!-- End botCardsContent -->
 
     <!-- BTC RSI Multi-Timeframe Chart -->
     <div class="card" style="margin-top: 20px;">
@@ -2800,11 +2943,22 @@ function getHtmlPage(): string {
         'btcTrend': { prop: 'btcTrendBot', trailing: true, btc: true },
         'trendOverride': { prop: 'trendOverrideBot', trailing: true },
         'trendFlip': { prop: 'trendFlipBot', trailing: true },
+        // GP Bots - use goldenPocketBots nested object
+        'gpConservative': { prop: 'goldenPocketBots', gpKey: 'gp-conservative', trailing: true, gp: true },
+        'gpStandard': { prop: 'goldenPocketBots', gpKey: 'gp-standard', trailing: true, gp: true },
+        'gpAggressive': { prop: 'goldenPocketBots', gpKey: 'gp-aggressive', trailing: true, gp: true },
+        'gpYolo': { prop: 'goldenPocketBots', gpKey: 'gp-yolo', trailing: true, gp: true },
       };
 
       const config = botMap[botKey];
       if (config && state[config.prop]) {
-        trades = state[config.prop].closedPositions || [];
+        if (config.gp && config.gpKey) {
+          // GP bots use nested structure: state.goldenPocketBots['gp-conservative']
+          const gpBot = state[config.prop][config.gpKey];
+          trades = gpBot ? (gpBot.closedPositions || []) : [];
+        } else {
+          trades = state[config.prop].closedPositions || [];
+        }
         isTrailing = config.trailing;
       }
 
@@ -2837,6 +2991,7 @@ function getHtmlPage(): string {
       goldenPocket: true,
       // Focus Mode and Bot Cards
       focusMode: true,
+      botCards: true,
       fixedTP: true,
       trailing1pct: true,
       trailing10pct10x: true,
@@ -2847,6 +3002,11 @@ function getHtmlPage(): string {
       btcTrend: true,
       trendOverride: true,
       trendFlip: true,
+      // GP Bot Cards
+      gpConservative: true,
+      gpStandard: true,
+      gpAggressive: true,
+      gpYolo: true,
     };
 
     function toggleSection(sectionId) {
@@ -3325,12 +3485,132 @@ function getHtmlPage(): string {
       }
     }
 
+    // Bot definitions for Focus Mode (name, description, params)
+    const focusBotDefs = {
+      'trailWide': { name: 'Trail Wide', params: '10% pos, 10x lev, wide trailing' },
+      'trailing10pct10x': { name: 'Trail Standard', params: '10% pos, 10x lev' },
+      'trailing10pct20x': { name: 'Trail Aggressive', params: '10% pos, 20x lev' },
+      'trailing1pct': { name: 'Trail Light', params: '1% trailing stop' },
+      'fixedTP': { name: 'Fixed TP/SL', params: '20% TP, 20% SL' },
+      'confluence': { name: 'Multi-TF', params: 'Multi-timeframe confluence' },
+      'trendOverride': { name: 'Trend Override', params: 'Ignores BTC bias' },
+      'trendFlip': { name: 'Trend Flip', params: 'Trades reversals' },
+      'btcExtreme': { name: 'BTC Contrarian', params: 'BTC RSI extremes' },
+      'btcTrend': { name: 'BTC Momentum', params: 'BTC trend following' },
+      'gp-conservative': { name: 'GP-Conservative', params: '3% pos, 5x lev, Fib targets' },
+      'gp-standard': { name: 'GP-Standard', params: '5% pos, 10x lev, Fib targets' },
+      'gp-aggressive': { name: 'GP-Aggressive', params: '5% pos, 15x lev, Fib targets' },
+      'gp-yolo': { name: 'GP-YOLO', params: '10% pos, 20x lev, Fib targets' },
+    };
+
+    // Store bot performance for sorting
+    let botPerformanceData = {};
+
+    function sortFocusBotOptions() {
+      const sortBy = document.getElementById('focusSortBy').value;
+      const select = document.getElementById('focusTargetBot');
+      const currentValue = select.value;
+
+      // Collect all options with their performance data
+      const options = [];
+      for (const [botId, def] of Object.entries(focusBotDefs)) {
+        const perf = botPerformanceData[botId] || { todayPnL: 0, pnl24h: 0, weeklyPnL: 0, winRate: 0 };
+        options.push({
+          botId,
+          name: def.name,
+          params: def.params,
+          todayPnL: perf.todayPnL || 0,
+          pnl24h: perf.pnl24h || 0,
+          weeklyPnL: perf.weeklyPnL || 0,
+          winRate: perf.winRate || 0,
+        });
+      }
+
+      // Sort by selected criteria
+      options.sort((a, b) => {
+        if (sortBy === 'today') return b.todayPnL - a.todayPnL;
+        if (sortBy === '24h') return b.pnl24h - a.pnl24h;
+        if (sortBy === 'weekly') return b.weeklyPnL - a.weeklyPnL;
+        if (sortBy === 'winrate') return b.winRate - a.winRate;
+        return 0;
+      });
+
+      // Rebuild dropdown with sorted options
+      select.innerHTML = options.map((opt, i) => {
+        const pnlValue = sortBy === 'today' ? opt.todayPnL : sortBy === '24h' ? opt.pnl24h : sortBy === 'weekly' ? opt.weeklyPnL : opt.winRate;
+        const pnlLabel = sortBy === 'winrate' ? pnlValue.toFixed(0) + '%' : (pnlValue >= 0 ? '+' : '') + '$' + pnlValue.toFixed(2);
+        const rank = i + 1;
+        return \`<option value="\${opt.botId}">\${rank}. \${opt.name} (\${pnlLabel})</option>\`;
+      }).join('');
+
+      // Restore selection if it still exists
+      if (Array.from(select.options).some(o => o.value === currentValue)) {
+        select.value = currentValue;
+      }
+
+      updateFocusBotInfo();
+    }
+
+    function updateFocusBotInfo() {
+      const botId = document.getElementById('focusTargetBot').value;
+      const def = focusBotDefs[botId];
+      if (def) {
+        document.getElementById('focusBotParams').textContent = def.params;
+      }
+    }
+
+    function updateBotPerformanceData(state) {
+      // Extract performance data from state for each bot
+      const botStateMap = {
+        'trailWide': state.trailWideBot,
+        'trailing10pct10x': state.trailing10pct10xBot,
+        'trailing10pct20x': state.trailing10pct20xBot,
+        'trailing1pct': state.trailing1pctBot,
+        'fixedTP': state.fixedTPBot,
+        'confluence': state.confluenceBot,
+        'trendOverride': state.trendOverrideBot,
+        'trendFlip': state.trendFlipBot,
+        'btcExtreme': state.btcExtremeBot,
+        'btcTrend': state.btcTrendBot,
+      };
+
+      // Process regular bots
+      for (const [botId, botState] of Object.entries(botStateMap)) {
+        if (botState && botState.stats) {
+          botPerformanceData[botId] = {
+            todayPnL: botState.stats.totalPnL || 0,
+            pnl24h: botState.stats.totalPnL || 0, // Using same for now (would need historical data)
+            weeklyPnL: botState.stats.totalPnL || 0, // Using same for now
+            winRate: botState.stats.winRate || 0,
+          };
+        }
+      }
+
+      // Process GP bots
+      if (state.goldenPocketBots) {
+        const gpBotIds = ['gp-conservative', 'gp-standard', 'gp-aggressive', 'gp-yolo'];
+        for (const gpId of gpBotIds) {
+          const gpBot = state.goldenPocketBots[gpId];
+          if (gpBot && gpBot.stats) {
+            botPerformanceData[gpId] = {
+              todayPnL: gpBot.stats.totalPnL || 0,
+              pnl24h: gpBot.stats.totalPnL || 0,
+              weeklyPnL: gpBot.stats.totalPnL || 0,
+              winRate: gpBot.stats.winRate || 0,
+            };
+          }
+        }
+      }
+    }
+
     async function updateFocusConfig() {
+      const targetBot = document.getElementById('focusTargetBot').value;
       const config = {
-        targetBot: document.getElementById('focusTargetBot').value,
+        targetBot: targetBot,
         accountBalance: parseFloat(document.getElementById('focusBalance').value) || 1000,
-        maxPositionSizePercent: parseFloat(document.getElementById('focusMaxPercent').value) || 5,
-        leverage: parseFloat(document.getElementById('focusLeverage').value) || 10,
+        // Position size and leverage are inherited from the target bot
+        maxPositionSizePercent: 100, // Allow full position scaling
+        leverage: 10, // Default, but will be overridden by bot's actual leverage
       };
       try {
         await fetch('/api/focus/config', {
@@ -3338,6 +3618,7 @@ function getHtmlPage(): string {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(config)
         });
+        updateFocusBotInfo();
       } catch (err) {
         console.error('Failed to update focus config:', err);
       }
@@ -3604,6 +3885,9 @@ function getHtmlPage(): string {
     function updateUI(state) {
       // Store state for history modal
       lastState = state;
+
+      // Update bot performance data for Focus Mode sorting
+      updateBotPerformanceData(state);
 
       // Sync bot visibility from server
       if (state.botVisibility) {
@@ -3964,6 +4248,24 @@ function getHtmlPage(): string {
         document.getElementById('trendFlipHistoryCount').textContent = state.trendFlipBot.closedPositions.length;
       }
 
+      // Update GP Bot Cards (positions and history)
+      if (state.goldenPocketBots) {
+        const gpCardMap = {
+          'gp-conservative': { posCount: 'gpConsCardPositionCount', posTable: 'gpConsPositionsTable', histCount: 'gpConsHistoryCount' },
+          'gp-standard': { posCount: 'gpStdCardPositionCount', posTable: 'gpStdPositionsTable', histCount: 'gpStdHistoryCount' },
+          'gp-aggressive': { posCount: 'gpAggCardPositionCount', posTable: 'gpAggPositionsTable', histCount: 'gpAggHistoryCount' },
+          'gp-yolo': { posCount: 'gpYoloCardPositionCount', posTable: 'gpYoloPositionsTable', histCount: 'gpYoloHistoryCount' },
+        };
+        for (const [key, ids] of Object.entries(gpCardMap)) {
+          const bot = state.goldenPocketBots[key];
+          if (bot) {
+            document.getElementById(ids.posCount).textContent = (bot.openPositions || []).length;
+            document.getElementById(ids.posTable).innerHTML = renderGPPositionsTable(bot.openPositions || []);
+            document.getElementById(ids.histCount).textContent = (bot.closedPositions || []).length;
+          }
+        }
+      }
+
       // Update Focus Mode
       if (state.focusMode) {
         updateFocusPositions(state.focusMode);
@@ -4089,6 +4391,30 @@ function getHtmlPage(): string {
           <td class="pnl \${p.unrealizedPnL >= 0 ? 'positive' : 'negative'}">\${formatCurrency(p.unrealizedPnL)} (\${formatPercent(p.unrealizedPnLPercent)})</td>
           <td>\${p.takeProfitPrice?.toPrecision(4) || '∞'} / \${p.stopLossPrice.toPrecision(4)}</td>
         </tr>\`).join('') +
+        '</tbody></table>';
+    }
+
+    function renderGPPositionsTable(positions) {
+      if (!positions || positions.length === 0) return '<div class="empty-state">No open positions</div>';
+
+      return '<table><thead><tr><th>Symbol</th><th>TF</th><th>Dir</th><th>Margin</th><th>Entry</th><th>TP1</th><th>TP2</th><th>SL</th><th>P&L</th><th>Status</th></tr></thead><tbody>' +
+        positions.map(p => {
+          const returnOnMargin = p.marginUsed > 0 ? (p.unrealizedPnL / p.marginUsed) * 100 : 0;
+          const statusColor = p.tp1Closed ? '#8bc34a' : (p.status === 'open' ? '#58a6ff' : '#8b949e');
+          const statusText = p.tp1Closed ? 'TP1 Hit' : (p.status === 'open' ? 'Open' : p.status);
+          return \`<tr>
+            <td><strong>\${p.symbol.replace('USDT', '')}</strong></td>
+            <td>\${p.timeframe || '?'}</td>
+            <td><span class="badge badge-\${p.direction}">\${p.direction.toUpperCase()}</span></td>
+            <td style="color: #8b949e; font-size: 11px;">\${formatCurrency(p.marginUsed)}<br><span style="font-size: 10px;">\${p.leverage}x</span></td>
+            <td>\${p.entryPrice.toPrecision(5)}</td>
+            <td style="color: #4caf50;">\${p.tp1Price.toPrecision(5)}</td>
+            <td style="color: #8bc34a;">\${p.tp2Price.toPrecision(5)}</td>
+            <td style="color: #f44336;">\${p.stopPrice.toPrecision(5)}</td>
+            <td class="pnl \${p.unrealizedPnL >= 0 ? 'positive' : 'negative'}">\${formatCurrency(p.unrealizedPnL)}<br><span style="font-size: 10px;">(\${formatPercent(returnOnMargin)} ROI)</span></td>
+            <td style="color: \${statusColor}; font-weight: 600;">\${statusText}</td>
+          </tr>\`;
+        }).join('') +
         '</tbody></table>';
     }
 

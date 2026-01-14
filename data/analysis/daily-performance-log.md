@@ -121,3 +121,87 @@ Continue monitoring through **Jan 17-18** (3-4 more days) to capture:
 - **Jan 14:** Initial analysis logged
 - **Jan 15-17:** Continue monitoring
 - **Jan 18:** Final recommendation for auto-trading candidate
+
+---
+
+## 2026-01-14
+
+**Analysis Timestamp:** 2026-01-14T15:25:33.722Z
+**Market Context:** Bullish (mostly longs)
+**Total Trades:** 50 | **Total P&L:** $-2313.97
+
+### Performance Summary
+
+| Bot | Trades | Wins | Losses | Win Rate | Total P&L | Avg P&L |
+|-----|--------|------|--------|----------|-----------|---------|
+| Trail Wide | 7 | 5 | 2 | 71% | +$183.94 | +$26.28 |
+| Trail Standard (10x) | 6 | 3 | 3 | 50% | +$141.49 | +$23.58 |
+| GP-YOLO | 1 | 1 | 0 | 100% | +$122.27 | +$122.27 |
+| Trail Aggressive (20x) | 8 | 3 | 5 | 38% | +$54.32 | +$6.79 |
+| GP-Aggressive | 1 | 1 | 0 | 100% | +$46.33 | +$46.33 |
+| GP-Standard | 1 | 1 | 0 | 100% | +$30.80 | +$30.80 |
+| Trail Light (1%) | 6 | 3 | 3 | 50% | +$14.45 | +$2.41 |
+| GP-Conservative | 1 | 1 | 0 | 100% | +$9.29 | +$9.29 |
+| btc-bias-10x20-trail | 2 | 0 | 2 | 0% | $-29.11 | $-14.56 |
+| btc-bias-10x20-hard | 2 | 0 | 2 | 0% | $-29.11 | $-14.56 |
+| btc-bias-10x50-trail | 2 | 0 | 2 | 0% | $-73.66 | $-36.83 |
+| btc-bias-10x50-hard | 2 | 0 | 2 | 0% | $-74.72 | $-37.36 |
+| Fixed TP/SL | 3 | 0 | 3 | 0% | $-209.52 | $-69.84 |
+| btc-bias-100x20-trail | 2 | 0 | 2 | 0% | $-332.45 | $-166.23 |
+| btc-bias-100x20-hard | 2 | 0 | 2 | 0% | $-332.45 | $-166.23 |
+| btc-bias-100x50-trail | 2 | 0 | 2 | 0% | $-913.08 | $-456.54 |
+| btc-bias-100x50-hard | 2 | 0 | 2 | 0% | $-922.74 | $-461.37 |
+
+### Notable Winning Trades
+
+- **Trail Wide**: KGEN +$169.56
+- **Trail Standard (10x)**: RIVER +$86.59
+- **GP-YOLO**: DOG +$122.27
+
+### Observations
+
+1. **Top performer:** Trail Wide with +$183.94 (71% win rate)
+2. **Underperformer:** btc-bias-100x50-hard with $-922.74
+3. **Average win rate across all bots:** 35.8%
+
+---
+
+## 2026-01-14
+
+**Analysis Timestamp:** 2026-01-14T15:25:38.980Z
+**Market Context:** Bullish (mostly longs)
+**Total Trades:** 50 | **Total P&L:** $-2313.97
+
+### Performance Summary
+
+| Bot | Trades | Wins | Losses | Win Rate | Total P&L | Avg P&L |
+|-----|--------|------|--------|----------|-----------|---------|
+| Trail Wide | 7 | 5 | 2 | 71% | +$183.94 | +$26.28 |
+| Trail Standard (10x) | 6 | 3 | 3 | 50% | +$141.49 | +$23.58 |
+| GP-YOLO | 1 | 1 | 0 | 100% | +$122.27 | +$122.27 |
+| Trail Aggressive (20x) | 8 | 3 | 5 | 38% | +$54.32 | +$6.79 |
+| GP-Aggressive | 1 | 1 | 0 | 100% | +$46.33 | +$46.33 |
+| GP-Standard | 1 | 1 | 0 | 100% | +$30.80 | +$30.80 |
+| Trail Light (1%) | 6 | 3 | 3 | 50% | +$14.45 | +$2.41 |
+| GP-Conservative | 1 | 1 | 0 | 100% | +$9.29 | +$9.29 |
+| btc-bias-10x20-trail | 2 | 0 | 2 | 0% | $-29.11 | $-14.56 |
+| btc-bias-10x20-hard | 2 | 0 | 2 | 0% | $-29.11 | $-14.56 |
+| btc-bias-10x50-trail | 2 | 0 | 2 | 0% | $-73.66 | $-36.83 |
+| btc-bias-10x50-hard | 2 | 0 | 2 | 0% | $-74.72 | $-37.36 |
+| Fixed TP/SL | 3 | 0 | 3 | 0% | $-209.52 | $-69.84 |
+| btc-bias-100x20-trail | 2 | 0 | 2 | 0% | $-332.45 | $-166.23 |
+| btc-bias-100x20-hard | 2 | 0 | 2 | 0% | $-332.45 | $-166.23 |
+| btc-bias-100x50-trail | 2 | 0 | 2 | 0% | $-913.08 | $-456.54 |
+| btc-bias-100x50-hard | 2 | 0 | 2 | 0% | $-922.74 | $-461.37 |
+
+### Notable Winning Trades
+
+- **Trail Wide**: KGEN +$169.56
+- **Trail Standard (10x)**: RIVER +$86.59
+- **GP-YOLO**: DOG +$122.27
+
+### Observations
+
+1. **Top performer:** Trail Wide with +$183.94 (71% win rate)
+2. **Underperformer:** btc-bias-100x50-hard with $-922.74
+3. **Average win rate across all bots:** 35.8%

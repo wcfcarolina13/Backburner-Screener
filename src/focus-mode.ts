@@ -17,10 +17,16 @@ import type { BackburnerSetup, Timeframe } from './types.js';
 const execAsync = promisify(exec);
 
 // Focus Mode configuration
+export type FocusTargetBot =
+  | 'trailing10pct10x' | 'trailing10pct20x' | 'trailWide' | 'trailing1pct'
+  | 'fixedTP' | 'confluence' | 'trendOverride' | 'trendFlip'
+  | 'btcExtreme' | 'btcTrend'
+  | 'gp-conservative' | 'gp-standard' | 'gp-aggressive' | 'gp-yolo';
+
 export interface FocusModeConfig {
   enabled: boolean;
   // Which bot to mirror (id of the bot)
-  targetBot: 'trailing10pct10x' | 'trailing10pct20x' | 'trailWide' | 'trailing1pct';
+  targetBot: FocusTargetBot;
   // Real trading account settings
   accountBalance: number;       // Your real MEXC balance
   maxPositionSizePercent: number;  // Max % of account per trade (e.g., 5%)
