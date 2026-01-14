@@ -167,6 +167,16 @@ export class BackburnerDetector {
     }
 
     // ==========================================================================
+    // IMPULSE QUALITY FILTER
+    // Require minimum dominance (how many candles moved in impulse direction)
+    // This filters out choppy consolidation mistaken for impulses
+    // ==========================================================================
+    const minDominance = this.config.minImpulseDominance ?? 0.5;
+    if (impulse.dominance < minDominance) {
+      return null;
+    }
+
+    // ==========================================================================
     // FIX 1: TIMEFRAME HIERARCHY
     // TCG: "5m signal marks hourly higher low; 1h signal marks daily higher low"
     // ==========================================================================

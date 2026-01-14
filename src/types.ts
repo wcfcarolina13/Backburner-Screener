@@ -147,6 +147,7 @@ export interface ScreenerConfig {
   rsiOverboughtThreshold: number;
   rsiDeepOverboughtThreshold: number;
   minImpulsePercent: number;
+  minImpulseDominance: number; // 0-1, how "clean" the impulse must be
   minVolume24h: number;
   // Market cap filtering
   minMarketCap: number;

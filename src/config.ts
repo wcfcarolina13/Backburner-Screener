@@ -16,6 +16,7 @@ export const DEFAULT_CONFIG: ScreenerConfig = {
 
   // Impulse move detection
   minImpulsePercent: 5,  // Minimum 5% move to qualify as impulse (increased from 3%)
+  minImpulseDominance: 0.5, // Minimum dominance score (0-1) - how "clean" the impulse must be
 
   // Volume filter (24h volume in USDT)
   // $250K is enough for small position sizes ($2-4K notional)

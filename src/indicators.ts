@@ -289,6 +289,12 @@ export function findLowestLow(candles: Candle[]): { price: number; index: number
 /**
  * Detect if there was a significant impulse move
  * Returns the impulse details if found, null otherwise
+ *
+ * IMPROVED: Now validates that the impulse is "dominant" - meaning:
+ * 1. The move should be relatively clean (not choppy consolidation)
+ * 2. The impulse end should be recent (within last 30% of lookback)
+ * 3. For UP impulse: current price should be in pullback (below high)
+ * 4. For DOWN impulse: current price should be in bounce (above low)
  */
 export function detectImpulseMove(
   candles: Candle[],
@@ -301,14 +307,20 @@ export function detectImpulseMove(
   endPrice: number;
   percentMove: number;
   direction: 'up' | 'down';
+  dominance: number; // 0-1 score of how "clean" the impulse was
 } | null {
   if (candles.length < lookbackPeriod) return null;
 
   const recentCandles = candles.slice(-lookbackPeriod);
+  const currentPrice = recentCandles[recentCandles.length - 1].close;
 
   // Find significant swing points
   const highest = findHighestHigh(recentCandles);
   const lowest = findLowestLow(recentCandles);
+
+  // Calculate how recent the impulse end is (0 = start of lookback, 1 = end)
+  const highRecency = highest.index / (recentCandles.length - 1);
+  const lowRecency = lowest.index / (recentCandles.length - 1);
 
   // Determine if we had an upward impulse (for long setups)
   // The high should come AFTER the low for an upward impulse
@@ -316,6 +328,27 @@ export function detectImpulseMove(
     const percentMove = ((highest.price - lowest.price) / lowest.price) * 100;
 
     if (percentMove >= minPercentMove) {
+      // Check if this is a valid pullback scenario:
+      // - The high should be relatively recent (impulse just completed)
+      // - Current price should be BELOW the high (we're in pullback)
+      const pullbackPercent = ((highest.price - currentPrice) / highest.price) * 100;
+
+      // Reject if high is too old (happened in first 50% of lookback)
+      if (highRecency < 0.5) {
+        return null;
+      }
+
+      // Reject if we're still at highs (no pullback yet)
+      if (pullbackPercent < 1) {
+        return null;
+      }
+
+      // Calculate dominance: how clean was the move?
+      // A clean impulse moves mostly in one direction
+      const impulseCandles = recentCandles.slice(lowest.index, highest.index + 1);
+      const upCandles = impulseCandles.filter(c => c.close > c.open).length;
+      const dominance = impulseCandles.length > 0 ? upCandles / impulseCandles.length : 0;
+
       return {
         startIndex: lowest.index,
         endIndex: highest.index,
@@ -323,6 +356,7 @@ export function detectImpulseMove(
         endPrice: highest.price,
         percentMove,
         direction: 'up',
+        dominance,
       };
     }
   }
@@ -332,6 +366,26 @@ export function detectImpulseMove(
     const percentMove = ((highest.price - lowest.price) / highest.price) * 100;
 
     if (percentMove >= minPercentMove) {
+      // Check if this is a valid bounce scenario:
+      // - The low should be relatively recent (impulse just completed)
+      // - Current price should be ABOVE the low (we're in bounce)
+      const bouncePercent = ((currentPrice - lowest.price) / lowest.price) * 100;
+
+      // Reject if low is too old (happened in first 50% of lookback)
+      if (lowRecency < 0.5) {
+        return null;
+      }
+
+      // Reject if we're still at lows (no bounce yet)
+      if (bouncePercent < 1) {
+        return null;
+      }
+
+      // Calculate dominance: how clean was the move?
+      const impulseCandles = recentCandles.slice(highest.index, lowest.index + 1);
+      const downCandles = impulseCandles.filter(c => c.close < c.open).length;
+      const dominance = impulseCandles.length > 0 ? downCandles / impulseCandles.length : 0;
+
       return {
         startIndex: highest.index,
         endIndex: lowest.index,
@@ -339,6 +393,7 @@ export function detectImpulseMove(
         endPrice: lowest.price,
         percentMove,
         direction: 'down',
+        dominance,
       };
     }
   }
