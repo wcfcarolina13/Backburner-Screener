@@ -359,5 +359,31 @@ Failed to fetch page 4 after retries
 [STATE] Monitoring 0S + 0F symbols | 0 active | 0 played out
 ```
 
-**Status**: Investigation in progress...
+**Root Cause Identified**: CoinGecko API IP blocking
+- CoinGecko blocks requests from cloud provider IPs (Render, AWS, etc.)
+- This is documented behavior to prevent abuse from datacenter ASNs
+- All 4 pages failed → 0 coins cached → `requireMarketCap` filtered all symbols
+
+**Solution Implemented**:
+1. Added `isCoinGeckoAvailable()` to track API availability
+2. If all 4 pages fail, mark CoinGecko as blocked (not just rate-limited)
+3. Modified `isEligibleSymbol()` to skip market cap check when CoinGecko unavailable
+4. Falls back to volume-only filtering on cloud deployments
+
+**Files modified**:
+- src/coingecko-api.ts (+48 lines - availability tracking, failure detection)
+- src/screener.ts (+2 lines - import and condition check)
+
+**Commits**:
+- 3294454 "fix: Handle CoinGecko IP blocking on cloud providers"
+- e105d1a "ralph: Update progress for Iteration 9 - CoinGecko fix"
+- e5f2085 "feat: Add CoinLore as fallback API for market cap data"
+
+**CoinLore Fallback Added**:
+- CoinLore API: No API key required, no IP blocking
+- Fetches top 1000 coins (10 pages × 100 coins)
+- Unified MarketData interface for both APIs
+- Strategy: CoinGecko → CoinLore → volume-only filtering
+
+**Status**: Ready to push to trigger Render rebuild
 
