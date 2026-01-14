@@ -242,6 +242,27 @@ export class MexcTrailingSimulation {
 
     console.log(`[MEXC-SIM:${this.botId}] OPENED ${setup.direction.toUpperCase()} ${setup.symbol} @ ${entryPrice.toPrecision(5)} | Margin: $${margin.toFixed(2)} | Stop: ${initialStopPrice.toPrecision(5)} | Activation: ${this.config.activationPercent}% ROI`);
 
+    // Log to Turso via data persistence
+    try {
+      const logPosition = {
+        id: position.id,
+        symbol: position.symbol,
+        direction: position.direction,
+        timeframe: setup.timeframe,
+        marketType: setup.marketType,
+        entryPrice: position.entryPrice,
+        entryTime: position.entryTime,
+        marginUsed: position.marginUsed,
+        notionalSize: position.notionalSize,
+        leverage: position.leverage,
+        takeProfitPrice: 0,  // MEXC sim uses trailing, no fixed TP
+        stopLossPrice: position.currentStopPrice,
+      };
+      getDataPersistence().logTradeOpen(this.botId, logPosition as any, setup);
+    } catch (e) {
+      console.error(`[MEXC-SIM:${this.botId}] Failed to log trade open:`, e);
+    }
+
     return position;
   }
 
@@ -384,6 +405,32 @@ export class MexcTrailingSimulation {
       : 0;
 
     console.log(`[MEXC-SIM:${this.botId}] CLOSED ${position.symbol} ${position.direction.toUpperCase()} - ${reason} | PnL: $${position.realizedPnL?.toFixed(2)} (${roi.toFixed(1)}% ROI) | Trailing: ${position.isTrailingActivated ? 'YES' : 'NO'}`);
+
+    // Log to Turso via data persistence
+    try {
+      const logPosition = {
+        id: position.id,
+        symbol: position.symbol,
+        direction: position.direction,
+        timeframe: position.timeframe,
+        marketType: position.marketType,
+        entryPrice: position.entryPrice,
+        entryTime: position.entryTime,
+        marginUsed: position.marginUsed,
+        notionalSize: position.notionalSize,
+        leverage: position.leverage,
+        takeProfitPrice: 0,
+        stopLossPrice: position.currentStopPrice,
+        exitPrice: position.exitPrice,
+        exitTime: position.exitTime,
+        exitReason: position.exitReason,
+        realizedPnL: position.realizedPnL,
+        realizedPnLPercent: position.realizedPnLPercent,
+      };
+      getDataPersistence().logTradeClose(this.botId, logPosition as any);
+    } catch (e) {
+      console.error(`[MEXC-SIM:${this.botId}] Failed to log trade close:`, e);
+    }
 
     this.closedPositions.push(position);
     this.positions.delete(key);

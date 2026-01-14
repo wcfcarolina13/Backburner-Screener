@@ -1090,6 +1090,7 @@ export class DataPersistence {
 
   /**
    * Save bot positions to disk (for persistence across restarts)
+   * Also saves to Turso for cloud persistence
    */
   savePositions(botId: string, positions: unknown[], closedPositions: unknown[], balance: number, peakBalance: number): void {
     const positionFile = path.join(POSITIONS_DIR, `${botId}.json`);
@@ -1106,6 +1107,10 @@ export class DataPersistence {
     } catch (e) {
       console.error(`Failed to save positions for ${botId}:`, e);
     }
+
+    // Also save to Turso for cloud persistence
+    turso.saveBotState(botId, balance, peakBalance, positions, closedPositions.slice(-50))
+      .catch(() => {}); // Fire and forget
   }
 
   /**

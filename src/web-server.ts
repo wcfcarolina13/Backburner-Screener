@@ -387,6 +387,14 @@ function broadcast(event: string, data: any) {
 
 // Event handlers
 async function handleNewSetup(setup: BackburnerSetup) {
+  // Log signal to Turso
+  getDataPersistence().logSignal(setup, 'new');
+  if (setup.state === 'triggered') {
+    getDataPersistence().logSignal(setup, 'triggered');
+  } else if (setup.state === 'deep_extreme') {
+    getDataPersistence().logSignal(setup, 'deep_extreme');
+  }
+
   // FILTER: Skip setups that historically lose money (1h timeframe, contrarian 5m)
   const passesFilter = shouldTradeSetup(setup, currentBtcBias);
 
@@ -527,6 +535,16 @@ async function handleNewSetup(setup: BackburnerSetup) {
 }
 
 async function handleSetupUpdated(setup: BackburnerSetup) {
+  // Log state changes to Turso
+  getDataPersistence().logSignal(setup, 'updated');
+  if (setup.state === 'triggered') {
+    getDataPersistence().logSignal(setup, 'triggered');
+  } else if (setup.state === 'deep_extreme') {
+    getDataPersistence().logSignal(setup, 'deep_extreme');
+  } else if (setup.state === 'played_out') {
+    getDataPersistence().logSignal(setup, 'played_out');
+  }
+
   // First try to update existing positions (always update regardless of filter)
   let fixedPosition = fixedTPBot.updatePosition(setup);
   let trail1pctPosition = trailing1pctBot.updatePosition(setup);
@@ -799,6 +817,9 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
 }
 
 function handleSetupRemoved(setup: BackburnerSetup) {
+  // Log removal to Turso
+  getDataPersistence().logSignal(setup, 'removed');
+
   // Handle all trailing bots
   fixedTPBot.handleSetupRemoved(setup);
   trailing1pctBot.handleSetupRemoved(setup);
@@ -5011,11 +5032,61 @@ async function main() {
   // trailing10pct20xBot.loadState();
   // trailWideBot.loadState();
 
+  // Save all bot states (to disk and Turso)
+  const saveAllBotStates = () => {
+    // Trailing bots (have saveState method)
+    trailing1pctBot.saveState();
+    trailing10pct10xBot.saveState();
+    trailing10pct20xBot.saveState();
+    trailWideBot.saveState();
+
+    // Fixed TP bot - manual save
+    dataPersistence.savePositions(
+      'fixed',
+      fixedTPBot.getOpenPositions(),
+      fixedTPBot.getClosedPositions(100),
+      fixedTPBot.getBalance(),
+      fixedTPBot.getStats().peakBalance
+    );
+
+    // Confluence bot - manual save
+    dataPersistence.savePositions(
+      'confluence',
+      confluenceBot.getOpenPositions(),
+      confluenceBot.getClosedPositions(),
+      confluenceBot.getBalance(),
+      confluenceBot.getStats().peakBalance
+    );
+
+    // GP bots - manual save
+    for (const [botId, bot] of goldenPocketBots) {
+      const positions = bot.getOpenPositions();
+      const closedPositions = bot.getClosedPositions();
+      const stats = bot.getStats();
+      dataPersistence.savePositions(botId, positions, closedPositions, stats.currentBalance, stats.peakBalance);
+    }
+
+    // MEXC sim bots
+    for (const [botId, bot] of mexcSimBots) {
+      const positions = bot.getOpenPositions();
+      const closedPositions = bot.getClosedPositions();
+      const stats = bot.getStats();
+      dataPersistence.savePositions(botId, positions, closedPositions, stats.currentBalance, stats.peakBalance);
+    }
+  };
+
   // Graceful shutdown handler
   const saveAllPositions = () => {
+    saveAllBotStates();
     dataPersistence.stop();
     console.log('✅ Shutdown complete');
   };
+
+  // Periodic state save to Turso (every 5 minutes)
+  setInterval(() => {
+    saveAllBotStates();
+    console.log('[STATE] Bot states saved to Turso');
+  }, 5 * 60 * 1000);
 
   // Handle various shutdown signals
   process.on('SIGINT', () => {

@@ -236,11 +236,16 @@ export class GoldenPocketBot {
       `Retracement: ${setup.retracementPercent.toFixed(1)}% | TP1: ${setup.tp1Price.toPrecision(6)} | TP2: ${setup.tp2Price.toPrecision(6)} | SL: ${setup.stopPrice.toPrecision(6)}`
     );
 
-    // Persist
+    // Persist - map GP position fields to PaperPosition format for logging
     try {
-      getDataPersistence().logTradeOpen(this.botId, position as any, setup);
+      const logPosition = {
+        ...position,
+        takeProfitPrice: position.tp1Price,  // Map TP1 as initial target
+        stopLossPrice: position.stopPrice,
+      };
+      getDataPersistence().logTradeOpen(this.botId, logPosition as any, setup);
     } catch (e) {
-      // Don't fail on logging errors
+      console.error(`[GP:${this.botId}] Failed to log trade open:`, e);
     }
 
     return position;
@@ -405,11 +410,21 @@ export class GoldenPocketBot {
       `PnL: ${pnlStr} (${position.realizedPnLPercent?.toFixed(2)}%) | Balance: $${this.balance.toFixed(2)}`
     );
 
-    // Persist
+    // Persist - map GP position fields to PaperPosition format for logging
     try {
-      getDataPersistence().logTradeClose(this.botId, position as any);
+      const logPosition = {
+        ...position,
+        takeProfitPrice: position.tp1Price,
+        stopLossPrice: position.stopPrice,
+        exitPrice: position.exitPrice || position.currentPrice,
+        exitTime: position.exitTime || Date.now(),
+        exitReason: reason,
+        realizedPnL: totalPnL,
+        realizedPnLPercent: position.realizedPnLPercent,
+      };
+      getDataPersistence().logTradeClose(this.botId, logPosition as any);
     } catch (e) {
-      // Don't fail on logging errors
+      console.error(`[GP:${this.botId}] Failed to log trade close:`, e);
     }
   }
 
