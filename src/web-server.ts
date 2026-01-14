@@ -3722,30 +3722,49 @@ function getHtmlPage(): string {
     async function testFocusNotification() {
       // Use browser notifications API
       if (!('Notification' in window)) {
-        alert('Browser notifications not supported');
+        alert('Browser notifications not supported in this browser');
         return;
       }
+
+      console.log('[Focus] Current notification permission:', Notification.permission);
 
       if (Notification.permission === 'denied') {
-        alert('Notifications are blocked. Please enable them in browser settings.');
+        alert('Notifications are blocked. Click the lock icon in the URL bar → Site settings → Notifications → Allow');
         return;
       }
 
-      if (Notification.permission !== 'granted') {
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted') {
-          alert('Notification permission denied');
+      if (Notification.permission === 'default') {
+        console.log('[Focus] Requesting notification permission...');
+        try {
+          const permission = await Notification.requestPermission();
+          console.log('[Focus] Permission result:', permission);
+          if (permission !== 'granted') {
+            alert('Notification permission was not granted. Please allow notifications for this site.');
+            return;
+          }
+        } catch (err) {
+          console.error('[Focus] Permission request failed:', err);
+          alert('Failed to request notification permission: ' + err.message);
           return;
         }
       }
 
       // Show test notification
-      new Notification('🎯 Focus Mode Test', {
-        body: 'Notifications are working! You will receive trade alerts here.',
-        icon: '🎯',
-        tag: 'focus-test',
-        requireInteraction: false
-      });
+      try {
+        console.log('[Focus] Creating test notification...');
+        const notif = new Notification('🎯 Focus Mode Test', {
+          body: 'Notifications are working! You will receive trade alerts here.',
+          tag: 'focus-test',
+          requireInteraction: false
+        });
+        notif.onclick = () => { console.log('[Focus] Notification clicked'); window.focus(); };
+        notif.onerror = (e) => { console.error('[Focus] Notification error:', e); };
+        notif.onshow = () => { console.log('[Focus] Notification shown'); };
+        console.log('[Focus] Notification created successfully');
+      } catch (err) {
+        console.error('[Focus] Failed to create notification:', err);
+        alert('Failed to create notification: ' + err.message);
+      }
     }
 
     function updateFocusModeUI() {
