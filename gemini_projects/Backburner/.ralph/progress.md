@@ -206,3 +206,79 @@ Added `shouldTradeSetup()` filter function at web-server.ts:38-62:
 
 **Build**: Passes successfully
 
+### Iteration 7 - Comprehensive Data Collection System
+**Date**: 2026-01-13
+**Task**: Improve data collection to enable proper backtesting and historical analysis
+
+**Problem Identified**: Only 1 day of historical data (Jan 9) available. Several data collection features were broken:
+- Missing directories: daily/, positions/, crashes/, hourly/
+- BTC Bias bots not logging trades
+- No hourly snapshots for portfolio state tracking
+- No data compression for old market snapshots
+
+**Solutions Implemented**:
+
+1. **Created missing directories**:
+   - Added data/daily/, data/positions/, data/crashes/, data/hourly/
+   - Updated ensureDirectories() to include HOURLY_DIR
+
+2. **Added GenericTradeEvent type**:
+   - New universal trade event format for any bot type
+   - Supports open/close/update events with full position details
+   - Includes metadata field for bot-specific context
+   - Stored in trades/{date}-all.json
+
+3. **Added HourlySnapshot system**:
+   - New hourly callback system to capture portfolio state every hour
+   - Tracks all bot balances, open positions, unrealized P&L
+   - Includes BTC price, bias, RSI data
+   - Stored in hourly/{date}.json
+
+4. **Connected BTC Bias bots to persistence**:
+   - Added logGenericTrade() calls in openPosition() and closePosition()
+   - Logs entry/exit with full context (bias, stop type, callback %, etc.)
+   - All 8 bot variants now log trades
+
+5. **Added data compression utilities**:
+   - compressMarketData(date): Compresses minute-level data to hourly averages
+   - compressOldMarketData(daysToKeep): Auto-compress data older than N days
+   - getDataStats(): Returns storage statistics by category
+   - Original data preserved as {date}-full.json backup
+
+6. **Registered hourly snapshot callback in web-server**:
+   - Captures trailing bots (4) and BTC Bias bots (8) state hourly
+   - Includes active setup counts and BTC market conditions
+
+**Files modified**:
+- src/data-persistence.ts (+200 lines):
+  - GenericTradeEvent and HourlySnapshot interfaces
+  - logGenericTrade() method
+  - checkHourlySnapshot() and saveHourlySnapshot() methods
+  - compressMarketData(), compressOldMarketData(), getDataStats() utilities
+  - Updated loadTodaysData() and checkDateRollover() for new data types
+
+- src/btc-bias-bot.ts (+40 lines):
+  - Import getDataPersistence
+  - logGenericTrade() calls in openPosition() and closePosition()
+
+- src/web-server.ts (+100 lines):
+  - Added lastBtcPrice and lastBtcRsiData globals
+  - Log BTC Bias bot configurations
+  - Registered hourly snapshot callback with full bot state collection
+
+**Data Directory Structure** (after changes):
+```
+data/
+├── signals/           # Signal lifecycle events
+├── trades/            # Trade open/close events (legacy format)
+│   └── {date}-all.json  # GenericTradeEvent format (all bots)
+├── market/            # BTC price/RSI snapshots (every 60s)
+├── configs/           # Bot configuration snapshots
+├── daily/             # End-of-day summaries (NEW - working)
+├── hourly/            # Hourly portfolio snapshots (NEW)
+├── positions/         # Position persistence (NEW - working)
+└── crashes/           # Error logs (NEW - working)
+```
+
+**Note**: Build not tested (node_modules not in worktree). Changes will take effect on next server restart.
+

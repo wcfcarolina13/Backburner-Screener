@@ -354,6 +354,8 @@ const focusMode = getFocusModeManager();
 let currentStatus = 'Starting...';
 let scanProgress = { completed: 0, total: 0, phase: '' };
 let currentBtcBias: 'strong_long' | 'long' | 'neutral' | 'short' | 'strong_short' = 'neutral';
+let lastBtcPrice: number = 0;
+let lastBtcRsiData: Record<string, number> = {};
 
 // SSE broadcast helper
 function broadcast(event: string, data: any) {
@@ -1441,6 +1443,16 @@ app.get('/api/btc-rsi', async (req, res) => {
     // Update BTC Extreme Bot with current RSI data
     const btcPrice = await getCurrentPrice('BTCUSDT');
     if (btcPrice && results['4h'] && results['1h'] && results['15m'] && results['5m'] && results['1m']) {
+      // Store globally for hourly snapshots
+      lastBtcPrice = btcPrice;
+      lastBtcRsiData = {
+        '4h': results['4h'].current.rsi,
+        '1h': results['1h'].current.rsi,
+        '15m': results['15m'].current.rsi,
+        '5m': results['5m'].current.rsi,
+        '1m': results['1m'].current.rsi,
+      };
+
       const rsiData = {
         rsi4h: results['4h'].current.rsi,
         rsi1h: results['1h'].current.rsi,
@@ -4643,7 +4655,115 @@ async function main() {
   dataPersistence.logBotConfig('confluence', 'Multi-TF', { ...confluenceBot.getConfig() });
   dataPersistence.logBotConfig('btcExtreme', 'BTC Contrarian', { ...btcExtremeBot.getConfig() });
   dataPersistence.logBotConfig('btcTrend', 'BTC Momentum', { ...btcTrendBot.getConfig() });
+
+  // Log BTC Bias bot configurations
+  for (const [key, bot] of btcBiasBots) {
+    dataPersistence.logBotConfig(key, bot.getName(), { ...bot.getConfig() });
+  }
   console.log('📊 Bot configurations logged to data persistence');
+
+  // Register hourly snapshot callback for comprehensive data collection
+  dataPersistence.registerHourlySnapshotCallback(() => {
+    const now = new Date();
+    const hour = `${now.toISOString().split('T')[0]}-${now.getHours().toString().padStart(2, '0')}`;
+
+    // Collect bot states
+    const bots: Record<string, {
+      botId: string;
+      botType: string;
+      balance: number;
+      unrealizedPnL: number;
+      openPositionCount: number;
+      openPositions: Array<{
+        symbol: string;
+        direction: string;
+        entryPrice: number;
+        currentPrice: number;
+        unrealizedPnL: number;
+        unrealizedROI: number;
+      }>;
+      closedTradesToday: number;
+      pnlToday: number;
+    }> = {};
+
+    // Trailing bots
+    const trailingBots = [
+      { id: 'trailing1pct', bot: trailing1pctBot, type: 'trailing' },
+      { id: 'trailing10pct10x', bot: trailing10pct10xBot, type: 'trailing' },
+      { id: 'trailing10pct20x', bot: trailing10pct20xBot, type: 'trailing' },
+      { id: 'trailWide', bot: trailWideBot, type: 'trailing' },
+    ];
+
+    for (const { id, bot, type } of trailingBots) {
+      const stats = bot.getStats();
+      const positions = bot.getOpenPositions();
+      bots[id] = {
+        botId: id,
+        botType: type,
+        balance: stats.currentBalance,
+        unrealizedPnL: positions.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0),
+        openPositionCount: positions.length,
+        openPositions: positions.map(p => ({
+          symbol: p.symbol,
+          direction: p.direction,
+          entryPrice: p.entryPrice,
+          currentPrice: p.currentPrice || p.entryPrice,
+          unrealizedPnL: p.unrealizedPnL || 0,
+          unrealizedROI: p.unrealizedROI || 0,
+        })),
+        closedTradesToday: stats.totalTrades,
+        pnlToday: stats.totalPnL,
+      };
+    }
+
+    // BTC Bias bots
+    for (const [key, bot] of btcBiasBots) {
+      const stats = bot.getStats();
+      const position = bot.getPosition();
+      bots[key] = {
+        botId: key,
+        botType: 'btc_bias',
+        balance: stats.currentBalance,
+        unrealizedPnL: bot.getUnrealizedPnL(),
+        openPositionCount: position ? 1 : 0,
+        openPositions: position ? [{
+          symbol: 'BTCUSDT',
+          direction: position.direction,
+          entryPrice: position.entryPrice,
+          currentPrice: position.highestPrice, // Best approximation
+          unrealizedPnL: position.unrealizedPnL,
+          unrealizedROI: position.unrealizedROI,
+        }] : [],
+        closedTradesToday: stats.totalTrades,
+        pnlToday: stats.totalPnL,
+      };
+    }
+
+    // Get active setups count
+    const allSetups = detector.getAllSetups();
+    const activeSetups = {
+      total: allSetups.length,
+      triggered: allSetups.filter(s => s.state === 'triggered').length,
+      deepExtreme: allSetups.filter(s => s.state === 'deep_extreme').length,
+    };
+
+    return {
+      timestamp: now.toISOString(),
+      hour,
+      btcPrice: lastBtcPrice || 0,
+      btcBias: currentBtcBias || 'unknown',
+      btcRsi: lastBtcRsiData ? {
+        '1m': lastBtcRsiData['1m'] || 0,
+        '5m': lastBtcRsiData['5m'] || 0,
+        '15m': lastBtcRsiData['15m'] || 0,
+        '1h': lastBtcRsiData['1h'] || 0,
+        '4h': lastBtcRsiData['4h'] || 0,
+      } : {},
+      bots,
+      activeSetups,
+    };
+  });
+  console.log('⏰ Hourly snapshot callback registered');
 
   // Position persistence DISABLED - start fresh each time
   // To re-enable, uncomment the loadState() calls below

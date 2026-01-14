@@ -14,6 +14,7 @@
  */
 
 import { getExecutionCostsCalculator } from './execution-costs.js';
+import { getDataPersistence } from './data-persistence.js';
 
 export type BiasLevel = 'strong_long' | 'long' | 'neutral' | 'short' | 'strong_short';
 export type StopType = 'trailing' | 'hard';
@@ -272,6 +273,28 @@ export class BtcBiasBot {
 
     this.stats.totalExecutionCosts += entryCosts;
 
+    // Log trade open to persistence
+    getDataPersistence().logGenericTrade({
+      eventType: 'open',
+      botId: `btc-bias-${this.name}`,
+      botType: 'btc_bias',
+      positionId: this.position.id,
+      symbol: 'BTCUSDT',
+      direction,
+      entryPrice: effectiveEntryPrice,
+      entryTime: new Date(this.position.entryTime).toISOString(),
+      marginUsed: marginAmount,
+      notionalSize,
+      leverage: this.config.leverage,
+      currentStopPrice: stopPrice,
+      entryBias: bias,
+      metadata: {
+        stopType: this.config.stopType,
+        callbackPercent: this.config.callbackPercent,
+        positionSizePercent: this.config.positionSizePercent,
+      },
+    });
+
     console.log(
       `[BTC-BIAS:${this.name}] OPENED ${direction.toUpperCase()} @ ${effectiveEntryPrice.toFixed(2)} | ` +
       `Margin: $${marginAmount.toFixed(2)} | ${this.config.leverage}x | ` +
@@ -387,6 +410,31 @@ export class BtcBiasBot {
     if (this.closedPositions.length > 100) {
       this.closedPositions = this.closedPositions.slice(-100);
     }
+
+    // Log trade close to persistence
+    getDataPersistence().logGenericTrade({
+      eventType: 'close',
+      botId: `btc-bias-${this.name}`,
+      botType: 'btc_bias',
+      positionId: this.position.id,
+      symbol: 'BTCUSDT',
+      direction: this.position.direction,
+      entryPrice: this.position.entryPrice,
+      entryTime: new Date(this.position.entryTime).toISOString(),
+      marginUsed: this.position.marginUsed,
+      notionalSize: this.position.notionalSize,
+      leverage: this.position.leverage,
+      exitPrice: effectiveExitPrice,
+      exitTime: new Date().toISOString(),
+      exitReason: reason,
+      realizedPnL,
+      realizedROI,
+      durationMs: closed.durationMs,
+      totalCosts,
+      highestPrice: this.position.highestPrice,
+      lowestPrice: this.position.lowestPrice,
+      entryBias: this.position.entryBias,
+    });
 
     const pnlColor = realizedPnL >= 0 ? '\x1b[32m' : '\x1b[31m';
     console.log(

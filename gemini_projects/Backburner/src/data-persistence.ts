@@ -12,10 +12,11 @@ const MARKET_DIR = path.join(DATA_DIR, 'market');
 const CONFIGS_DIR = path.join(DATA_DIR, 'configs');
 const POSITIONS_DIR = path.join(DATA_DIR, 'positions');
 const CRASHES_DIR = path.join(DATA_DIR, 'crashes');
+const HOURLY_DIR = path.join(DATA_DIR, 'hourly');
 
 // Ensure directories exist
 function ensureDirectories(): void {
-  for (const dir of [DATA_DIR, SIGNALS_DIR, TRADES_DIR, DAILY_DIR, MARKET_DIR, CONFIGS_DIR, POSITIONS_DIR, CRASHES_DIR]) {
+  for (const dir of [DATA_DIR, SIGNALS_DIR, TRADES_DIR, DAILY_DIR, MARKET_DIR, CONFIGS_DIR, POSITIONS_DIR, CRASHES_DIR, HOURLY_DIR]) {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
@@ -116,6 +117,82 @@ export interface BotConfigSnapshot {
   snapshotTime: string;
 }
 
+// Generic trade event for any bot type (including BTC Bias bots)
+export interface GenericTradeEvent {
+  timestamp: string;
+  eventType: 'open' | 'close' | 'update';
+  botId: string;
+  botType: string;  // 'paper' | 'trailing' | 'btc_bias' | 'golden_pocket' etc.
+  positionId: string;
+  symbol: string;
+  direction: 'long' | 'short';
+
+  // Entry info
+  entryPrice: number;
+  entryTime: string;
+  marginUsed: number;
+  notionalSize: number;
+  leverage: number;
+
+  // Current state (for updates)
+  currentPrice?: number;
+  unrealizedPnL?: number;
+  unrealizedROI?: number;
+  highestPrice?: number;
+  lowestPrice?: number;
+  currentStopPrice?: number;
+
+  // Exit info (if close event)
+  exitPrice?: number;
+  exitTime?: string;
+  exitReason?: string;
+  realizedPnL?: number;
+  realizedROI?: number;
+  durationMs?: number;
+  totalCosts?: number;
+
+  // Additional context
+  entryBias?: string;
+  metadata?: Record<string, unknown>;
+}
+
+// Hourly snapshot of all bot states
+export interface HourlySnapshot {
+  timestamp: string;
+  hour: string;  // YYYY-MM-DD-HH format
+
+  // BTC market state
+  btcPrice: number;
+  btcBias: string;
+  btcRsi: Record<string, number>;
+
+  // Bot summaries (balance + open positions)
+  bots: Record<string, {
+    botId: string;
+    botType: string;
+    balance: number;
+    unrealizedPnL: number;
+    openPositionCount: number;
+    openPositions: Array<{
+      symbol: string;
+      direction: string;
+      entryPrice: number;
+      currentPrice: number;
+      unrealizedPnL: number;
+      unrealizedROI: number;
+    }>;
+    closedTradesToday: number;
+    pnlToday: number;
+  }>;
+
+  // Active setups summary
+  activeSetups: {
+    total: number;
+    triggered: number;
+    deepExtreme: number;
+  };
+}
+
 // Daily summary structure
 export interface DailySummary {
   date: string;
@@ -180,12 +257,16 @@ export interface DailySummary {
 export class DataPersistence {
   private signalEvents: SignalEvent[] = [];
   private tradeEvents: TradeEvent[] = [];
+  private genericTradeEvents: GenericTradeEvent[] = [];
   private marketSnapshots: MarketSnapshot[] = [];
   private botConfigs: BotConfigSnapshot[] = [];
   private currentDate: string;
   private flushInterval: ReturnType<typeof setInterval> | null = null;
+  private hourlyInterval: ReturnType<typeof setInterval> | null = null;
   private lastMarketSnapshotTime: number = 0;
   private marketSnapshotIntervalMs: number = 60000; // Log every 60 seconds
+  private lastHourlySnapshotHour: string = '';
+  private hourlySnapshotCallback: (() => HourlySnapshot | null) | null = null;
 
   constructor() {
     ensureDirectories();
@@ -194,6 +275,17 @@ export class DataPersistence {
 
     // Flush to disk every 30 seconds
     this.flushInterval = setInterval(() => this.flush(), 30000);
+
+    // Check for hourly snapshots every minute
+    this.hourlyInterval = setInterval(() => this.checkHourlySnapshot(), 60000);
+  }
+
+  /**
+   * Register callback to collect hourly snapshot data
+   * This should be called by web-server to provide bot state data
+   */
+  registerHourlySnapshotCallback(callback: () => HourlySnapshot | null): void {
+    this.hourlySnapshotCallback = callback;
   }
 
   /**
@@ -204,6 +296,7 @@ export class DataPersistence {
     const tradeFile = path.join(TRADES_DIR, `${this.currentDate}.json`);
     const marketFile = path.join(MARKET_DIR, `${this.currentDate}.json`);
     const configFile = path.join(CONFIGS_DIR, `${this.currentDate}.json`);
+    const allTradesFile = path.join(TRADES_DIR, `${this.currentDate}-all.json`);
 
     if (fs.existsSync(signalFile)) {
       try {
@@ -236,6 +329,14 @@ export class DataPersistence {
         this.botConfigs = [];
       }
     }
+
+    if (fs.existsSync(allTradesFile)) {
+      try {
+        this.genericTradeEvents = JSON.parse(fs.readFileSync(allTradesFile, 'utf-8'));
+      } catch {
+        this.genericTradeEvents = [];
+      }
+    }
   }
 
   /**
@@ -252,6 +353,7 @@ export class DataPersistence {
       this.currentDate = today;
       this.signalEvents = [];
       this.tradeEvents = [];
+      this.genericTradeEvents = [];
       this.marketSnapshots = [];
       this.botConfigs = [];
     }
@@ -402,6 +504,63 @@ export class DataPersistence {
   }
 
   /**
+   * Log a generic trade event (works for any bot type)
+   * This is the preferred method for new bots like BTC Bias
+   */
+  logGenericTrade(event: Omit<GenericTradeEvent, 'timestamp'>): void {
+    this.checkDateRollover();
+
+    const fullEvent: GenericTradeEvent = {
+      timestamp: new Date().toISOString(),
+      ...event,
+    };
+
+    this.genericTradeEvents.push(fullEvent);
+  }
+
+  /**
+   * Check if we should take an hourly snapshot
+   */
+  private checkHourlySnapshot(): void {
+    const now = new Date();
+    const hourKey = `${getDateString(now)}-${now.getHours().toString().padStart(2, '0')}`;
+
+    if (hourKey === this.lastHourlySnapshotHour) {
+      return; // Already captured this hour
+    }
+
+    // Take the snapshot
+    if (this.hourlySnapshotCallback) {
+      const snapshot = this.hourlySnapshotCallback();
+      if (snapshot) {
+        this.saveHourlySnapshot(snapshot);
+        this.lastHourlySnapshotHour = hourKey;
+      }
+    }
+  }
+
+  /**
+   * Save hourly snapshot to disk
+   */
+  private saveHourlySnapshot(snapshot: HourlySnapshot): void {
+    const date = getDateString();
+    const hourlyFile = path.join(HOURLY_DIR, `${date}.json`);
+
+    // Load existing hourly data for today
+    let hourlyData: HourlySnapshot[] = [];
+    if (fs.existsSync(hourlyFile)) {
+      try {
+        hourlyData = JSON.parse(fs.readFileSync(hourlyFile, 'utf-8'));
+      } catch {
+        hourlyData = [];
+      }
+    }
+
+    hourlyData.push(snapshot);
+    fs.writeFileSync(hourlyFile, JSON.stringify(hourlyData, null, 2));
+  }
+
+  /**
    * Flush data to disk
    */
   flush(): void {
@@ -410,10 +569,19 @@ export class DataPersistence {
     const marketFile = path.join(MARKET_DIR, `${this.currentDate}.json`);
     const configFile = path.join(CONFIGS_DIR, `${this.currentDate}.json`);
 
+    // Merge generic trade events into trade events file for backwards compatibility
+    // We'll also keep a separate comprehensive log
+    const allTradesFile = path.join(TRADES_DIR, `${this.currentDate}-all.json`);
+
     fs.writeFileSync(signalFile, JSON.stringify(this.signalEvents, null, 2));
     fs.writeFileSync(tradeFile, JSON.stringify(this.tradeEvents, null, 2));
     fs.writeFileSync(marketFile, JSON.stringify(this.marketSnapshots, null, 2));
     fs.writeFileSync(configFile, JSON.stringify(this.botConfigs, null, 2));
+
+    // Write comprehensive trades log (includes both legacy and generic events)
+    if (this.genericTradeEvents.length > 0) {
+      fs.writeFileSync(allTradesFile, JSON.stringify(this.genericTradeEvents, null, 2));
+    }
   }
 
   /**
@@ -936,7 +1104,33 @@ export class DataPersistence {
       clearInterval(this.flushInterval);
       this.flushInterval = null;
     }
+    if (this.hourlyInterval) {
+      clearInterval(this.hourlyInterval);
+      this.hourlyInterval = null;
+    }
     this.flush();
+  }
+
+  /**
+   * Get today's generic trade events
+   */
+  getTodaysGenericTrades(): GenericTradeEvent[] {
+    return [...this.genericTradeEvents];
+  }
+
+  /**
+   * Load hourly snapshots for a specific date
+   */
+  loadHourlySnapshots(date: string): HourlySnapshot[] {
+    const file = path.join(HOURLY_DIR, `${date}.json`);
+    if (fs.existsSync(file)) {
+      try {
+        return JSON.parse(fs.readFileSync(file, 'utf-8'));
+      } catch {
+        return [];
+      }
+    }
+    return [];
   }
 }
 
@@ -948,4 +1142,164 @@ export function getDataPersistence(): DataPersistence {
     persistenceInstance = new DataPersistence();
   }
   return persistenceInstance;
+}
+
+/**
+ * Data compression utilities
+ * Compresses old market snapshot data to hourly averages to save disk space
+ */
+export function compressMarketData(date: string): { original: number; compressed: number } | null {
+  const marketFile = path.join(MARKET_DIR, `${date}.json`);
+  const compressedFile = path.join(MARKET_DIR, `${date}-compressed.json`);
+
+  if (!fs.existsSync(marketFile)) {
+    return null;
+  }
+
+  try {
+    const snapshots: MarketSnapshot[] = JSON.parse(fs.readFileSync(marketFile, 'utf-8'));
+    const originalSize = snapshots.length;
+
+    if (originalSize === 0) return null;
+
+    // Group by hour
+    const hourlyGroups: Record<string, MarketSnapshot[]> = {};
+    for (const snap of snapshots) {
+      const hour = snap.timestamp.slice(0, 13); // YYYY-MM-DDTHH
+      if (!hourlyGroups[hour]) hourlyGroups[hour] = [];
+      hourlyGroups[hour].push(snap);
+    }
+
+    // Create hourly averages
+    const compressed: MarketSnapshot[] = [];
+    for (const [hour, snaps] of Object.entries(hourlyGroups)) {
+      if (snaps.length === 0) continue;
+
+      const avgSnapshot: MarketSnapshot = {
+        timestamp: `${hour}:00:00.000Z`,
+        btcPrice: snaps.reduce((sum, s) => sum + s.btcPrice, 0) / snaps.length,
+        btcRsi: {
+          rsi4h: snaps.reduce((sum, s) => sum + s.btcRsi.rsi4h, 0) / snaps.length,
+          rsi1h: snaps.reduce((sum, s) => sum + s.btcRsi.rsi1h, 0) / snaps.length,
+          rsi15m: snaps.reduce((sum, s) => sum + s.btcRsi.rsi15m, 0) / snaps.length,
+          rsi5m: snaps.reduce((sum, s) => sum + s.btcRsi.rsi5m, 0) / snaps.length,
+          rsi1m: snaps.reduce((sum, s) => sum + s.btcRsi.rsi1m, 0) / snaps.length,
+        },
+        // Most common bias in the hour
+        marketBias: getMostCommon(snaps.map(s => s.marketBias)),
+        biasScore: snaps.reduce((sum, s) => sum + s.biasScore, 0) / snaps.length,
+        activeSetups: {
+          total: Math.round(snaps.reduce((sum, s) => sum + s.activeSetups.total, 0) / snaps.length),
+          triggered: Math.round(snaps.reduce((sum, s) => sum + s.activeSetups.triggered, 0) / snaps.length),
+          deepExtreme: Math.round(snaps.reduce((sum, s) => sum + s.activeSetups.deepExtreme, 0) / snaps.length),
+          byDirection: {
+            long: Math.round(snaps.reduce((sum, s) => sum + s.activeSetups.byDirection.long, 0) / snaps.length),
+            short: Math.round(snaps.reduce((sum, s) => sum + s.activeSetups.byDirection.short, 0) / snaps.length),
+          },
+        },
+      };
+      compressed.push(avgSnapshot);
+    }
+
+    // Sort by timestamp
+    compressed.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+    // Write compressed file
+    fs.writeFileSync(compressedFile, JSON.stringify(compressed, null, 2));
+
+    // Rename original to backup and compressed to main
+    const backupFile = path.join(MARKET_DIR, `${date}-full.json`);
+    fs.renameSync(marketFile, backupFile);
+    fs.renameSync(compressedFile, marketFile);
+
+    console.log(`[DATA] Compressed market data for ${date}: ${originalSize} -> ${compressed.length} snapshots`);
+    return { original: originalSize, compressed: compressed.length };
+  } catch (e) {
+    console.error(`[DATA] Failed to compress market data for ${date}:`, e);
+    return null;
+  }
+}
+
+function getMostCommon<T>(arr: T[]): T {
+  const counts = new Map<T, number>();
+  let maxCount = 0;
+  let mostCommon = arr[0];
+  for (const item of arr) {
+    const count = (counts.get(item) || 0) + 1;
+    counts.set(item, count);
+    if (count > maxCount) {
+      maxCount = count;
+      mostCommon = item;
+    }
+  }
+  return mostCommon;
+}
+
+/**
+ * Cleanup utility to compress all market data older than N days
+ */
+export function compressOldMarketData(daysToKeep = 7): void {
+  const today = new Date();
+
+  if (!fs.existsSync(MARKET_DIR)) return;
+
+  const files = fs.readdirSync(MARKET_DIR).filter(f =>
+    f.endsWith('.json') && !f.includes('-full') && !f.includes('-compressed')
+  );
+
+  for (const file of files) {
+    const dateStr = file.replace('.json', '');
+    const fileDate = new Date(dateStr);
+    const daysDiff = Math.floor((today.getTime() - fileDate.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (daysDiff > daysToKeep) {
+      compressMarketData(dateStr);
+    }
+  }
+}
+
+/**
+ * Get data storage statistics
+ */
+export function getDataStats(): {
+  totalFiles: number;
+  totalSizeKB: number;
+  byCategory: Record<string, { files: number; sizeKB: number }>;
+} {
+  const stats = {
+    totalFiles: 0,
+    totalSizeKB: 0,
+    byCategory: {} as Record<string, { files: number; sizeKB: number }>,
+  };
+
+  const dirs = [
+    { name: 'signals', path: SIGNALS_DIR },
+    { name: 'trades', path: TRADES_DIR },
+    { name: 'market', path: MARKET_DIR },
+    { name: 'configs', path: CONFIGS_DIR },
+    { name: 'daily', path: DAILY_DIR },
+    { name: 'hourly', path: HOURLY_DIR },
+    { name: 'positions', path: POSITIONS_DIR },
+    { name: 'crashes', path: CRASHES_DIR },
+  ];
+
+  for (const dir of dirs) {
+    stats.byCategory[dir.name] = { files: 0, sizeKB: 0 };
+
+    if (!fs.existsSync(dir.path)) continue;
+
+    const files = fs.readdirSync(dir.path).filter(f => f.endsWith('.json'));
+    for (const file of files) {
+      const filePath = path.join(dir.path, file);
+      const fileStats = fs.statSync(filePath);
+      const sizeKB = fileStats.size / 1024;
+
+      stats.totalFiles++;
+      stats.totalSizeKB += sizeKB;
+      stats.byCategory[dir.name].files++;
+      stats.byCategory[dir.name].sizeKB += sizeKB;
+    }
+  }
+
+  return stats;
 }
