@@ -64,18 +64,21 @@ function shouldTradeSetup(setup: BackburnerSetup, btcBias: string): boolean {
     return false;
   }
 
-  // For 5m timeframe: also require BTC trend alignment to avoid contrarian losses
-  if (setup.timeframe === '5m') {
-    // Long setup + BTC bearish = contrarian → skip
-    if (setup.direction === 'long' && (btcBias === 'short' || btcBias === 'strong_short')) {
-      console.log(`[FILTER] Skip ${setup.symbol} 5m LONG - BTC bearish (${btcBias})`);
-      return false;
-    }
-    // Short setup + BTC bullish = contrarian → skip
-    if (setup.direction === 'short' && (btcBias === 'long' || btcBias === 'strong_long')) {
-      console.log(`[FILTER] Skip ${setup.symbol} 5m SHORT - BTC bullish (${btcBias})`);
-      return false;
-    }
+  // ==========================================================================
+  // UNIVERSAL BTC BIAS FILTER (ALL TIMEFRAMES)
+  // Based on Jan 13 analysis: 88 shorts on a bullish day = -$1,131.86 loss
+  // Only trade in the direction of BTC's bias for best performance
+  // ==========================================================================
+
+  // Long setup + BTC bearish = contrarian → skip
+  if (setup.direction === 'long' && (btcBias === 'short' || btcBias === 'strong_short')) {
+    console.log(`[FILTER] Skip ${setup.symbol} ${setup.timeframe} LONG - BTC bearish (${btcBias})`);
+    return false;
+  }
+  // Short setup + BTC bullish = contrarian → skip
+  if (setup.direction === 'short' && (btcBias === 'long' || btcBias === 'strong_long')) {
+    console.log(`[FILTER] Skip ${setup.symbol} ${setup.timeframe} SHORT - BTC bullish (${btcBias})`);
+    return false;
   }
 
   return true;
@@ -402,9 +405,10 @@ async function handleNewSetup(setup: BackburnerSetup) {
   );
   const activeTimeframes = symbolSetups.map(s => s.timeframe);
 
-  // Try trend override/flip bots (only for single-timeframe setups conflicting with BTC trend)
+  // Try trend override/flip bots (contrarian strategies - only if NOT 1h timeframe)
+  // Note: These are intentionally contrarian but still skip 1h due to poor performance
   const currentPrice = await getCurrentPrice(setup.symbol);
-  if (currentPrice) {
+  if (currentPrice && ALLOWED_TIMEFRAMES.includes(setup.timeframe)) {
     const overridePosition = trendOverrideBot.processSetup(setup, currentBtcBias, activeTimeframes, currentPrice);
     const flipPosition = trendFlipBot.processSetup(setup, currentBtcBias, activeTimeframes, currentPrice);
 
@@ -438,25 +442,30 @@ async function handleNewSetup(setup: BackburnerSetup) {
     broadcast('position_opened', { bot: 'tripleLight', position: tripleLightPosition });
   }
 
-  // Try MEXC simulation bots
-  for (const [botId, bot] of mexcSimBots) {
-    const position = bot.openPosition(setup);
-    if (position) {
-      broadcast('position_opened', { bot: botId, position });
+  // Try MEXC simulation bots (only if setup passes filter)
+  if (passesFilter) {
+    for (const [botId, bot] of mexcSimBots) {
+      const position = bot.openPosition(setup);
+      if (position) {
+        broadcast('position_opened', { bot: botId, position });
+      }
     }
   }
 
-  // Try all Golden Pocket bots (only process setups that have fibLevels from the GP detector)
+  // Try all Golden Pocket bots (only if setup passes filter)
+  // GP bots have their own setup type with fibLevels from the GP detector
   const isGPSetup = 'fibLevels' in setup && 'tp1Price' in setup && 'stopPrice' in setup;
-  if (isGPSetup && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
+  if (passesFilter && isGPSetup && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
     console.log(`[GP-BOT] GP setup received: ${setup.symbol} ${setup.direction} ${setup.state} - attempting trades`);
-  }
-  for (const [botId, bot] of goldenPocketBots) {
-    const position = bot.openPosition(setup);
-    if (position) {
-      console.log(`[GP-BOT:${botId}] OPENED: ${position.symbol} ${position.direction}`);
-      broadcast('position_opened', { bot: botId, position });
+    for (const [botId, bot] of goldenPocketBots) {
+      const position = bot.openPosition(setup);
+      if (position) {
+        console.log(`[GP-BOT:${botId}] OPENED: ${position.symbol} ${position.direction}`);
+        broadcast('position_opened', { bot: botId, position });
+      }
     }
+  } else if (isGPSetup && !passesFilter) {
+    console.log(`[GP-BOT] Skipped ${setup.symbol} ${setup.timeframe} ${setup.direction} - failed filter (BTC: ${currentBtcBias})`);
   }
 
   // Focus Mode: Track positions from target bot (Trail Standard by default)
@@ -581,10 +590,13 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
     }
   }
 
-  // Update all Golden Pocket positions and try to open new ones
+  // Update all Golden Pocket positions and try to open new ones (only if passes filter)
   for (const [botId, bot] of goldenPocketBots) {
+    // Always update existing positions
     let gpPosition = bot.updatePosition(setup);
-    if (!gpPosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
+
+    // Only open NEW positions if setup passes filter
+    if (passesFilter && !gpPosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
       gpPosition = bot.openPosition(setup);
       if (gpPosition) {
         broadcast('position_opened', { bot: botId, position: gpPosition });
@@ -4727,7 +4739,7 @@ async function main() {
           entryPrice: p.entryPrice,
           currentPrice: p.currentPrice || p.entryPrice,
           unrealizedPnL: p.unrealizedPnL || 0,
-          unrealizedROI: p.unrealizedROI || 0,
+          unrealizedROI: (p as any).unrealizedROI || 0,
         })),
         closedTradesToday: stats.totalTrades,
         pnlToday: stats.totalPnL,
@@ -4757,8 +4769,8 @@ async function main() {
       };
     }
 
-    // Get active setups count
-    const allSetups = detector.getAllSetups();
+    // Get active setups count (use screener which is module-scoped)
+    const allSetups = screener.getAllSetups();
     const activeSetups = {
       total: allSetups.length,
       triggered: allSetups.filter(s => s.state === 'triggered').length,
@@ -4776,7 +4788,7 @@ async function main() {
         '15m': lastBtcRsiData['15m'] || 0,
         '1h': lastBtcRsiData['1h'] || 0,
         '4h': lastBtcRsiData['4h'] || 0,
-      } : {},
+      } as Record<string, number> : {} as Record<string, number>,
       bots,
       activeSetups,
     };

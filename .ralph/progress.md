@@ -282,3 +282,67 @@ data/
 
 **Note**: Build not tested (node_modules not in worktree). Changes will take effect on next server restart.
 
+### Iteration 8 - Universal BTC Bias Filter & Bug Fixes
+**Date**: 2026-01-14
+**Task**: Fix trading filter bypasses, extend BTC bias filter to all timeframes
+
+**Problem Identified**: Analysis of Jan 13 data revealed:
+1. 69 trades on 1h timeframe despite `ALLOWED_TIMEFRAMES` excluding 1h
+2. 88 short trades on a bullish day (BTC +4.7%) causing -$1,131.86 loss
+3. 1h timeframe alone lost -$1,427 (more than total system loss)
+4. MEXC sim bots and Golden Pocket bots were bypassing the filter entirely
+5. `detector is not defined` crash in hourlySnapshotCallback
+
+**Root Causes Found**:
+1. MEXC sim bots called `openPosition(setup)` without checking `passesFilter`
+2. Golden Pocket bots called `openPosition(setup)` without checking `passesFilter`
+3. BTC bias filter only applied to 5m timeframe, not 15m
+4. `detector` variable referenced in hourly callback but was scoped inside startServer()
+
+**Solutions Implemented**:
+
+1. **Fixed detector reference error**:
+   - Changed `detector.getAllSetups()` to `screener.getAllSetups()` (line 4761)
+   - `screener` is module-scoped and accessible in callback
+
+2. **Applied filter to MEXC sim bots** (handleNewSetup):
+   - Wrapped MEXC bot loop in `if (passesFilter) { ... }` block
+
+3. **Applied filter to Golden Pocket bots** (handleNewSetup & handleSetupUpdated):
+   - Now only opens GP positions if `passesFilter` is true
+   - Existing positions still get updated (for proper exits)
+   - Added logging for skipped GP setups
+
+4. **Extended BTC bias filter to ALL timeframes**:
+   - Removed the `if (setup.timeframe === '5m')` condition
+   - Now filters ALL setups based on BTC bias alignment
+   - Long setups skipped when BTC bearish
+   - Short setups skipped when BTC bullish
+
+5. **Applied 1h filter to trendOverride/trendFlip bots**:
+   - Added `ALLOWED_TIMEFRAMES.includes(setup.timeframe)` check
+   - These bots are intentionally contrarian but still skip 1h
+
+6. **Fixed TypeScript type errors**:
+   - Cast `unrealizedROI` access with `(p as any).unrealizedROI`
+   - Cast `btcRsi` object as `Record<string, number>`
+
+**Files modified**:
+- src/web-server.ts:
+  - Line 67-82: Removed 5m-only condition from BTC bias filter
+  - Line 411: Added ALLOWED_TIMEFRAMES check for trend bots
+  - Lines 444-452: Wrapped MEXC bots in passesFilter check
+  - Lines 454-468: Wrapped GP bots in passesFilter check + logging
+  - Lines 592-612: Added passesFilter check for GP bots in handleSetupUpdated
+  - Line 4742: Fixed unrealizedROI type cast
+  - Line 4761: Fixed detector → screener reference
+  - Line 4785-4791: Fixed btcRsi type cast
+
+**Expected Impact**:
+- No more 1h trades from any bot
+- No more contrarian trades against BTC bias (on 5m AND 15m)
+- Hourly snapshots will work without crashing
+- Render deployment should work with Docker runtime
+
+**Build**: ✅ Passes successfully
+
