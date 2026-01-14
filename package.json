@@ -12,7 +12,9 @@
     "dev:web": "tsx watch src/web-server.ts",
     "watch": "tsx watch src/index.ts",
     "check": "tsx src/check-symbol.ts",
-    "analyze": "tsx src/analyze.ts"
+    "analyze": "tsx src/analyze.ts",
+    "summary": "tsx scripts/daily-summary.ts",
+    "summary:today": "tsx scripts/daily-summary.ts"
   },
   "keywords": [
     "trading",
