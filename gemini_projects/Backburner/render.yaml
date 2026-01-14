@@ -1,12 +1,10 @@
-# Render Blueprint
+# Render Blueprint - Using Docker for reliable Node.js builds
 services:
   - type: web
     name: backburner
-    runtime: node
+    runtime: docker
     plan: free
     region: oregon
-    buildCommand: npm ci && npm run build
-    startCommand: npm start
     healthCheckPath: /api/state
     envVars:
       - key: NODE_ENV
