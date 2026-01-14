@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type { BackburnerSetup, Timeframe } from './types.js';
 import type { PaperPosition, TradingStats } from './paper-trading.js';
+import * as turso from './turso-db.js';
 
 // Data directory path
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -383,6 +384,21 @@ export class DataPersistence {
     };
 
     this.signalEvents.push(event);
+
+    // Also write to Turso if configured
+    turso.insertSignalEvent({
+      timestamp: event.timestamp,
+      eventType: event.eventType,
+      symbol: event.symbol,
+      direction: event.direction,
+      timeframe: event.timeframe,
+      marketType: event.marketType,
+      state: event.state,
+      rsi: event.rsi,
+      price: event.price,
+      entryPrice: event.entryPrice,
+      impulsePercent: event.impulsePercent,
+    }).catch(() => {}); // Fire and forget, don't block
   }
 
   /**
@@ -417,6 +433,25 @@ export class DataPersistence {
     };
 
     this.tradeEvents.push(event);
+
+    // Also write to Turso if configured
+    turso.insertTradeEvent({
+      timestamp: event.timestamp,
+      eventType: event.eventType,
+      botId: event.botId,
+      positionId: event.positionId,
+      symbol: event.symbol,
+      direction: event.direction,
+      timeframe: event.timeframe,
+      marketType: event.marketType,
+      entryPrice: event.entryPrice,
+      marginUsed: event.marginUsed,
+      notionalSize: event.notionalSize,
+      leverage: event.leverage,
+      signalRsi: event.signalRsi,
+      signalState: event.signalState,
+      impulsePercent: event.impulsePercent,
+    }).catch(() => {}); // Fire and forget
   }
 
   /**
@@ -450,6 +485,26 @@ export class DataPersistence {
     };
 
     this.tradeEvents.push(event);
+
+    // Also write to Turso if configured
+    turso.insertTradeEvent({
+      timestamp: event.timestamp,
+      eventType: event.eventType,
+      botId: event.botId,
+      positionId: event.positionId,
+      symbol: event.symbol,
+      direction: event.direction,
+      timeframe: event.timeframe,
+      marketType: event.marketType,
+      entryPrice: event.entryPrice,
+      exitPrice: event.exitPrice,
+      marginUsed: event.marginUsed,
+      notionalSize: event.notionalSize,
+      leverage: event.leverage,
+      realizedPnL: event.realizedPnL,
+      realizedPnLPercent: event.realizedPnLPercent,
+      exitReason: event.exitReason,
+    }).catch(() => {}); // Fire and forget
   }
 
   /**
@@ -470,6 +525,17 @@ export class DataPersistence {
     };
 
     this.marketSnapshots.push(fullSnapshot);
+
+    // Also write to Turso if configured
+    turso.insertMarketSnapshot({
+      timestamp: fullSnapshot.timestamp,
+      btcPrice: fullSnapshot.btcPrice,
+      btcBias: fullSnapshot.marketBias,
+      btcRsi5m: fullSnapshot.btcRsi?.rsi5m,
+      btcRsi15m: fullSnapshot.btcRsi?.rsi15m,
+      btcRsi1h: fullSnapshot.btcRsi?.rsi1h,
+      activeSetups: fullSnapshot.activeSetups?.total,
+    }).catch(() => {}); // Fire and forget
   }
 
   /**
@@ -516,6 +582,24 @@ export class DataPersistence {
     };
 
     this.genericTradeEvents.push(fullEvent);
+
+    // Also write to Turso if configured
+    turso.insertTradeEvent({
+      timestamp: fullEvent.timestamp,
+      eventType: fullEvent.eventType,
+      botId: fullEvent.botId,
+      positionId: fullEvent.positionId,
+      symbol: fullEvent.symbol,
+      direction: fullEvent.direction,
+      entryPrice: fullEvent.entryPrice,
+      exitPrice: fullEvent.exitPrice,
+      marginUsed: fullEvent.marginUsed,
+      notionalSize: fullEvent.notionalSize,
+      leverage: fullEvent.leverage,
+      realizedPnL: fullEvent.realizedPnL,
+      realizedPnLPercent: fullEvent.realizedROI,
+      exitReason: fullEvent.exitReason,
+    }).catch(() => {}); // Fire and forget
   }
 
   /**

@@ -20,6 +20,7 @@ import { getKlines, getFuturesKlines, spotSymbolToFutures, getCurrentPrice, getP
 import { getCurrentRSI, calculateRSI, calculateSMA, detectDivergence } from './indicators.js';
 import { DEFAULT_CONFIG } from './config.js';
 import { getDataPersistence } from './data-persistence.js';
+import { initSchema as initTursoSchema, isTursoConfigured } from './turso-db.js';
 import type { BackburnerSetup, Timeframe } from './types.js';
 
 const app = express();
@@ -4518,6 +4519,16 @@ function getHtmlPage(): string {
 // Start server and screener
 async function main() {
   console.log('🔥 Starting Backburner Web Server...');
+
+  // Initialize Turso database if configured
+  if (isTursoConfigured()) {
+    console.log('📀 Initializing Turso database...');
+    await initTursoSchema();
+    console.log('✅ Turso database ready');
+  } else {
+    console.log('📁 Using local file storage (Turso not configured)');
+  }
+
   console.log('📊 Running 4 paper trading bots:');
   console.log('   1. Fixed TP/SL: 1% pos, 10x, 20% TP/SL');
   console.log('   2. Trail 1%: 1% pos, 10x, trailing stop');
