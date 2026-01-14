@@ -1,7 +1,10 @@
 /**
- * CoinGecko API Integration
+ * Market Cap API Integration
  *
  * Fetches market cap data to filter out fake volume / low quality coins
+ *
+ * Primary: CoinGecko API (best data, but blocks cloud provider IPs)
+ * Fallback: CoinLore API (no API key required, no IP blocking)
  */
 
 // Rate limiting for CoinGecko free tier (10-30 calls/min)
@@ -9,7 +12,8 @@
 const RATE_LIMIT_DELAY_MS = 6000; // ~10 calls/min - CoinGecko free tier is strict
 let lastCallTime = 0;
 
-interface CoinGeckoMarketData {
+// Unified market data interface (works with both CoinGecko and CoinLore)
+interface MarketData {
   id: string;
   symbol: string;
   name: string;
@@ -18,6 +22,26 @@ interface CoinGeckoMarketData {
   current_price: number;
   total_volume: number;
   circulating_supply: number | null;
+}
+
+// CoinLore API response format
+interface CoinLoreResponse {
+  data: CoinLoreCoin[];
+  info: {
+    coins_num: number;
+    time: number;
+  };
+}
+
+interface CoinLoreCoin {
+  id: string;
+  symbol: string;
+  name: string;
+  rank: number;
+  price_usd: string;
+  market_cap_usd: string;
+  volume24: number;
+  csupply: string;
 }
 
 interface CoinInfo {
@@ -31,8 +55,8 @@ let coinListCache: Map<string, CoinInfo> | null = null;
 let coinListCacheTime = 0;
 const COIN_LIST_CACHE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-// Cache for market data
-const marketDataCache: Map<string, CoinGeckoMarketData> = new Map();
+// Cache for market data (works with both APIs)
+const marketDataCache: Map<string, MarketData> = new Map();
 let marketDataCacheTime = 0;
 const MARKET_DATA_CACHE_MS = 30 * 60 * 1000; // 30 minutes - market cap doesn't change fast
 
@@ -40,6 +64,9 @@ const MARKET_DATA_CACHE_MS = 30 * 60 * 1000; // 30 minutes - market cap doesn't 
 let coingeckoAvailable = true;
 let coingeckoFailureCount = 0;
 const MAX_COINGECKO_FAILURES = 3; // After 3 failures, assume blocked
+
+// Track which API is being used
+let usingCoinLore = false;
 
 /**
  * Rate-limited fetch wrapper
@@ -99,21 +126,89 @@ async function fetchCoinList(): Promise<Map<string, CoinInfo>> {
 }
 
 /**
- * Fetch market data for top coins by market cap
+ * Fetch market data for top coins by market cap (CoinGecko)
  * Returns data for coins ranked by market cap
  */
-async function fetchMarketData(page = 1, perPage = 250): Promise<CoinGeckoMarketData[]> {
+async function fetchCoinGeckoMarketData(page = 1, perPage = 250): Promise<MarketData[]> {
   const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=${perPage}&page=${page}&sparkline=false`;
   const response = await rateLimitedFetch(url);
   return response.json();
 }
 
 /**
+ * Fetch market data from CoinLore API (fallback)
+ * No API key required, no IP blocking
+ * https://www.coinlore.com/cryptocurrency-data-api
+ */
+async function fetchCoinLoreMarketData(start = 0, limit = 100): Promise<MarketData[]> {
+  const url = `https://api.coinlore.net/api/tickers/?start=${start}&limit=${limit}`;
+  const response = await fetch(url, {
+    headers: { 'Accept': 'application/json' },
+  });
+
+  if (!response.ok) {
+    throw new Error(`CoinLore API error: ${response.status} ${response.statusText}`);
+  }
+
+  const data: CoinLoreResponse = await response.json();
+
+  // Convert CoinLore format to our unified MarketData format
+  return data.data.map(coin => ({
+    id: coin.id,
+    symbol: coin.symbol.toLowerCase(),
+    name: coin.name,
+    market_cap: parseFloat(coin.market_cap_usd) || 0,
+    market_cap_rank: coin.rank,
+    current_price: parseFloat(coin.price_usd) || 0,
+    total_volume: coin.volume24 || 0,
+    circulating_supply: parseFloat(coin.csupply) || null,
+  }));
+}
+
+/**
+ * Try to fetch market data from CoinLore (fallback API)
+ * Returns true if successful, false otherwise
+ */
+async function tryFetchFromCoinLore(onProgress?: (msg: string) => void): Promise<boolean> {
+  onProgress?.('Trying CoinLore API (fallback)...');
+
+  try {
+    // CoinLore returns 100 coins per request, fetch top 1000
+    for (let i = 0; i < 10; i++) {
+      onProgress?.(`Fetching CoinLore data ${i + 1}/10...`);
+      const data = await fetchCoinLoreMarketData(i * 100, 100);
+
+      if (data.length === 0) break; // No more data
+
+      for (const coin of data) {
+        marketDataCache.set(coin.symbol.toLowerCase(), coin);
+      }
+
+      // Small delay between requests (CoinLore recommends 1 req/sec)
+      if (i < 9) await new Promise(r => setTimeout(r, 1000));
+    }
+
+    if (marketDataCache.size > 0) {
+      usingCoinLore = true;
+      console.log(`[CoinLore] Successfully cached ${marketDataCache.size} coins`);
+      onProgress?.(`CoinLore: Cached market data for ${marketDataCache.size} coins`);
+      return true;
+    }
+  } catch (error) {
+    console.error('[CoinLore] Failed:', (error as Error).message);
+  }
+
+  return false;
+}
+
+/**
  * Build a cache of market data for filtering
  * Fetches top coins by market cap with retry logic
  *
- * NOTE: CoinGecko blocks cloud provider IPs (AWS, Render, etc.)
- * If all requests fail, we mark CoinGecko as unavailable and skip filtering
+ * Strategy:
+ * 1. Try CoinGecko first (best data)
+ * 2. If CoinGecko fails (likely IP blocked), try CoinLore
+ * 3. If both fail, fall back to volume-only filtering
  */
 export async function buildMarketDataCache(onProgress?: (msg: string) => void): Promise<void> {
   const now = Date.now();
@@ -123,9 +218,24 @@ export async function buildMarketDataCache(onProgress?: (msg: string) => void): 
     return;
   }
 
-  // If CoinGecko is known to be blocked, skip entirely
+  // If we're already using CoinLore (CoinGecko was blocked), refresh from CoinLore
+  if (usingCoinLore) {
+    const success = await tryFetchFromCoinLore(onProgress);
+    if (success) {
+      marketDataCacheTime = now;
+    }
+    return;
+  }
+
+  // If CoinGecko is known to be blocked, try CoinLore instead
   if (!coingeckoAvailable) {
-    onProgress?.('CoinGecko unavailable (likely IP blocked) - using volume filter only');
+    onProgress?.('CoinGecko unavailable - trying CoinLore fallback...');
+    const success = await tryFetchFromCoinLore(onProgress);
+    if (success) {
+      marketDataCacheTime = now;
+    } else {
+      onProgress?.('Both APIs failed - using volume filter only');
+    }
     return;
   }
 
@@ -142,7 +252,7 @@ export async function buildMarketDataCache(onProgress?: (msg: string) => void): 
     while (retries > 0 && !success) {
       try {
         onProgress?.(`Fetching market data page ${page}/4...`);
-        const data = await fetchMarketData(page, 250);
+        const data = await fetchCoinGeckoMarketData(page, 250);
 
         for (const coin of data) {
           marketDataCache.set(coin.symbol.toLowerCase(), coin);
@@ -168,12 +278,19 @@ export async function buildMarketDataCache(onProgress?: (msg: string) => void): 
     }
   }
 
-  // If ALL pages failed, mark CoinGecko as unavailable (likely IP blocked)
+  // If ALL pages failed, try CoinLore as fallback
   if (pagesSucceeded === 0 && pagesFailed === 4) {
-    coingeckoFailureCount = MAX_COINGECKO_FAILURES; // Immediately mark as blocked
+    coingeckoFailureCount = MAX_COINGECKO_FAILURES;
     coingeckoAvailable = false;
-    console.error('[CoinGecko] All requests failed - likely IP blocked by CoinGecko (common for cloud providers)');
-    onProgress?.('CoinGecko API blocked - switching to volume-only filtering');
+    console.error('[CoinGecko] All requests failed - likely IP blocked (common for cloud providers)');
+    onProgress?.('CoinGecko blocked - trying CoinLore fallback...');
+
+    const coinLoreSuccess = await tryFetchFromCoinLore(onProgress);
+    if (coinLoreSuccess) {
+      marketDataCacheTime = now;
+    } else {
+      onProgress?.('Both APIs failed - using volume filter only');
+    }
     return;
   }
 
@@ -188,17 +305,26 @@ export async function buildMarketDataCache(onProgress?: (msg: string) => void): 
 }
 
 /**
+ * Check if market cap data is available (from any source)
+ * Returns true if CoinGecko or CoinLore provided data
+ */
+export function isMarketCapDataAvailable(): boolean {
+  return marketDataCache.size > 0;
+}
+
+/**
  * Check if CoinGecko API is available
  * (Will be false on cloud providers that are IP blocked)
+ * @deprecated Use isMarketCapDataAvailable() instead
  */
 export function isCoinGeckoAvailable(): boolean {
-  return coingeckoAvailable;
+  return coingeckoAvailable || usingCoinLore;
 }
 
 /**
  * Get market data for a symbol
  */
-export function getMarketData(symbol: string): CoinGeckoMarketData | undefined {
+export function getMarketData(symbol: string): MarketData | undefined {
   // Remove USDT suffix and convert to lowercase
   const baseSymbol = symbol.replace(/USDT$/i, '').toLowerCase();
   return marketDataCache.get(baseSymbol);
