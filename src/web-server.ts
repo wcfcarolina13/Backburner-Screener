@@ -675,16 +675,16 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
     bot.updatePosition(setup, setup.currentPrice);
     const openAfter = bot.getOpenPositions().map(p => p.id);
 
-    // Check if a position was closed (id was in openBefore but not in openAfter)
+    // Check if any positions were closed (ids in openBefore but not in openAfter)
     const closedIds = openBefore.filter(id => !openAfter.includes(id));
-    if (closedIds.length > 0) {
-      const closedPos = bot.getClosedPositions().find(p => closedIds.includes(p.id));
+    for (const closedId of closedIds) {
+      const closedPos = bot.getClosedPositions().find(p => p.id === closedId);
       if (closedPos) {
         broadcast('position_closed', { bot: botId, position: closedPos });
       }
     }
 
-    // Broadcast updates for positions that are still open
+    // Broadcast updates for positions that are still open (matching current setup)
     const position = bot.getOpenPositions().find(
       p => p.symbol === setup.symbol && p.direction === setup.direction &&
            p.timeframe === setup.timeframe && p.marketType === setup.marketType
@@ -4715,6 +4715,25 @@ async function main() {
     // Periodic real-time price updates for ALL positions (every 10 seconds)
     // This ensures P&L is calculated from live ticker data, not stale candle closes
     setInterval(async () => {
+      // Helper to track and broadcast position closures
+      const trackClosures = <T extends { id?: string; status?: string }>(
+        botId: string,
+        openBefore: T[],
+        openAfter: T[],
+        closedPositions: T[]
+      ) => {
+        const beforeIds = new Set(openBefore.map(p => p.id));
+        const afterIds = new Set(openAfter.map(p => p.id));
+        const closedIds = [...beforeIds].filter(id => !afterIds.has(id));
+
+        for (const closedId of closedIds) {
+          const closedPos = closedPositions.find(p => p.id === closedId);
+          if (closedPos) {
+            broadcast('position_closed', { bot: botId, position: closedPos });
+          }
+        }
+      };
+
       // Update ALL positions with real-time prices (for trailing bots that have the new method)
       // Use getPrice which handles both spot and futures markets
       await fixedTPBot.updateOrphanedPositions(getCurrentPrice);
@@ -4723,12 +4742,27 @@ async function main() {
       await trailing10pct20xBot.updateAllPositionPrices(getPrice);
       await trailWideBot.updateAllPositionPrices(getPrice);
       await confluenceBot.updateOrphanedPositions(getCurrentPrice);
+
+      // Track and broadcast trend override closures
+      const overrideBefore = trendOverrideBot.getOpenPositions();
       await trendOverrideBot.updateOrphanedPositions(getCurrentPrice);
+      const overrideAfter = trendOverrideBot.getOpenPositions();
+      trackClosures('trendOverride', overrideBefore, overrideAfter, trendOverrideBot.getClosedPositions(10));
+
+      // Track and broadcast trend flip closures
+      const flipBefore = trendFlipBot.getOpenPositions();
       await trendFlipBot.updateOrphanedPositions(getCurrentPrice, currentBtcBias);
-      // Update MEXC simulation bots (all positions, not just orphaned)
-      for (const [, bot] of mexcSimBots) {
+      const flipAfter = trendFlipBot.getOpenPositions();
+      trackClosures('trendFlip', flipBefore, flipAfter, trendFlipBot.getClosedPositions(10));
+
+      // Update MEXC simulation bots and track closures
+      for (const [botId, bot] of mexcSimBots) {
+        const openBefore = bot.getOpenPositions();
         await bot.updateAllPositionPrices(getCurrentPrice);
+        const openAfter = bot.getOpenPositions();
+        trackClosures(botId, openBefore, openAfter, bot.getClosedPositions());
       }
+
       // Update Golden Pocket bot positions with current prices
       const gpPriceMap = new Map<string, number>();
       for (const [, bot] of goldenPocketBots) {
