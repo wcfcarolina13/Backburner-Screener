@@ -3493,6 +3493,80 @@ function getHtmlPage(): string {
 
     // Focus Mode functions
     let focusModeEnabled = false;
+    let lastFocusPositions = new Map(); // Track positions to detect changes
+
+    // Browser notification helper
+    async function showBrowserNotification(title, body, tag) {
+      if (!('Notification' in window)) return;
+      if (Notification.permission !== 'granted') {
+        // Try to request permission
+        const perm = await Notification.requestPermission();
+        if (perm !== 'granted') return;
+      }
+      try {
+        new Notification(title, { body, tag, requireInteraction: false });
+      } catch (e) {
+        console.error('Notification error:', e);
+      }
+    }
+
+    // Check focus mode positions for changes and send notifications
+    function checkFocusNotifications(focusState) {
+      if (!focusState || !focusState.enabled || !focusState.activePositions) return;
+
+      const currentPositions = new Map();
+      for (const pos of focusState.activePositions) {
+        const key = pos.symbol + '-' + pos.direction;
+        currentPositions.set(key, pos);
+
+        const lastPos = lastFocusPositions.get(key);
+        if (!lastPos) {
+          // New position opened
+          const ticker = pos.symbol.replace('USDT', '');
+          const dirEmoji = pos.direction === 'long' ? '🟢 LONG' : '🔴 SHORT';
+          showBrowserNotification(
+            '⚡ OPEN ' + ticker + ' ' + dirEmoji,
+            'Size: $' + (pos.suggestedSize || 0).toFixed(0) + ' | Entry: $' + (pos.entryPrice || 0).toPrecision(5),
+            'focus-open-' + key
+          );
+        } else if (pos.currentTrailLevel > lastPos.currentTrailLevel) {
+          // Trail level increased
+          const ticker = pos.symbol.replace('USDT', '');
+          const oldLvl = lastPos.currentTrailLevel || 0;
+          const newLvl = pos.currentTrailLevel || 0;
+          if (newLvl === 1 && oldLvl === 0) {
+            showBrowserNotification(
+              '🔒 ' + ticker + ' BREAKEVEN',
+              'Move stop to entry price',
+              'focus-trail-' + key
+            );
+          } else {
+            showBrowserNotification(
+              '📈 ' + ticker + ' Trail L' + oldLvl + '→L' + newLvl,
+              'Raise stop to lock ' + ((newLvl - 1) * 10) + '% ROI',
+              'focus-trail-' + key
+            );
+          }
+        }
+      }
+
+      // Check for closed positions
+      for (const [key, lastPos] of lastFocusPositions) {
+        if (!currentPositions.has(key) && lastPos.status !== 'closed') {
+          const ticker = lastPos.symbol.replace('USDT', '');
+          const pnl = lastPos.unrealizedPnL || 0;
+          const pnlStr = pnl >= 0 ? '+$' + pnl.toFixed(2) : '-$' + Math.abs(pnl).toFixed(2);
+          const emoji = pnl >= 0 ? '💰' : '❌';
+          showBrowserNotification(
+            emoji + ' CLOSE ' + ticker + ' NOW',
+            'P&L: ' + pnlStr,
+            'focus-close-' + key
+          );
+        }
+      }
+
+      lastFocusPositions = currentPositions;
+    }
 
     async function toggleFocusMode() {
       const endpoint = focusModeEnabled ? '/api/focus/disable' : '/api/focus/enable';
@@ -3646,11 +3720,32 @@ function getHtmlPage(): string {
     }
 
     async function testFocusNotification() {
-      try {
-        await fetch('/api/focus/test-notification', { method: 'POST' });
-      } catch (err) {
-        console.error('Failed to test notification:', err);
+      // Use browser notifications API
+      if (!('Notification' in window)) {
+        alert('Browser notifications not supported');
+        return;
       }
+
+      if (Notification.permission === 'denied') {
+        alert('Notifications are blocked. Please enable them in browser settings.');
+        return;
+      }
+
+      if (Notification.permission !== 'granted') {
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+          alert('Notification permission denied');
+          return;
+        }
+      }
+
+      // Show test notification
+      new Notification('🎯 Focus Mode Test', {
+        body: 'Notifications are working! You will receive trade alerts here.',
+        icon: '🎯',
+        tag: 'focus-test',
+        requireInteraction: false
+      });
     }
 
     function updateFocusModeUI() {
@@ -3675,6 +3770,9 @@ function getHtmlPage(): string {
 
     function updateFocusPositions(focusState) {
       if (!focusState) return;
+
+      // Check for position changes and send browser notifications
+      checkFocusNotifications(focusState);
 
       focusModeEnabled = focusState.enabled;
       updateFocusModeUI();
