@@ -36,6 +36,11 @@ const marketDataCache: Map<string, CoinGeckoMarketData> = new Map();
 let marketDataCacheTime = 0;
 const MARKET_DATA_CACHE_MS = 30 * 60 * 1000; // 30 minutes - market cap doesn't change fast
 
+// Track if CoinGecko is available (cloud providers may be blocked)
+let coingeckoAvailable = true;
+let coingeckoFailureCount = 0;
+const MAX_COINGECKO_FAILURES = 3; // After 3 failures, assume blocked
+
 /**
  * Rate-limited fetch wrapper
  */
@@ -106,6 +111,9 @@ async function fetchMarketData(page = 1, perPage = 250): Promise<CoinGeckoMarket
 /**
  * Build a cache of market data for filtering
  * Fetches top coins by market cap with retry logic
+ *
+ * NOTE: CoinGecko blocks cloud provider IPs (AWS, Render, etc.)
+ * If all requests fail, we mark CoinGecko as unavailable and skip filtering
  */
 export async function buildMarketDataCache(onProgress?: (msg: string) => void): Promise<void> {
   const now = Date.now();
@@ -115,7 +123,16 @@ export async function buildMarketDataCache(onProgress?: (msg: string) => void): 
     return;
   }
 
+  // If CoinGecko is known to be blocked, skip entirely
+  if (!coingeckoAvailable) {
+    onProgress?.('CoinGecko unavailable (likely IP blocked) - using volume filter only');
+    return;
+  }
+
   onProgress?.('Fetching CoinGecko market data...');
+
+  let pagesSucceeded = 0;
+  let pagesFailed = 0;
 
   // Fetch top 1000 coins (4 pages of 250)
   for (let page = 1; page <= 4; page++) {
@@ -131,6 +148,9 @@ export async function buildMarketDataCache(onProgress?: (msg: string) => void): 
           marketDataCache.set(coin.symbol.toLowerCase(), coin);
         }
         success = true;
+        pagesSucceeded++;
+        // Reset failure count on success
+        coingeckoFailureCount = 0;
       } catch (error) {
         retries--;
         if (retries > 0) {
@@ -141,13 +161,38 @@ export async function buildMarketDataCache(onProgress?: (msg: string) => void): 
         } else {
           // All retries failed, continue with partial data
           console.error(`Failed to fetch page ${page} after retries`);
+          pagesFailed++;
+          coingeckoFailureCount++;
         }
       }
     }
   }
 
+  // If ALL pages failed, mark CoinGecko as unavailable (likely IP blocked)
+  if (pagesSucceeded === 0 && pagesFailed === 4) {
+    coingeckoFailureCount = MAX_COINGECKO_FAILURES; // Immediately mark as blocked
+    coingeckoAvailable = false;
+    console.error('[CoinGecko] All requests failed - likely IP blocked by CoinGecko (common for cloud providers)');
+    onProgress?.('CoinGecko API blocked - switching to volume-only filtering');
+    return;
+  }
+
+  // If we've had too many consecutive failures across refreshes, mark as unavailable
+  if (coingeckoFailureCount >= MAX_COINGECKO_FAILURES) {
+    coingeckoAvailable = false;
+    console.error('[CoinGecko] Too many failures - marking as unavailable');
+  }
+
   marketDataCacheTime = now;
   onProgress?.(`Cached market data for ${marketDataCache.size} coins`);
+}
+
+/**
+ * Check if CoinGecko API is available
+ * (Will be false on cloud providers that are IP blocked)
+ */
+export function isCoinGeckoAvailable(): boolean {
+  return coingeckoAvailable;
 }
 
 /**

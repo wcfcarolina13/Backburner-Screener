@@ -18,6 +18,7 @@ import {
   getMarketCapRank,
   getCoinName,
   hasMarketCapData,
+  isCoinGeckoAvailable,
 } from './coingecko-api.js';
 import type { Timeframe, BackburnerSetup, SymbolInfo, ScreenerConfig, QualityTier, MarketType, LiquidityRisk } from './types.js';
 
@@ -326,7 +327,8 @@ export class BackburnerScreener {
     }
 
     // Check market cap requirements (filters fake volume)
-    if (this.config.requireMarketCap) {
+    // Skip if CoinGecko is unavailable (blocked on cloud providers like Render)
+    if (this.config.requireMarketCap && isCoinGeckoAvailable()) {
       if (!hasMarketCapData(info.symbol)) {
         return false; // Not on CoinGecko = likely scam/fake
       }
