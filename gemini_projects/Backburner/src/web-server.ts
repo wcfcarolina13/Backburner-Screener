@@ -4643,6 +4643,24 @@ async function main() {
 
   app.listen(PORT, () => {
     console.log(`✅ Web UI available at http://localhost:${PORT}`);
+
+    // Self-ping to prevent Render free tier spin-down
+    // Pings /api/state every 10 minutes to stay alive
+    if (process.env.NODE_ENV === 'production' && process.env.RENDER_EXTERNAL_URL) {
+      const selfPingUrl = `${process.env.RENDER_EXTERNAL_URL}/api/state`;
+      console.log(`🔄 Self-ping enabled: ${selfPingUrl}`);
+
+      setInterval(async () => {
+        try {
+          const response = await fetch(selfPingUrl);
+          if (response.ok) {
+            console.log(`[PING] Self-ping OK at ${new Date().toISOString()}`);
+          }
+        } catch (err) {
+          console.log(`[PING] Self-ping failed:`, err);
+        }
+      }, 10 * 60 * 1000); // Every 10 minutes
+    }
   });
 
   // Log bot configurations to data persistence

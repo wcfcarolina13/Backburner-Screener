@@ -13,3 +13,5 @@ services:
         value: production
       - key: PORT
         value: 3000
+      - key: RENDER_EXTERNAL_URL
+        value: https://backburner-screener-1.onrender.com
