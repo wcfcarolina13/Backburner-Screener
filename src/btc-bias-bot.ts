@@ -457,6 +457,29 @@ export class BtcBiasBot {
 
   isStoppedOut(): boolean { return this.wasStoppedOut; }
   getStoppedOutDirection(): 'long' | 'short' | null { return this.stoppedOutDirection; }
+
+  /**
+   * Reset bot to initial state (for daily reset feature)
+   */
+  reset(): void {
+    this.balance = this.config.initialBalance;
+    this.position = null;
+    this.closedPositions = [];
+    this.lastBias = 'neutral';
+    this.wasStoppedOut = false;
+    this.stoppedOutDirection = null;
+    this.biasHistory = [];
+    this.stats = {
+      totalTrades: 0,
+      wins: 0,
+      losses: 0,
+      totalPnL: 0,
+      totalExecutionCosts: 0,
+      currentBalance: this.config.initialBalance,
+      winRate: 0,
+    };
+    console.log(`[BTC-BIAS:${this.name}] Reset to initial state: $${this.balance}`);
+  }
 }
 
 // Factory function to create all 8 bot variants (ORIGINAL - V1)

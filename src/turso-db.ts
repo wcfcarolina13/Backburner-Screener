@@ -489,3 +489,86 @@ export async function getDailySummaries(startDate?: string, endDate?: string): P
     return [];
   }
 }
+
+/**
+ * Execute a read-only SQL query (for API access)
+ * Only allows SELECT statements for security
+ */
+export async function executeReadQuery(sql: string, args: (string | number)[] = []): Promise<{
+  success: boolean;
+  rows?: unknown[];
+  columns?: string[];
+  error?: string;
+  rowCount?: number;
+}> {
+  const client = getTurso();
+  if (!client) {
+    return { success: false, error: 'Turso not configured' };
+  }
+
+  // Security: Only allow SELECT statements
+  const trimmedSql = sql.trim().toUpperCase();
+  if (!trimmedSql.startsWith('SELECT')) {
+    return { success: false, error: 'Only SELECT queries are allowed' };
+  }
+
+  // Block dangerous keywords
+  const dangerous = ['DROP', 'DELETE', 'INSERT', 'UPDATE', 'ALTER', 'CREATE', 'TRUNCATE', 'EXEC', '--', ';'];
+  for (const keyword of dangerous) {
+    if (trimmedSql.includes(keyword) && keyword !== '--') {
+      return { success: false, error: `Query contains disallowed keyword: ${keyword}` };
+    }
+  }
+
+  try {
+    const result = await client.execute({ sql, args });
+    return {
+      success: true,
+      rows: result.rows as unknown[],
+      columns: result.columns,
+      rowCount: result.rows.length,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[TURSO] Query failed:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * Get database statistics (table names and row counts)
+ */
+export async function getDatabaseStats(): Promise<{
+  success: boolean;
+  tables?: Array<{ name: string; rowCount: number }>;
+  error?: string;
+}> {
+  const client = getTurso();
+  if (!client) {
+    return { success: false, error: 'Turso not configured' };
+  }
+
+  try {
+    // Get table names
+    const tablesResult = await client.execute(
+      "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+    );
+
+    const tables: Array<{ name: string; rowCount: number }> = [];
+
+    for (const row of tablesResult.rows) {
+      const tableName = row.name as string;
+      const countResult = await client.execute(`SELECT COUNT(*) as cnt FROM ${tableName}`);
+      tables.push({
+        name: tableName,
+        rowCount: countResult.rows[0].cnt as number,
+      });
+    }
+
+    return { success: true, tables };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[TURSO] Stats query failed:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}

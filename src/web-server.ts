@@ -23,8 +23,10 @@ import { getKlines, getFuturesKlines, spotSymbolToFutures, getCurrentPrice, getP
 import { getCurrentRSI, calculateRSI, calculateSMA, detectDivergence } from './indicators.js';
 import { DEFAULT_CONFIG } from './config.js';
 import { getDataPersistence } from './data-persistence.js';
-import { initSchema as initTursoSchema, isTursoConfigured } from './turso-db.js';
+import { initSchema as initTursoSchema, isTursoConfigured, executeReadQuery, getDatabaseStats } from './turso-db.js';
 import type { BackburnerSetup, Timeframe } from './types.js';
+import fs from 'fs';
+import path from 'path';
 
 const app = express();
 
@@ -133,6 +135,47 @@ const botVisibility: Record<string, boolean> = {
   'bias-v2-10x10-hard': true,
   'bias-v2-10x20-hard': true,
 };
+
+// Server settings (persisted across restarts)
+interface ServerSettings {
+  dailyResetEnabled: boolean;
+  lastResetDate: string;  // YYYY-MM-DD format
+}
+
+const serverSettings: ServerSettings = {
+  dailyResetEnabled: false,  // Default: OFF
+  lastResetDate: new Date().toISOString().split('T')[0],
+};
+
+// Load server settings from disk (uses fs/path imported via data-persistence)
+function loadServerSettings(): void {
+  try {
+    const settingsPath = path.join(process.cwd(), 'data', 'server-settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      Object.assign(serverSettings, data);
+      console.log('[SETTINGS] Loaded server settings:', serverSettings);
+    }
+  } catch (e) {
+    console.error('[SETTINGS] Failed to load server settings:', e);
+  }
+}
+
+// Save server settings to disk
+function saveServerSettings(): void {
+  try {
+    const settingsPath = path.join(process.cwd(), 'data', 'server-settings.json');
+    fs.writeFileSync(settingsPath, JSON.stringify(serverSettings, null, 2));
+    console.log('[SETTINGS] Saved server settings');
+  } catch (e) {
+    console.error('[SETTINGS] Failed to save server settings:', e);
+  }
+}
+
+// Get current date string (YYYY-MM-DD)
+function getCurrentDateString(): string {
+  return new Date().toISOString().split('T')[0];
+}
 
 // Setup history (keeps removed setups for longer viewing)
 const setupHistory: BackburnerSetup[] = [];
@@ -475,6 +518,76 @@ async function notifyGPPositionOpened(
   console.log(`   Entry: $${entryPrice} | RSI: ${setup.currentRSI?.toFixed(1)}`);
   console.log(`   State: ${setup.state} | TF: ${setup.timeframe}`);
   console.log(`${'='.repeat(60)}\n`);
+}
+
+/**
+ * Reset all bots to initial state (closes positions, resets balances)
+ * Records are preserved in data/trades/ for analysis
+ */
+function resetAllBots(): void {
+  console.log(`\n${'='.repeat(60)}`);
+  console.log('🔄 DAILY RESET: Resetting all bot states...');
+  console.log(`${'='.repeat(60)}`);
+
+  // Standard bots
+  fixedTPBot.reset();
+  fixedBreakevenBot.reset();
+  trailing1pctBot.reset();
+  trailing10pct10xBot.reset();
+  trailing10pct20xBot.reset();
+  trailWideBot.reset();
+  confluenceBot.reset();
+  btcExtremeBot.reset();
+  btcTrendBot.reset();
+  trendOverrideBot.reset();
+  trendFlipBot.reset();
+
+  // MEXC simulation bots
+  for (const [botId, bot] of mexcSimBots) {
+    bot.reset();
+    console.log(`  ✓ Reset ${botId}`);
+  }
+
+  // Golden Pocket V1 bots
+  for (const [botId, bot] of goldenPocketBots) {
+    bot.reset();
+    console.log(`  ✓ Reset ${botId}`);
+  }
+
+  // Golden Pocket V2 bots
+  for (const [botId, bot] of goldenPocketBotsV2) {
+    bot.reset();
+    console.log(`  ✓ Reset ${botId}`);
+  }
+
+  // BTC Bias V2 bots
+  for (const [botId, bot] of btcBiasBotsV2) {
+    bot.reset();
+    console.log(`  ✓ Reset ${botId}`);
+  }
+
+  // Update last reset date
+  serverSettings.lastResetDate = getCurrentDateString();
+  saveServerSettings();
+
+  console.log(`✅ All bots reset to $2000 starting balance`);
+  console.log(`📊 Trade history preserved in data/trades/`);
+  console.log(`${'='.repeat(60)}\n`);
+}
+
+/**
+ * Check if daily reset is needed (runs at start and periodically)
+ */
+function checkDailyReset(): void {
+  if (!serverSettings.dailyResetEnabled) {
+    return;
+  }
+
+  const today = getCurrentDateString();
+  if (serverSettings.lastResetDate !== today) {
+    console.log(`[DAILY RESET] New day detected: ${serverSettings.lastResetDate} -> ${today}`);
+    resetAllBots();
+  }
 }
 
 // Focus Mode - for manual trade copying with notifications
@@ -1428,6 +1541,38 @@ app.post('/api/reset', express.json(), (req, res) => {
   broadcastState();
 });
 
+// Daily reset settings API
+app.get('/api/daily-reset', (req, res) => {
+  res.json({
+    enabled: serverSettings.dailyResetEnabled,
+    lastResetDate: serverSettings.lastResetDate,
+    currentDate: getCurrentDateString(),
+  });
+});
+
+app.post('/api/daily-reset', express.json(), (req, res) => {
+  const { enabled, triggerNow } = req.body;
+
+  // Update setting if provided
+  if (typeof enabled === 'boolean') {
+    serverSettings.dailyResetEnabled = enabled;
+    saveServerSettings();
+    console.log(`[SETTINGS] Daily reset ${enabled ? 'ENABLED' : 'DISABLED'}`);
+  }
+
+  // Trigger immediate reset if requested
+  if (triggerNow === true) {
+    resetAllBots();
+    broadcastState();
+  }
+
+  res.json({
+    success: true,
+    enabled: serverSettings.dailyResetEnabled,
+    lastResetDate: serverSettings.lastResetDate,
+  });
+});
+
 // Toggle bot visibility
 app.post('/api/toggle-bot', express.json(), (req, res) => {
   const { bot, visible } = req.body;
@@ -1891,6 +2036,24 @@ app.get('/api/btc-rsi', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
+});
+
+// Database query endpoint (read-only, for external analysis)
+app.get('/api/db-stats', async (req, res) => {
+  const result = await getDatabaseStats();
+  res.json(result);
+});
+
+app.post('/api/query-db', express.json(), async (req, res) => {
+  const { sql, args } = req.body;
+
+  if (!sql || typeof sql !== 'string') {
+    res.status(400).json({ success: false, error: 'SQL query required' });
+    return;
+  }
+
+  const result = await executeReadQuery(sql, args || []);
+  res.json(result);
 });
 
 // SSE endpoint
@@ -2444,6 +2607,33 @@ function getHtmlPage(): string {
           <p style="color: #6e7681; font-size: 12px; margin: 0 0 12px 0;">Your saved list contains <span id="settingsSavedCount" style="color: #58a6ff;">0</span> items and is stored in your browser.</p>
           <button onclick="clearSavedList()" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #f85149; background: transparent; color: #f85149; font-weight: 600; cursor: pointer;">
             🗑️ Clear Saved List
+          </button>
+
+          <hr style="border: none; border-top: 1px solid #30363d; margin: 20px 0;">
+
+          <h4 style="margin: 0 0 12px 0; color: #8b949e;">🔄 Daily Reset</h4>
+          <p style="color: #6e7681; font-size: 12px; margin: 0 0 12px 0;">Reset all bot balances and positions at midnight (UTC). Trade history is preserved for analysis.</p>
+
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="dailyResetToggle" onchange="toggleDailyReset(this.checked)" style="accent-color: #58a6ff; width: 18px; height: 18px;">
+              <span>Enable daily reset</span>
+            </label>
+          </div>
+
+          <div id="dailyResetInfo" style="padding: 12px; background: #0d1117; border-radius: 8px; font-size: 12px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+              <span style="color: #8b949e;">Status:</span>
+              <span id="dailyResetStatus" style="color: #6e7681;">Loading...</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: #8b949e;">Last reset:</span>
+              <span id="dailyResetLastDate" style="color: #6e7681;">-</span>
+            </div>
+          </div>
+
+          <button onclick="triggerManualReset()" style="margin-top: 12px; padding: 8px 16px; border-radius: 6px; border: 1px solid #f0883e; background: transparent; color: #f0883e; font-weight: 600; cursor: pointer;">
+            🔄 Reset All Bots Now
           </button>
         </div>
       </div>
@@ -3336,6 +3526,9 @@ function getHtmlPage(): string {
       // Update saved list count
       document.getElementById('settingsSavedCount').textContent = savedList.size;
 
+      // Load daily reset settings from server
+      loadDailyResetSettings();
+
       document.getElementById('settingsModal').style.display = 'block';
     }
 
@@ -3364,6 +3557,78 @@ function getHtmlPage(): string {
         document.getElementById('settingsSavedCount').textContent = '0';
         renderSetupsWithTab();
         console.log('[Settings] Saved list cleared');
+      }
+    }
+
+    // Daily reset functions
+    async function loadDailyResetSettings() {
+      try {
+        const res = await fetch('/api/daily-reset');
+        const data = await res.json();
+
+        // Update checkbox
+        const toggle = document.getElementById('dailyResetToggle');
+        if (toggle) toggle.checked = data.enabled;
+
+        // Update status display
+        const statusEl = document.getElementById('dailyResetStatus');
+        const dateEl = document.getElementById('dailyResetLastDate');
+
+        if (statusEl) statusEl.textContent = data.enabled ? 'Enabled' : 'Disabled';
+        if (statusEl) statusEl.style.color = data.enabled ? '#3fb950' : '#6e7681';
+        if (dateEl) dateEl.textContent = data.lastResetDate || '-';
+
+        console.log('[Settings] Daily reset settings loaded:', data);
+      } catch (err) {
+        console.error('[Settings] Failed to load daily reset settings:', err);
+      }
+    }
+
+    async function toggleDailyReset(enabled) {
+      try {
+        const res = await fetch('/api/daily-reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled })
+        });
+        const data = await res.json();
+
+        // Update status display
+        const statusEl = document.getElementById('dailyResetStatus');
+        if (statusEl) {
+          statusEl.textContent = data.enabled ? 'Enabled' : 'Disabled';
+          statusEl.style.color = data.enabled ? '#3fb950' : '#6e7681';
+        }
+
+        console.log('[Settings] Daily reset toggled:', data.enabled);
+      } catch (err) {
+        console.error('[Settings] Failed to toggle daily reset:', err);
+        alert('Failed to update setting: ' + err.message);
+      }
+    }
+
+    async function triggerManualReset() {
+      if (!confirm('Reset all bots now? This will close all open positions and reset balances to $2000. Trade history will be preserved.')) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/daily-reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ triggerNow: true })
+        });
+        const data = await res.json();
+
+        // Update last reset date
+        const dateEl = document.getElementById('dailyResetLastDate');
+        if (dateEl) dateEl.textContent = data.lastResetDate;
+
+        alert('All bots have been reset to $2000 starting balance.');
+        console.log('[Settings] Manual reset triggered');
+      } catch (err) {
+        console.error('[Settings] Failed to trigger reset:', err);
+        alert('Failed to reset bots: ' + err.message);
       }
     }
 
@@ -3731,10 +3996,27 @@ function getHtmlPage(): string {
       played_out: false  // Hide played_out by default
     };
 
+    // Toggle to always show saved list items regardless of state filters
+    let showSavedInFilters = false;
+
     function toggleGpFilter(state) {
       gpStateFilters[state] = !gpStateFilters[state];
       updateGpFilterButtons();
       renderSetupsWithTab();
+    }
+
+    function toggleShowSavedInFilters() {
+      showSavedInFilters = !showSavedInFilters;
+      updateShowSavedButton();
+      renderSetupsWithTab();
+    }
+
+    function updateShowSavedButton() {
+      const btn = document.getElementById('gpShowSavedToggle');
+      if (btn) {
+        btn.style.opacity = showSavedInFilters ? '1' : '0.4';
+        btn.style.background = showSavedInFilters ? '#1c3a5e' : '#21262d';
+      }
     }
 
     function updateGpFilterButtons() {
@@ -3776,8 +4058,10 @@ function getHtmlPage(): string {
       } else if (currentSetupsTab === 'history') {
         setups = allSetupsData.history;
       } else if (currentSetupsTab === 'goldenPocket') {
-        // Apply GP state filters
-        let filteredSetups = (allSetupsData.goldenPocket || []).filter(s => gpStateFilters[s.state]);
+        // Apply GP state filters (with optional saved list override)
+        let filteredSetups = (allSetupsData.goldenPocket || []).filter(s =>
+          gpStateFilters[s.state] || (showSavedInFilters && savedList.has(getSetupKey(s)))
+        );
         document.getElementById('setupsTable').innerHTML = renderGoldenPocketTable(filteredSetups, allSetupsData.goldenPocket?.length || 0);
         return;
       } else if (currentSetupsTab === 'savedList') {
@@ -3802,6 +4086,8 @@ function getHtmlPage(): string {
       html += '<button id="gpFilter_deep_extreme" onclick="toggleGpFilter(\\'deep_extreme\\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #f0883e; background: #21262d; color: #f0883e; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.deep_extreme ? '1' : '0.4') + ';">deep</button>';
       html += '<button id="gpFilter_reversing" onclick="toggleGpFilter(\\'reversing\\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #58a6ff; background: #21262d; color: #58a6ff; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.reversing ? '1' : '0.4') + ';">reversing</button>';
       html += '<button id="gpFilter_played_out" onclick="toggleGpFilter(\\'played_out\\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #6e7681; background: #21262d; color: #6e7681; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.played_out ? '1' : '0.4') + ';">played out</button>';
+      html += '<span style="color: #6e7681; margin: 0 6px;">|</span>';
+      html += '<button id="gpShowSavedToggle" onclick="toggleShowSavedInFilters()" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #58a6ff; background: ' + (showSavedInFilters ? '#1c3a5e' : '#21262d') + '; color: #58a6ff; font-size: 10px; cursor: pointer; opacity: ' + (showSavedInFilters ? '1' : '0.4') + ';" title="Always show saved list items regardless of state filters">📋 +List</button>';
       html += '<span style="color: #6e7681; font-size: 10px; margin-left: 8px;">(' + (setups?.length || 0) + '/' + (totalCount || 0) + ')</span>';
       html += '</div>';
 
@@ -5684,6 +5970,17 @@ async function main() {
     };
   });
   console.log('⏰ Hourly snapshot callback registered');
+
+  // Load server settings (daily reset, etc.)
+  loadServerSettings();
+
+  // Check for daily reset on startup
+  checkDailyReset();
+
+  // Periodic daily reset check (every 5 minutes)
+  setInterval(() => {
+    checkDailyReset();
+  }, 5 * 60 * 1000);
 
   // Position persistence DISABLED - start fresh each time
   // To re-enable, uncomment the loadState() calls below

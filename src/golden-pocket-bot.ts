@@ -678,4 +678,18 @@ export class GoldenPocketBot {
 
     console.log(`[GP:${this.botId}] Restored state: ${positions.length} open, ${closedPositions.length} closed, balance: $${balance.toFixed(2)}`);
   }
+
+  /**
+   * Reset bot to initial state (for daily reset feature)
+   */
+  reset(): void {
+    this.positions.clear();
+    this.closedPositions = [];
+    this.balance = this.config.initialBalance;
+    this.peakBalance = this.config.initialBalance;
+    this.tp1Hits = 0;
+    this.tp2Hits = 0;
+    this.totalRetracementAtEntry = 0;
+    console.log(`[GP:${this.botId}] Reset to initial state: $${this.balance}`);
+  }
 }
