@@ -4,10 +4,44 @@
 
 ## Summary
 
-- Iterations completed: 13
-- Current status: Market Bias Tracker UI Improved
+- Iterations completed: 14
+- Current status: Trading Guide Updated
 
-## Current Task: Market Bias Tracker Enhancement
+## Current Task: Documentation Update
+
+### Iteration 14 - Trading Guide Expansion
+**Date**: 2026-01-15
+**Status**: ✅ Complete
+
+**Goal**: Update Trading Guide to cover all non-archived bots (user noticed Override/Flip were missing).
+
+**Changes Made**:
+
+1. **Added Trend Override Strategy Section**:
+   - Explains conflict-detection logic (single-TF backburner vs BTC trend)
+   - Shows how direction is overridden to ride with trend
+   - Includes example scenario
+
+2. **Added Trend Flip Strategy Section**:
+   - Same entry logic as Override
+   - Explains flip mechanism on profitable close
+   - Shows example trade flow
+
+3. **Added BTC-Only Strategies Section**:
+   - **BTCExtremeBot (Contrarian)**: Fades RSI extremes, 50x leverage
+   - **BTCTrendBot (Momentum)**: Follows strong bias, 50x leverage
+   - **BTC Bias V2 (Multi-Level)**: Four bots at different thresholds (±80/60/40/20%)
+
+**Performance Note**: Override and Flip bots have **0 trades** so far - they haven't triggered yet. Their conditions (single-TF setup conflicting with BTC trend) are specific.
+
+**Files Modified**:
+- `src/web-server.ts` (+56 lines in Trading Guide modal)
+
+**Build**: ✅ Passes successfully
+
+---
+
+## Previous Task: Market Bias Tracker Enhancement
 
 ### Iteration 13 - Replace Chart with Actionable Indicators
 **Date**: 2026-01-15
