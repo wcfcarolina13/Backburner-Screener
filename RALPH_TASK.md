@@ -1,171 +1,143 @@
 ---
-task: Audit & Hardening of Paper Trade Simulation Logic (Market Friction)
+task: Forensic Backtest on 24h Dataset (Friction Stress Test)
 test_command: "cd /sessions/compassionate-funny-cerf/mnt/gemini_projects/Backburner && npm run build"
 ---
 
-# Task: Audit & Hardening of Paper Trade Simulation Logic
+# Task: Forensic Backtest on 24h Dataset (Friction Stress Test)
 
-**Priority**: High (Critical for Strategy Validation)
+**Priority**: Immediate
 
-**Context**: The current paper trading engine may be over-optimizing results by executing at "Chart Price" rather than "Order Book Price." To validate the viability of the high-leverage (20x) scalping strategy on MEXC, we must introduce synthetic friction (spread, slippage, latency) to align simulation data with live market conditions.
+**Context**: We have ~24 hours of market data collected. We must run the strategy logic against this dataset, applying the new "Market Friction" parameters (Spread, Slippage, Latency) to determine if the theoretical Alpha survives real-world drag.
+
+**Key Insight**: Standard backtesting (checking "Close" price) lies to scalpers. We need to simulate the sequence of events INSIDE the candle.
 
 ---
 
-## Phase 1: Discovery & Audit ✅ COMPLETE
-
-Scan the current execution/backtest modules to determine current state.
+## Phase 1: Data Discovery & Suitability Check
 
 ### Success Criteria
 
-1. [x] **Audit Execution Timing**
-   - Does the bot execute orders on the same tick/candle that the signal is generated?
-   - Goal: Identify if we are "looking ahead" or reacting instantly without latency
-   - **FINDINGS**:
-     - ✅ `paper-trading-trailing.ts` & `mexc-trailing-simulation.ts`: Execute at signal time (same tick)
-     - ⚠️ NO "next tick" delay implemented - all bots enter at `setup.currentPrice` immediately
-     - The MEXC sim and trailing bots DO track entry costs upfront
+1. [x] **Locate the collected data**
+   - ✅ Local data in `data/signals/` and `data/trades/`
+   - **Signals**: 181 total, 48 triggered (Jan 14-15)
+   - **Trades**: 305 events, 39 closed trades
+   - **Total PnL**: -$11,228.45 (significant losses!)
+   - **Symbols with triggers**: 11 unique symbols
 
-2. [x] **Audit Price Logic**
-   - Does `entry_price` equal `close_price` or `current_price`?
-   - Are we distinguishing between `Bid` (Sell) and `Ask` (Buy) prices, or using a single price feed?
-   - **FINDINGS**:
-     - ✅ Entry uses `setup.currentPrice` (latest close from candles)
-     - ⚠️ Single price feed - NO bid/ask spread distinction
-     - ✅ `execution-costs.ts` EXISTS with slippage modeling that applies direction-aware penalties:
-       - Long entry: `price * (1 + slippage)` (buy at higher)
-       - Long exit: `price * (1 - slippage)` (sell at lower)
-       - Short entry: `price * (1 - slippage)` (sell at lower)
-       - Short exit: `price * (1 + slippage)` (buy back higher)
+2. [x] **Granularity Check**
+   - ⚠️ We have EVENT LOGS (signal triggers, trade opens/closes) - NOT raw candle data
+   - Signal timeframes: 5m, 15m, 1h
+   - **ACTION NEEDED**: Must fetch 1m candles from MEXC for forensic analysis
+   - Without 1m data, we cannot apply "wick priority" rule properly
 
-3. [x] **Audit Fee/Drag Calculations**
-   - Are fees (Maker/Taker) currently deducted from PnL?
-   - Is there any existing variable for slippage?
-   - **FINDINGS**:
-     - ✅ `execution-costs.ts` module ALREADY EXISTS with comprehensive cost modeling:
-       - Maker fee: 0.02%, Taker fee: 0.04%
-       - Base slippage: 2 bps (0.02%), max 20 bps (0.20%)
-       - Volatility multiplier: 1.5x for high volatility
-       - Size impact: +0.5bp per $10k notional
-       - Funding rate modeling (0.01% per 8h default)
-     - ✅ `paper-trading-trailing.ts`: Uses `ExecutionCostsCalculator` for entry/exit costs
-     - ✅ `mexc-trailing-simulation.ts`: Uses `ExecutionCostsCalculator` for entry/exit costs
-     - ❌ `paper-trading.ts`: NO cost modeling (basic fixed TP/SL bot)
-     - ❌ `golden-pocket-bot.ts`: NO cost modeling
+3. [ ] **Volume Check for each asset**
+   - Need to fetch 24h volume from MEXC for these symbols:
+     - MERLUSDT, RIVERUSDT, XMRUSDT, BARDUSDT, ZENUSDT
+     - TRUMPUSDT, FARTCOINUSDT, MAGICUSDT, UNIUSDT, WLFIUSDT, EIGENUSDT
+   - Flag low-volume assets for extra slippage
 
 ---
 
-## Phase 2: Implementation (The "Reality Patch")
+## Phase 2: Build the Forensic Backtester
 
-Based on the audit, several features ALREADY EXIST. Only gaps need to be filled.
+Create a new file `src/forensic-backtest.ts` implementing conservative assumptions.
 
 ### Success Criteria
 
-4. [x] **Implement "Round Trip" Spread Penalty** - ALREADY EXISTS
-   - ✅ `execution-costs.ts` already implements direction-aware spread/slippage:
-     - `calculateEffectiveEntryPrice()`: Long buys higher, Short sells lower
-     - `calculateEffectiveExitPrice()`: Long sells lower, Short buys higher
-   - ✅ Used in `paper-trading-trailing.ts` and `mexc-trailing-simulation.ts`
-   - ❌ NOT used in `golden-pocket-bot.ts` or basic `paper-trading.ts`
-   - **ACTION**: Add execution costs to GP bot and basic paper trading
+4. [ ] **Implement "Next Open" Execution (Latency Simulation)**
+   - Signal generated at Candle `T` (using Close price)
+   - Execution MUST fill at Candle `T+1` (Open Price)
+   - Rationale: We cannot buy at the price that triggered the signal
 
-5. [x] **Implement Volatility-Based Slippage** - ALREADY EXISTS
-   - ✅ `execution-costs.ts` has `calculateSlippageBps()` with:
-     - `volatilityMultiplier`: 1.5x for high volatility
-     - `sizeImpactFactor`: +0.5bp per $10k notional
-     - `VolatilityState`: 'low' | 'normal' | 'high' | 'extreme'
-     - `determineVolatility()` helper based on RSI and price change
-   - ✅ Used in trailing bots
-   - **ACTION**: Increase BASE_SPREAD from 2bps to 15bps per Gemini's recommendation
+5. [ ] **Implement "Wick Priority" Rule (CRITICAL)**
+   - Scenario: Single candle hits both Take Profit (High) AND Stop Loss (Low)
+   - Logic: If `Low <= Stop_Loss` AND `High >= Take_Profit` in same candle:
+     - **ASSUME LOSS** - price wicked down, stopped out, then recovered
+     - Record as Max Loss (e.g., -20% ROI on margin)
+   - This is the most important conservative assumption
 
-6. [ ] **Implement "Next Tick" Execution**
-   - Currently all bots execute at `setup.currentPrice` (same tick)
-   - If Signal is generated at `Time(T)`, Execution must occur at `Time(T+1)` (next candle open)
-   - **ACTION**: Add optional `FORCE_NEXT_TICK` mode that queues orders for next price update
-   - This is the main missing feature
+6. [ ] **Apply Friction Math**
+   - Use `execution-costs.ts` for calculations
+   - Simulated Entry: `T+1_Open * (1 + spread + slippage)`
+   - Simulated Exit: `Exit_Price * (1 - spread - slippage)`
+   - Include fees in all calculations
 
-7. [x] **Refactor ROI Trigger Logic** - ALREADY CORRECT
-   - ✅ `paper-trading-trailing.ts` already uses raw PnL for trailing thresholds
-   - ✅ The `unrealizedPnL` INCLUDES entry costs and estimated exit costs
-   - ✅ Trailing triggers use `rawPnL / margin` for ROI calculation
-   - Current behavior is correct: costs reduce final PnL but don't affect trigger timing
-   - **NOTE**: The current approach is actually better than Net ROI triggers because it prevents over-trading on noise while still accounting for costs in final P&L
+7. [ ] **Track "Ghost" Trades (Near Misses)**
+   - Identify where `Raw_Signal = TRUE` but `Adjusted_PnL` would be negative
+   - These are trades killed by friction
+   - Count and log them separately
 
 ---
 
-## Phase 3: Configuration & Constants
+## Phase 3: Run the Backtest
 
-8. [x] **Add Friction Config** - ALREADY EXISTS, NEEDS TUNING
-   - ✅ `execution-costs.ts` has `DEFAULT_EXECUTION_COSTS` config:
-     ```typescript
-     fees: {
-       makerFee: 0.0002,   // 0.02%
-       takerFee: 0.0004,   // 0.04%
-     },
-     slippage: {
-       baseSlippageBps: 2,           // 0.02% base (GEMINI WANTS 15bps = 0.15%)
-       volatilityMultiplier: 1.5,
-       sizeImpactFactor: 0.5,
-       minSlippageBps: 1,
-       maxSlippageBps: 20,
-     },
-     funding: {
-       defaultRatePercent: 0.01,
-       extremeRatePercent: 0.1,
-       intervalHours: 8,
-     },
-     enabled: true,
-     ```
-   - **ACTION**: Update `baseSlippageBps` from 2 to 15 per Gemini's conservative estimate
+### Success Criteria
+
+8. [ ] **Fetch 1m candle data for backtest period**
+   - For each symbol that had signals in the 24h period
+   - Fetch 1m candles from MEXC API covering that timeframe
+   - Store locally for reproducibility
+
+9. [ ] **Run backtest with both configurations**
+   - Run 1: "Paper" mode (no friction, instant fills at signal price)
+   - Run 2: "Friction" mode (spread, slippage, next-tick execution, wick priority)
+   - Compare results side-by-side
 
 ---
 
-## Phase 4: Validation
+## Phase 4: Output Report
 
-9. [ ] **All tests pass**: Run `npm run build` successfully with no errors
+10. [ ] **Generate comparison report**
 
-10. [x] **Logging Verification** - ALREADY EXISTS
-    - ✅ Trailing bot logs show `@ ${effectiveEntryPrice.toPrecision(5)} (mkt: ${entryPrice.toPrecision(5)})`
-    - ✅ Close logs show `Raw: $X | Costs: $Y | Net: $Z`
-    - **NOTE**: Basic paper trading and GP bots don't have this logging yet
+Required output format:
+```
+[Backtest Results: 24h Friction Test]
+-------------------------------------
+Data Period:         [Start] - [End]
+Symbols Analyzed:    [Count]
+Total Signals:       [Count]
+Executed Trades:     [Count] (After filtering)
 
-11. [ ] **Code is committed**: All changes committed with descriptive messages
+Raw PnL (Paper):     $[Amount] (Assuming perfect fills)
+Real PnL (Friction): $[Amount] (With spread/slippage/latency)
+Friction Drag:       [%] (How much friction ate)
 
----
+Win Rate Adjustment:
+- Paper Win Rate:    [%]
+- Real Win Rate:     [%] (Did friction turn small wins into losses?)
 
-## Remaining Work Summary
+Ghost Trades:        [Count] (Signals killed by friction)
 
-### Must Do (Gemini's Gaps):
-1. [ ] **Add execution costs to `golden-pocket-bot.ts`**
-2. [ ] **Add execution costs to `paper-trading.ts`** (or document it as "idealized baseline")
-3. [ ] **Increase `baseSlippageBps` from 2 to 15** (0.02% → 0.15%)
-4. [ ] **Optional: Implement "Next Tick" execution mode**
+Survivability:
+- Max Drawdown:      [%]
+- Wick Ambiguity:    [Count] (Candles where TP & SL both hit)
+- Assumed Losses:    [Count] (From wick priority rule)
 
-### Already Done (No Changes Needed):
-- ✅ Round-trip spread penalty (direction-aware slippage)
-- ✅ Volatility-based slippage multiplier
-- ✅ Fee deduction (maker/taker)
-- ✅ Funding rate modeling
-- ✅ Size impact on slippage
-- ✅ Cost tracking in logs
+Verdict: [VIABLE / MARGINAL / NOT VIABLE]
+```
 
----
-
-## Acceptance Criteria Summary
-
-1. **PnL Reduction**: ✅ Already happening - trailing bots show Raw vs Net PnL
-2. **Visual Check**: ✅ Already shows signal price vs executed price
-3. **Survival Check**: Increasing base slippage will require stronger moves
+11. [ ] **All code committed with descriptive messages**
 
 ---
 
-## Technical Context
+## Technical Notes
 
-### Key Files
-- `src/execution-costs.ts` - **CORE** - Already comprehensive, needs tuning
-- `src/paper-trading-trailing.ts` - ✅ Uses execution costs
-- `src/mexc-trailing-simulation.ts` - ✅ Uses execution costs
-- `src/golden-pocket-bot.ts` - ❌ Needs execution costs added
-- `src/paper-trading.ts` - ❌ Needs execution costs added (or documented as baseline)
+### Existing Infrastructure
+- `execution-costs.ts` - Already has friction calculations (just increased to 15bps base)
+- `paper-trading-trailing.ts` - Has cost-aware P&L logic
+- Turso database - May have signal/trade history
+- MEXC API - Can fetch historical 1m candles
+
+### Key Files to Create/Modify
+- `src/forensic-backtest.ts` - NEW - Main backtest engine
+- `src/backtest-report.ts` - NEW - Report generation
+- May need to add 1m candle fetching to `mexc-api.ts`
+
+### Conservative Assumptions Summary
+1. **Latency**: Execute at T+1 Open, not T Close
+2. **Wick Priority**: If both TP and SL hit in same candle, assume loss
+3. **Friction**: 15bps spread + slippage + fees on every trade
+4. **Volume**: Extra slippage for low-volume assets
 
 ---
 
