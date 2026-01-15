@@ -4,8 +4,38 @@
 
 ## Summary
 
-- Iterations completed: 6
-- Current status: TCG-compliant Backburner implementation (5 major fixes)
+- Iterations completed: 7
+- Current status: Market Friction Audit (Phase 1 Complete)
+
+## Current Task: Market Friction Hardening
+
+### Iteration 7 - Market Friction Audit
+**Date**: 2025-01-15
+**Status**: Phase 1 Complete, Phase 2 In Progress
+
+**Audit Findings**:
+
+1. **Execution Timing**: All bots execute at signal time (same tick). NO "next tick" delay implemented.
+
+2. **Price Logic**: Uses `setup.currentPrice` (candle close). Single price feed - no bid/ask spread.
+   - BUT `execution-costs.ts` already applies direction-aware slippage penalties
+
+3. **Fee/Drag Calculations**: Comprehensive `execution-costs.ts` module EXISTS:
+   - ✅ Maker/Taker fees (0.02%/0.04%)
+   - ✅ Slippage: 2bps base, volatility multiplier 1.5x
+   - ✅ Size impact: +0.5bp per $10k
+   - ✅ Funding rate modeling
+   - Used by: `paper-trading-trailing.ts`, `mexc-trailing-simulation.ts`
+   - NOT used by: `golden-pocket-bot.ts`, `paper-trading.ts`
+
+**Remaining Work**:
+1. [ ] Add execution costs to `golden-pocket-bot.ts`
+2. [ ] Increase `baseSlippageBps` from 2 to 15 (per Gemini recommendation)
+3. [ ] Optional: Implement "Next Tick" execution mode
+
+---
+
+## Previous Sessions
 
 ## How This Works
 
