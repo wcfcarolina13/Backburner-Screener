@@ -205,3 +205,28 @@ Continue monitoring through **Jan 17-18** (3-4 more days) to capture:
 1. **Top performer:** Trail Wide with +$183.94 (71% win rate)
 2. **Underperformer:** btc-bias-100x50-hard with $-922.74
 3. **Average win rate across all bots:** 35.8%
+
+---
+
+## 2026-01-15
+
+**Analysis Timestamp:** 2026-01-15T05:55:08.900Z
+**Market Context:** Mixed
+**Total Trades:** 7 | **Total P&L:** $-3982.26
+
+### Performance Summary
+
+| Bot | Trades | Wins | Losses | Win Rate | Total P&L | Avg P&L |
+|-----|--------|------|--------|----------|-----------|---------|
+| btc-bias-10x20-trail | 1 | 0 | 1 | 0% | $-50.83 | $-50.83 |
+| btc-bias-10x20-hard | 1 | 0 | 1 | 0% | $-50.83 | $-50.83 |
+| btc-bias-10x50-hard | 1 | 0 | 1 | 0% | $-99.25 | $-99.25 |
+| btc-bias-100x20-trail | 1 | 0 | 1 | 0% | $-536.91 | $-536.91 |
+| btc-bias-100x20-hard | 1 | 0 | 1 | 0% | $-536.91 | $-536.91 |
+| btc-bias-100x50-trail | 1 | 0 | 1 | 0% | $-1353.77 | $-1353.77 |
+| btc-bias-100x50-hard | 1 | 0 | 1 | 0% | $-1353.77 | $-1353.77 |
+
+### Observations
+
+2. **Underperformer:** btc-bias-100x50-hard with $-1353.77
+3. **Average win rate across all bots:** 0.0%

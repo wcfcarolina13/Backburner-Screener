@@ -4,10 +4,69 @@
 
 ## Summary
 
-- Iterations completed: 11
-- Current status: Short Setup Investigation Complete
+- Iterations completed: 12
+- Current status: Leverage Comparison Backtest Complete
 
-## Current Task: Short Setup Investigation
+## Current Task: Leverage Impact Analysis
+
+### Iteration 12 - Leverage Comparison Backtest
+**Date**: 2026-01-15
+**Status**: ✅ Complete
+
+**Goal**: Analyze whether lower leverage would have protected bots during choppy Jan 14-15 conditions.
+
+**Analysis Tool Created**: `src/backtest-leverage-comparison.ts`
+- Recalculates historical trades at different leverage levels
+- Applies friction modeling (fees + slippage)
+- Compares SL/TP hit rates at each leverage level
+
+**Key Findings**:
+
+#### Trailing Bots (69 trades, Jan 13-15):
+| Leverage | Total PnL | Win Rate | SL Hits | TP Hits |
+|----------|-----------|----------|---------|---------|
+| 3x       | -$73.85   | 33.3%    | 0/69    | 0/69    |
+| 5x       | -$123.21  | 33.3%    | 0/69    | 2/69    |
+| 10x      | -$247.11  | 33.3%    | 8/69    | 5/69    |
+| 20x      | -$496.96  | 33.3%    | 33/69   | 10/69   |
+
+**Insight**: Lower leverage reduced losses by ~75% (3x vs 20x), but win rate stayed same (33%). Fewer stop-outs, but also fewer TP hits.
+
+#### Golden Pocket Bots (5 trades, Jan 13-15):
+| Leverage | Total PnL | Win Rate | SL Hits | TP Hits |
+|----------|-----------|----------|---------|---------|
+| 3x       | +$24.17   | 60.0%    | 0/5     | 0/5     |
+| 5x       | +$40.27   | 60.0%    | 0/5     | 3/5     |
+| 10x      | +$80.45   | 60.0%    | 0/5     | 3/5     |
+| 15x      | +$120.52  | 60.0%    | 2/5     | 3/5     |
+| 20x      | +$160.50  | 60.0%    | 2/5     | 3/5     |
+
+**Insight**: GP bots were profitable at ALL leverage levels! Higher leverage = higher returns (linear scaling). 60% win rate survived friction.
+
+#### BTC Bias Bots (67 trades, Jan 13-15):
+| Leverage | Total PnL | Win Rate | SL Hits | TP Hits |
+|----------|-----------|----------|---------|---------|
+| 5x       | -$3,072   | 3.0%     | 0/67    | 0/67    |
+| 10x      | -$6,254   | 3.0%     | 0/67    | 0/67    |
+| 20x      | -$12,944  | 3.0%     | 6/67    | 0/67    |
+| 50x      | -$35,631  | 3.0%     | 45/67   | 2/67    |
+
+**Insight**: BTC Bias bots fundamentally broken (3% win rate). Lower leverage reduces loss magnitude but doesn't fix the strategy.
+
+**Conclusions**:
+1. **Lower leverage reduces loss magnitude** but doesn't improve win rate
+2. **GP bots are the best performers** - profitable at all leverage levels, 60% win rate
+3. **Trailing bots lost money** even at 3x leverage - strategy needs refinement
+4. **BTC Bias V1 is NOT VIABLE** - should be disabled
+5. **GP short fix** (commit 1ee27c1) hasn't generated data yet - needs time to collect
+
+**Files Created**:
+- `src/backtest-leverage-comparison.ts` - Leverage comparison analysis tool
+- `data/reports/leverage-comparison-2026-01-15.json` - Full report data
+
+---
+
+## Previous Task: Short Setup Investigation
 
 ### Iteration 11 - Why Are There Few Short Setups?
 **Date**: 2026-01-15
