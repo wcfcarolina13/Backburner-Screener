@@ -2751,7 +2751,7 @@ function getHtmlPage(): string {
 
     <!-- Section: Altcoin Bots -->
     <div class="section-header" onclick="toggleSection('altcoinBots')">
-      <span class="section-title">📊 Altcoin Backburner Bots (11)</span>
+      <span class="section-title">📊 Altcoin Backburner Bots (12)</span>
       <span class="section-toggle" id="altcoinBotsToggle">▼</span>
     </div>
     <div class="section-content" id="altcoinBotsContent">
@@ -2816,8 +2816,13 @@ function getHtmlPage(): string {
             <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #00bcd4;"></span>
           </div>
         </div>
+        <div class="bot-toggle" id="toggleFixedBE" onclick="event.stopPropagation(); toggleBot('fixedBE')" style="flex: 1; min-width: 85px; padding: 6px 10px; background: #161b22; border: 2px solid #2ea043; border-radius: 6px; cursor: pointer;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: 600; color: #2ea043; font-size: 11px;">🛡️ FixBE</span>
+            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #2ea043;"></span>
+          </div>
+        </div>
       </div>
-    </div>
 
     <!-- 11-Bot Stats Comparison -->
     <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 12px;">
@@ -2876,6 +2881,7 @@ function getHtmlPage(): string {
         <div class="stat-label">Flip | P&L: <span id="trendFlipPnL" class="positive">$0</span> | Unreal: <span id="trendFlipUnrealPnL" class="positive">$0</span></div>
         <div class="stat-label" style="margin-top: 2px;"><span id="trendFlipWinRate">0%</span> win (<span id="trendFlipTrades">0</span> trades) | Costs: <span id="trendFlipCosts" style="color: #f85149;">$0</span></div>
       </div>
+    </div>
     </div>
 
     <!-- BTC Bias V1 bots REMOVED - See data/archived/BTC_BIAS_V1_EXPERIMENT.md for learnings -->
