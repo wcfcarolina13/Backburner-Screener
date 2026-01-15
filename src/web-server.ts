@@ -2287,6 +2287,62 @@ function getHtmlPage(): string {
               <span style="color: #58a6ff;">↩️ reversing</span> - Price moving toward target
             </div>
           </div>
+
+          <hr style="border: none; border-top: 1px solid #30363d; margin: 20px 0;">
+
+          <h3 style="color: #f0883e;">🔄 Trend Override Strategy</h3>
+          <p style="color: #8b949e; margin-bottom: 12px;">When a backburner signal <strong style="color: #c9d1d9;">conflicts</strong> with BTC's macro trend, trade <strong style="color: #c9d1d9;">WITH the trend</strong> instead of against it.</p>
+
+          <h4 style="color: #c9d1d9; margin-bottom: 8px;">How It Works</h4>
+          <ol style="margin: 0 0 16px 0; padding-left: 20px; color: #8b949e; font-size: 13px;">
+            <li><strong style="color: #c9d1d9;">Single-TF Only</strong>: Only triggers on 1-timeframe setups (not confluence)</li>
+            <li><strong style="color: #c9d1d9;">Detect Conflict</strong>: Backburner says LONG but BTC trend is bearish (or vice versa)</li>
+            <li><strong style="color: #c9d1d9;">Override Direction</strong>: Trade OPPOSITE to backburner (ride the trend)</li>
+            <li><strong style="color: #c9d1d9;">Stay In</strong>: Uses trailing stops, doesn't exit on played_out</li>
+          </ol>
+
+          <div style="background: #0d1117; border-radius: 6px; padding: 12px; margin-bottom: 16px; font-size: 12px;">
+            <p style="color: #c9d1d9; margin: 0 0 8px 0;"><strong>Example:</strong></p>
+            <p style="color: #8b949e; margin: 0;">5m RSI oversold (backburner says LONG) + BTC bearish macro → Opens <span style="color: #f85149;">SHORT</span> instead</p>
+          </div>
+
+          <hr style="border: none; border-top: 1px solid #30363d; margin: 20px 0;">
+
+          <h3 style="color: #f0883e;">🔁 Trend Flip Strategy</h3>
+          <p style="color: #8b949e; margin-bottom: 12px;">Same entry logic as Override, but <strong style="color: #c9d1d9;">flips direction</strong> when a position closes in profit to catch the reversal.</p>
+
+          <h4 style="color: #c9d1d9; margin-bottom: 8px;">How It Works</h4>
+          <ol style="margin: 0 0 16px 0; padding-left: 20px; color: #8b949e; font-size: 13px;">
+            <li><strong style="color: #c9d1d9;">Same Entry</strong>: Override logic (single-TF conflict with BTC trend)</li>
+            <li><strong style="color: #c9d1d9;">Profitable Close</strong>: When position closes in profit...</li>
+            <li><strong style="color: #c9d1d9;">Flip Direction</strong>: Immediately open opposite direction</li>
+            <li><strong style="color: #c9d1d9;">Catch Reversal</strong>: Rides momentum, then catches mean reversion</li>
+          </ol>
+
+          <div style="background: #0d1117; border-radius: 6px; padding: 12px; font-size: 12px;">
+            <p style="color: #c9d1d9; margin: 0 0 8px 0;"><strong>Example Flow:</strong></p>
+            <p style="color: #8b949e; margin: 0;">SHORT (override) → closes +15% profit → LONG (flip) → catches bounce</p>
+          </div>
+
+          <hr style="border: none; border-top: 1px solid #30363d; margin: 20px 0;">
+
+          <h3 style="color: #f0883e;">₿ BTC-Only Strategies</h3>
+          <p style="color: #8b949e; margin-bottom: 12px;">Specialized bots that trade only Bitcoin based on macro conditions.</p>
+
+          <div style="display: grid; gap: 12px; font-size: 12px;">
+            <div style="padding: 12px; background: #0d1117; border-radius: 8px; border-left: 3px solid #ff6b35;">
+              <strong style="color: #ff6b35;">₿ Contrarian (BTCExtremeBot)</strong>
+              <p style="color: #8b949e; margin: 4px 0 0 0;">Fades extreme RSI conditions - buys oversold (RSI<30), sells overbought (RSI>70). 50x leverage, exits when RSI crosses 50.</p>
+            </div>
+            <div style="padding: 12px; background: #0d1117; border-radius: 8px; border-left: 3px solid #00d4aa;">
+              <strong style="color: #00d4aa;">₿ Momentum (BTCTrendBot)</strong>
+              <p style="color: #8b949e; margin: 4px 0 0 0;">Follows strong trends when bias score >70%. 50x leverage, exits when bias weakens below 30%.</p>
+            </div>
+            <div style="padding: 12px; background: #0d1117; border-radius: 8px; border-left: 3px solid #58a6ff;">
+              <strong style="color: #58a6ff;">₿ Bias V2 (Multi-Level)</strong>
+              <p style="color: #8b949e; margin: 4px 0 0 0;">Four separate bots tracking BTC bias at different thresholds: Extreme (±80%), Strong (±60%), Moderate (±40%), and Weak (±20%). Each bot only trades its assigned level.</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
