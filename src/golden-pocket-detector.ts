@@ -100,20 +100,22 @@ export class GoldenPocketDetector {
 
     const results: BackburnerSetup[] = [];
 
-    // Check for existing setup first
-    const longKey = this.getSetupKey(symbol, timeframe, 'long');
-    const existingSetup = this.activeSetups.get(longKey);
+    // Check both directions for setups (long AND short)
+    for (const direction of ['long', 'short'] as SetupDirection[]) {
+      const key = this.getSetupKey(symbol, timeframe, direction);
+      const existingSetup = this.activeSetups.get(key);
 
-    if (existingSetup) {
-      const updated = this.updateExistingSetup(existingSetup, candles);
-      if (updated) {
-        results.push(updated);
-      }
-    } else {
-      // Try to detect a new setup
-      const newSetup = this.detectNewSetup(symbol, timeframe, candles);
-      if (newSetup) {
-        results.push(newSetup);
+      if (existingSetup) {
+        const updated = this.updateExistingSetup(existingSetup, candles);
+        if (updated) {
+          results.push(updated);
+        }
+      } else {
+        // Try to detect a new setup for this direction
+        const newSetup = this.detectNewSetup(symbol, timeframe, candles, direction);
+        if (newSetup) {
+          results.push(newSetup);
+        }
       }
     }
 
@@ -121,16 +123,27 @@ export class GoldenPocketDetector {
   }
 
   /**
-   * Detect a new Golden Pocket setup
+   * Detect a new Golden Pocket setup for a specific direction
    */
   private detectNewSetup(
     symbol: string,
     timeframe: Timeframe,
-    candles: Candle[]
+    candles: Candle[],
+    direction: SetupDirection
   ): GoldenPocketSetup | null {
     // Step 1: Find recent impulse move in the lookback window
     const impulse = this.detectRecentImpulse(candles);
     if (!impulse) {
+      return null;
+    }
+
+    // Check direction matches impulse
+    // LONG: Requires UP impulse (buy the dip after pump)
+    // SHORT: Requires DOWN impulse (short the bounce after dump)
+    if (direction === 'long' && impulse.direction !== 'up') {
+      return null;
+    }
+    if (direction === 'short' && impulse.direction !== 'down') {
       return null;
     }
 
@@ -155,11 +168,6 @@ export class GoldenPocketDetector {
     // Step 4: Check if current price is in the Golden Pocket
     const currentPrice = candles[candles.length - 1].close;
     const retracementPercent = getFibRetracementPercent(currentPrice, fibLevels);
-
-    // Determine direction based on impulse
-    // LONG: After UP impulse, buy the dip at golden pocket
-    // SHORT: After DOWN impulse, short the bounce at golden pocket
-    const direction: SetupDirection = impulse.direction === 'up' ? 'long' : 'short';
 
     // Check if price is approaching or in the Golden Pocket
     const inGoldenPocket = isInGoldenPocket(currentPrice, fibLevels);
