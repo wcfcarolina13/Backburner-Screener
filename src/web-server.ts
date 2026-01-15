@@ -165,6 +165,7 @@ const screener = new BackburnerScreener(
 );
 
 // Bot 1: Fixed TP/SL strategy (1% position, 10x leverage)
+// Includes friction modeling (fees + slippage) for realistic PnL
 const fixedTPBot = new PaperTradingEngine({
   initialBalance: 2000,
   positionSizePercent: 1,
@@ -172,10 +173,12 @@ const fixedTPBot = new PaperTradingEngine({
   takeProfitPercent: 20,  // 20% TP or RSI played_out, whichever first
   stopLossPercent: 20,
   maxOpenPositions: 10,
+  enableFriction: true,   // Enable slippage + fee modeling
 }, 'fixed');
 
 // Bot 1b: Fixed TP with breakeven lock (1% position, 10x leverage)
 // Moves SL to breakeven at +10% ROI, still exits at fixed +20% TP
+// Includes friction modeling (fees + slippage) for realistic PnL
 const fixedBreakevenBot = new PaperTradingEngine({
   initialBalance: 2000,
   positionSizePercent: 1,
@@ -184,6 +187,7 @@ const fixedBreakevenBot = new PaperTradingEngine({
   stopLossPercent: 20,    // Initial 20% SL
   breakevenTriggerPercent: 10,  // Move SL to breakeven at +10% ROI
   maxOpenPositions: 10,
+  enableFriction: true,   // Enable slippage + fee modeling
 }, 'fixed-be');
 
 // Bot 2: Trailing stop strategy (1% position, 10x leverage)

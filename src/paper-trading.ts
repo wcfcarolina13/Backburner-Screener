@@ -1,5 +1,6 @@
 import type { BackburnerSetup, MarketType } from './types.js';
 import { getDataPersistence } from './data-persistence.js';
+import { ExecutionCostsCalculator, determineVolatility, type TradeCosts } from './execution-costs.js';
 
 // Debug logging - set to true to see detailed paper trading decisions
 const DEBUG_PAPER_TRADING = false;  // Disabled - was too spammy
@@ -29,6 +30,7 @@ export interface PaperTradingConfig {
   maxOpenPositions: number;    // Max concurrent positions
   requireFutures?: boolean;    // Only trade setups available on futures (default true)
   breakevenTriggerPercent?: number;  // Move SL to breakeven when ROI hits this % (e.g., 10)
+  enableFriction?: boolean;    // Enable execution costs modeling (fees + slippage)
 }
 
 export const DEFAULT_PAPER_CONFIG: PaperTradingConfig = {
@@ -76,6 +78,11 @@ export interface PaperPosition {
   realizedPnL?: number;
   realizedPnLPercent?: number;
   exitReason?: string;
+
+  // Friction costs (if enabled)
+  entryCosts?: number;
+  exitCosts?: number;
+  totalCosts?: number;
 }
 
 // Trading stats
@@ -109,12 +116,18 @@ export class PaperTradingEngine {
   private peakBalance: number;
   private botId: string;
   private lastSetups: Map<string, BackburnerSetup> = new Map(); // Track setups for logging
+  private costsCalculator: ExecutionCostsCalculator | null = null;
 
   constructor(config?: Partial<PaperTradingConfig>, botId = 'default') {
     this.config = { ...DEFAULT_PAPER_CONFIG, ...config };
     this.balance = this.config.initialBalance;
     this.peakBalance = this.config.initialBalance;
     this.botId = botId;
+
+    // Initialize friction modeling if enabled
+    if (this.config.enableFriction) {
+      this.costsCalculator = new ExecutionCostsCalculator();
+    }
   }
 
   /**
@@ -230,6 +243,19 @@ export class PaperTradingEngine {
       setup.structureStopPrice
     );
 
+    // Calculate entry costs if friction is enabled
+    let entryCosts = 0;
+    if (this.costsCalculator) {
+      const volatility = determineVolatility(setup.currentRSI);
+      const costs = this.costsCalculator.calculateEntryCosts(
+        entryPrice,
+        notional,
+        setup.direction,
+        volatility
+      );
+      entryCosts = costs.entryCosts;
+    }
+
     const position: PaperPosition = {
       id: this.generatePositionId(setup),
       symbol: setup.symbol,
@@ -249,9 +275,10 @@ export class PaperTradingEngine {
       unrealizedPnL: 0,
       unrealizedPnLPercent: 0,
       status: 'open',
+      entryCosts,  // Track entry friction costs
     };
 
-    // Reserve margin
+    // Reserve margin (entry costs are deducted from PnL at close)
     this.balance -= margin;
     this.positions.set(key, position);
 
@@ -383,17 +410,36 @@ export class PaperTradingEngine {
       return; // Already closed
     }
 
-    // Calculate final PnL
+    // Calculate final PnL (raw, before friction)
     const priceChange = position.direction === 'long'
       ? (position.currentPrice - position.entryPrice) / position.entryPrice
       : (position.entryPrice - position.currentPrice) / position.entryPrice;
 
-    position.realizedPnL = position.notionalSize * priceChange;
-    position.realizedPnLPercent = priceChange * 100;
+    let rawPnL = position.notionalSize * priceChange;
+
+    // Calculate exit costs if friction is enabled
+    let exitCosts = 0;
+    let totalCosts = position.entryCosts || 0;
+    if (this.costsCalculator) {
+      const costs = this.costsCalculator.calculateExitCosts(
+        position.currentPrice,
+        position.notionalSize,
+        position.direction,
+        'normal'  // Use normal volatility for exit
+      );
+      exitCosts = costs.exitCosts;
+      totalCosts += exitCosts;
+    }
+
+    // Apply friction to realized PnL
+    position.realizedPnL = rawPnL - totalCosts;
+    position.realizedPnLPercent = (position.realizedPnL / position.marginUsed) * 100;
     position.exitPrice = position.currentPrice;
     position.exitTime = Date.now();
     position.status = status;
     position.exitReason = reason;
+    position.exitCosts = exitCosts;
+    position.totalCosts = totalCosts;
 
     // IMPORTANT: Remove from positions map FIRST to prevent duplicate closes
     this.positions.delete(key);
