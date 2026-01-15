@@ -459,7 +459,7 @@ export class BtcBiasBot {
   getStoppedOutDirection(): 'long' | 'short' | null { return this.stoppedOutDirection; }
 }
 
-// Factory function to create all 8 bot variants
+// Factory function to create all 8 bot variants (ORIGINAL - V1)
 export function createBtcBiasBots(initialBalance = 2000): Map<string, BtcBiasBot> {
   const bots = new Map<string, BtcBiasBot>();
 
@@ -536,6 +536,106 @@ export function createBtcBiasBots(initialBalance = 2000): Map<string, BtcBiasBot
     callbackPercent: 0.5,
     hardStopRoiPercent: 20,
   }, '10x50-hard'));
+
+  return bots;
+}
+
+/**
+ * Factory function to create V2 BTC Bias bots with IMPROVED parameters
+ *
+ * Key changes from V1:
+ * - Reduced leverage: 10x and 20x instead of 20x and 50x
+ * - Reduced position size: 10-20% instead of 10-100%
+ * - Wider callbacks: 2-3% instead of 0.5-1%
+ * - Higher hard stop: 30% ROI instead of 20%
+ *
+ * These changes should survive BTC volatility better while still
+ * capturing directional moves from bias signals.
+ */
+export function createBtcBiasBotsV2(initialBalance = 2000): Map<string, BtcBiasBot> {
+  const bots = new Map<string, BtcBiasBot>();
+
+  // V2 Trailing stop variants - more conservative
+  // 20% position, 10x leverage, 3% callback
+  bots.set('bias-v2-20x10-trail', new BtcBiasBot({
+    initialBalance,
+    positionSizePercent: 20,   // V1: 100% -> V2: 20%
+    leverage: 10,               // V1: 20x -> V2: 10x
+    stopType: 'trailing',
+    callbackPercent: 3.0,       // V1: 1% -> V2: 3% (wider for volatility)
+    hardStopRoiPercent: 30,
+  }, 'v2-20x10-trail'));
+
+  // 20% position, 20x leverage, 2% callback
+  bots.set('bias-v2-20x20-trail', new BtcBiasBot({
+    initialBalance,
+    positionSizePercent: 20,   // V1: 100% -> V2: 20%
+    leverage: 20,               // Same as V1
+    stopType: 'trailing',
+    callbackPercent: 2.0,       // V1: 0.5% -> V2: 2% (wider)
+    hardStopRoiPercent: 30,
+  }, 'v2-20x20-trail'));
+
+  // 10% position, 10x leverage, 3% callback (most conservative)
+  bots.set('bias-v2-10x10-trail', new BtcBiasBot({
+    initialBalance,
+    positionSizePercent: 10,
+    leverage: 10,
+    stopType: 'trailing',
+    callbackPercent: 3.0,
+    hardStopRoiPercent: 30,
+  }, 'v2-10x10-trail'));
+
+  // 10% position, 20x leverage, 2% callback
+  bots.set('bias-v2-10x20-trail', new BtcBiasBot({
+    initialBalance,
+    positionSizePercent: 10,
+    leverage: 20,
+    stopType: 'trailing',
+    callbackPercent: 2.0,
+    hardStopRoiPercent: 30,
+  }, 'v2-10x20-trail'));
+
+  // V2 Hard stop variants - with wider stops
+  // 20% position, 10x leverage, 30% ROI stop (= 3% price move)
+  bots.set('bias-v2-20x10-hard', new BtcBiasBot({
+    initialBalance,
+    positionSizePercent: 20,
+    leverage: 10,
+    stopType: 'hard',
+    callbackPercent: 3.0,
+    hardStopRoiPercent: 30,     // V1: 20% -> V2: 30% (wider)
+  }, 'v2-20x10-hard'));
+
+  // 20% position, 20x leverage, 30% ROI stop (= 1.5% price move)
+  bots.set('bias-v2-20x20-hard', new BtcBiasBot({
+    initialBalance,
+    positionSizePercent: 20,
+    leverage: 20,
+    stopType: 'hard',
+    callbackPercent: 2.0,
+    hardStopRoiPercent: 30,
+  }, 'v2-20x20-hard'));
+
+  // 10% position, 10x leverage, 30% ROI stop
+  bots.set('bias-v2-10x10-hard', new BtcBiasBot({
+    initialBalance,
+    positionSizePercent: 10,
+    leverage: 10,
+    stopType: 'hard',
+    callbackPercent: 3.0,
+    hardStopRoiPercent: 30,
+  }, 'v2-10x10-hard'));
+
+  // 10% position, 20x leverage, 30% ROI stop
+  bots.set('bias-v2-10x20-hard', new BtcBiasBot({
+    initialBalance,
+    positionSizePercent: 10,
+    leverage: 20,
+    stopType: 'hard',
+    callbackPercent: 2.0,
+    hardStopRoiPercent: 30,
+  }, 'v2-10x20-hard'));
 
   return bots;
 }

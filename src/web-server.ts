@@ -10,12 +10,14 @@ import { BTCExtremeBot } from './btc-extreme-bot.js';
 import { BTCTrendBot } from './btc-trend-bot.js';
 import { TrendOverrideBot } from './trend-override-bot.js';
 import { TrendFlipBot } from './trend-flip-bot.js';
-import { createBtcBiasBots, type BiasLevel } from './btc-bias-bot.js';
+import { createBtcBiasBots, createBtcBiasBotsV2, type BiasLevel } from './btc-bias-bot.js';
 import { createMexcSimulationBots } from './mexc-trailing-simulation.js';
 import { NotificationManager } from './notifications.js';
 import { FocusModeManager, getFocusModeManager } from './focus-mode.js';
 import { BackburnerDetector } from './backburner-detector.js';
 import { GoldenPocketBot } from './golden-pocket-bot.js';
+import { GoldenPocketBotV2 } from './golden-pocket-bot-v2.js';
+import { GoldenPocketDetectorV2 } from './golden-pocket-detector-v2.js';
 import { getKlines, getFuturesKlines, spotSymbolToFutures, getCurrentPrice, getPrice } from './mexc-api.js';
 import { getCurrentRSI, calculateRSI, calculateSMA, detectDivergence } from './indicators.js';
 import { DEFAULT_CONFIG } from './config.js';
@@ -122,6 +124,20 @@ const botVisibility: Record<string, boolean> = {
   'gp-standard': true,
   'gp-aggressive': true,
   'gp-yolo': true,
+  // Golden Pocket V2 bots (loosened thresholds - 4 variants)
+  'gp2-conservative': true,
+  'gp2-standard': true,
+  'gp2-aggressive': true,
+  'gp2-yolo': true,
+  // BTC Bias V2 bots (conservative params - 8 variants)
+  'bias-v2-20x10-trail': true,
+  'bias-v2-20x20-trail': true,
+  'bias-v2-10x10-trail': true,
+  'bias-v2-10x20-trail': true,
+  'bias-v2-20x10-hard': true,
+  'bias-v2-20x20-hard': true,
+  'bias-v2-10x10-hard': true,
+  'bias-v2-10x20-hard': true,
 };
 
 // Setup history (keeps removed setups for longer viewing)
@@ -278,9 +294,13 @@ const trendFlipBot = new TrendFlipBot({
   flipStopLossPercent: 20,  // Same stop for flipped positions
 }, 'flip');
 
-// Bots 12-19: BTC Bias Bots (8 variants)
+// Bots 12-19: BTC Bias Bots V1 (8 variants) - AGGRESSIVE, mostly losing
 // Only trade BTC based on macro bias, hold through neutral, require stronger bias after stop-out
 const btcBiasBots = createBtcBiasBots(2000);
+
+// Bots 30-37: BTC Bias Bots V2 (8 variants) - CONSERVATIVE
+// Reduced leverage (10-20x), smaller positions (10-20%), wider callbacks (2-3%)
+const btcBiasBotsV2 = createBtcBiasBotsV2(2000);
 
 // Bots 20-25: MEXC Trailing Stop Simulation Bots (6 variants)
 // Simulates MEXC's continuous trailing stop behavior for comparison with our discrete levels
@@ -329,6 +349,51 @@ const goldenPocketBots = new Map([
   ['gp-aggressive', gpAggressiveBot],
   ['gp-yolo', gpYoloBot],
 ]);
+
+// Bots 38-41: Golden Pocket V2 Bots (4 variants) - LOOSENED THRESHOLDS
+// Looser RSI requirements (50 instead of 40/60), lower volume requirement (1.5x instead of 2x)
+// Purpose: A/B test against strict V1 to see if more signals = more profit
+const gpV2ConservativeBot = new GoldenPocketBotV2({
+  initialBalance: 2000,
+  positionSizePercent: 3,
+  leverage: 5,
+  maxOpenPositions: 5,
+}, 'gp2-conservative');
+
+const gpV2StandardBot = new GoldenPocketBotV2({
+  initialBalance: 2000,
+  positionSizePercent: 5,
+  leverage: 10,
+  maxOpenPositions: 5,
+}, 'gp2-standard');
+
+const gpV2AggressiveBot = new GoldenPocketBotV2({
+  initialBalance: 2000,
+  positionSizePercent: 5,
+  leverage: 15,
+  maxOpenPositions: 5,
+}, 'gp2-aggressive');
+
+const gpV2YoloBot = new GoldenPocketBotV2({
+  initialBalance: 2000,
+  positionSizePercent: 10,
+  leverage: 20,
+  maxOpenPositions: 3,
+}, 'gp2-yolo');
+
+// Collect all GP V2 bots
+const goldenPocketBotsV2 = new Map([
+  ['gp2-conservative', gpV2ConservativeBot],
+  ['gp2-standard', gpV2StandardBot],
+  ['gp2-aggressive', gpV2AggressiveBot],
+  ['gp2-yolo', gpV2YoloBot],
+]);
+
+// GP V2 Detector (loosened thresholds)
+const gpDetectorV2 = new GoldenPocketDetectorV2({
+  minImpulsePercent: 4,      // V1: 5%
+  minRelativeVolume: 1.5,    // V1: 2x
+});
 
 const notifier = new NotificationManager({
   enabled: true,
@@ -475,13 +540,30 @@ async function handleNewSetup(setup: BackburnerSetup) {
   // Try all Golden Pocket bots (only if setup passes filter)
   // GP bots have their own setup type with fibLevels from the GP detector
   const isGPSetup = 'fibLevels' in setup && 'tp1Price' in setup && 'stopPrice' in setup;
+  const isGPV2Setup = isGPSetup && 'isV2' in setup;
+
   if (passesFilter && isGPSetup && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
     console.log(`[GP-BOT] GP setup received: ${setup.symbol} ${setup.direction} ${setup.state} - attempting trades`);
-    for (const [botId, bot] of goldenPocketBots) {
-      const position = bot.openPosition(setup);
-      if (position) {
-        console.log(`[GP-BOT:${botId}] OPENED: ${position.symbol} ${position.direction}`);
-        broadcast('position_opened', { bot: botId, position });
+
+    // V1 GP bots (strict thresholds) - only process V1 setups
+    if (!isGPV2Setup) {
+      for (const [botId, bot] of goldenPocketBots) {
+        const position = bot.openPosition(setup);
+        if (position) {
+          console.log(`[GP-BOT:${botId}] OPENED: ${position.symbol} ${position.direction}`);
+          broadcast('position_opened', { bot: botId, position });
+        }
+      }
+    }
+
+    // V2 GP bots (loose thresholds) - only process V2 setups
+    if (isGPV2Setup) {
+      for (const [botId, bot] of goldenPocketBotsV2) {
+        const position = bot.openPosition(setup);
+        if (position) {
+          console.log(`[GP2-BOT:${botId}] OPENED: ${position.symbol} ${position.direction}`);
+          broadcast('position_opened', { bot: botId, position });
+        }
       }
     }
   } else if (isGPSetup && !passesFilter) {
@@ -628,6 +710,29 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
 
     // Only open NEW positions if setup passes filter
     if (passesFilter && !gpPosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
+      gpPosition = bot.openPosition(setup);
+      if (gpPosition) {
+        broadcast('position_opened', { bot: botId, position: gpPosition });
+        newlyOpened = true;
+      }
+    }
+    if (gpPosition) {
+      if (gpPosition.status !== 'open' && gpPosition.status !== 'partial_tp1') {
+        broadcast('position_closed', { bot: botId, position: gpPosition });
+      } else {
+        broadcast('position_updated', { bot: botId, position: gpPosition });
+      }
+    }
+  }
+
+  // Update all Golden Pocket V2 positions and try to open new ones (only if passes filter)
+  for (const [botId, bot] of goldenPocketBotsV2) {
+    // Always update existing positions
+    let gpPosition = bot.updatePosition(setup);
+
+    // Only open NEW positions if setup passes filter and is a V2 setup
+    const isGPV2Setup = 'fibLevels' in setup && 'tp1Price' in setup && 'stopPrice' in setup && 'isV2' in setup;
+    if (passesFilter && !gpPosition && isGPV2Setup && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
       gpPosition = bot.openPosition(setup);
       if (gpPosition) {
         broadcast('position_opened', { bot: botId, position: gpPosition });
@@ -1064,6 +1169,46 @@ function getFullState() {
           openPositions: bot.getOpenPositions(),
           closedPositions: bot.getClosedPositions(20),
           stats: bot.getStats(),
+          visible: botVisibility[key],
+        },
+      ])
+    ),
+    // Bots 30-33: Golden Pocket V2 (loose thresholds - 4 variants)
+    goldenPocketBotsV2: Object.fromEntries(
+      Array.from(goldenPocketBotsV2.entries()).map(([key, bot]) => [
+        key,
+        {
+          name: key === 'gp2-conservative' ? 'GP2 Conservative' :
+                key === 'gp2-standard' ? 'GP2 Standard' :
+                key === 'gp2-aggressive' ? 'GP2 Aggressive' :
+                'GP2 YOLO',
+          description: key === 'gp2-conservative' ? '5% pos, 10x, Loose RSI' :
+                       key === 'gp2-standard' ? '10% pos, 10x, Loose RSI' :
+                       key === 'gp2-aggressive' ? '10% pos, 20x, Loose RSI' :
+                       '20% pos, 20x, Loose RSI',
+          balance: bot.getBalance(),
+          unrealizedPnL: bot.getUnrealizedPnL(),
+          openPositions: bot.getOpenPositions(),
+          closedPositions: bot.getClosedPositions(20),
+          stats: bot.getStats(),
+          visible: botVisibility[key],
+        },
+      ])
+    ),
+    // Bots 34-41: BTC Bias V2 (conservative params - 8 variants)
+    btcBiasBotsV2: Object.fromEntries(
+      Array.from(btcBiasBotsV2.entries()).map(([key, bot]) => [
+        key,
+        {
+          name: bot.getName(),
+          config: bot.getConfig(),
+          balance: bot.getBalance(),
+          unrealizedPnL: bot.getUnrealizedPnL(),
+          position: bot.getPosition(),
+          closedPositions: bot.getClosedPositions(20),
+          stats: bot.getStats(),
+          isStoppedOut: bot.isStoppedOut(),
+          stoppedOutDirection: bot.getStoppedOutDirection(),
           visible: botVisibility[key],
         },
       ])
@@ -1523,8 +1668,13 @@ app.get('/api/btc-rsi', async (req, res) => {
       btcExtremeBot.update(btcPrice, rsiData);
       btcTrendBot.update(btcPrice, rsiData);
 
-      // Update BTC Bias bots (all 8 variants)
+      // Update BTC Bias bots (all 8 V1 variants)
       for (const [botKey, bot] of btcBiasBots) {
+        bot.processBiasUpdate(marketBias as BiasLevel, btcPrice, biasScore);
+      }
+
+      // Update BTC Bias V2 bots (all 8 V2 variants - conservative params)
+      for (const [botKey, bot] of btcBiasBotsV2) {
         bot.processBiasUpdate(marketBias as BiasLevel, btcPrice, biasScore);
       }
 
@@ -2499,6 +2649,106 @@ function getHtmlPage(): string {
             <span style="font-size: 12px;"><span style="color: #ff9800;">Agg:</span> <span id="gpAggEquity" style="color: #c9d1d9; font-weight: 600;">$2,000</span></span>
             <span style="font-size: 12px;"><span style="color: #f44336;">YOLO:</span> <span id="gpYoloEquity" style="color: #c9d1d9; font-weight: 600;">$2,000</span></span>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Golden Pocket V2 Section (Loose Thresholds) -->
+    <div class="section-header" onclick="toggleSection('goldenPocketV2')" style="margin-top: 12px;">
+      <span class="section-title">🎯 Golden Pocket V2 (Loose RSI)</span>
+      <span class="section-toggle" id="goldenPocketV2Toggle">▸</span>
+    </div>
+    <div class="section-content" id="goldenPocketV2Content" style="display: none;">
+      <div style="font-size: 11px; color: #8b949e; margin-bottom: 8px; padding: 6px 10px; background: #0d1117; border-radius: 4px;">
+        V2: Loosened RSI thresholds (RSI &lt; 50 for longs vs V1's &lt; 40). A/B testing vs strict V1.
+      </div>
+      <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 12px;">
+        <div class="stat-box" style="border-left: 3px solid #4caf50;">
+          <div class="stat-value" id="gp2ConservativeBalance" style="font-size: 16px;">$2,000</div>
+          <div class="stat-label">V2 Cons 5% 10x | <span id="gp2ConservativePositionCount">0</span> pos</div>
+          <div class="stat-label" style="margin-top: 2px;">Unreal: <span id="gp2ConservativeUnrealPnL" class="positive">$0</span> | Real: <span id="gp2ConservativePnL" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="gp2ConservativeWinRate">0%</span> win | <span id="gp2ConservativeTP1Rate">0%</span> TP1</div>
+        </div>
+        <div class="stat-box" style="border-left: 3px solid #8bc34a;">
+          <div class="stat-value" id="gp2StandardBalance" style="font-size: 16px;">$2,000</div>
+          <div class="stat-label">V2 Std 10% 10x | <span id="gp2StandardPositionCount">0</span> pos</div>
+          <div class="stat-label" style="margin-top: 2px;">Unreal: <span id="gp2StandardUnrealPnL" class="positive">$0</span> | Real: <span id="gp2StandardPnL" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="gp2StandardWinRate">0%</span> win | <span id="gp2StandardTP1Rate">0%</span> TP1</div>
+        </div>
+        <div class="stat-box" style="border-left: 3px solid #ff9800;">
+          <div class="stat-value" id="gp2AggressiveBalance" style="font-size: 16px;">$2,000</div>
+          <div class="stat-label">V2 Agg 10% 20x | <span id="gp2AggressivePositionCount">0</span> pos</div>
+          <div class="stat-label" style="margin-top: 2px;">Unreal: <span id="gp2AggressiveUnrealPnL" class="positive">$0</span> | Real: <span id="gp2AggressivePnL" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="gp2AggressiveWinRate">0%</span> win | <span id="gp2AggressiveTP1Rate">0%</span> TP1</div>
+        </div>
+        <div class="stat-box" style="border-left: 3px solid #f44336;">
+          <div class="stat-value" id="gp2YoloBalance" style="font-size: 16px;">$2,000</div>
+          <div class="stat-label">V2 YOLO 20% 20x | <span id="gp2YoloPositionCount">0</span> pos</div>
+          <div class="stat-label" style="margin-top: 2px;">Unreal: <span id="gp2YoloUnrealPnL" class="positive">$0</span> | Real: <span id="gp2YoloPnL" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="gp2YoloWinRate">0%</span> win | <span id="gp2YoloTP1Rate">0%</span> TP1</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BTC Bias V2 Section (Conservative Params) -->
+    <div class="section-header" onclick="toggleSection('btcBiasBotsV2')" style="margin-top: 12px;">
+      <span class="section-title">📈 BTC Bias V2 (Conservative)</span>
+      <span class="section-toggle" id="btcBiasBotsV2Toggle">▸</span>
+    </div>
+    <div class="section-content" id="btcBiasBotsV2Content" style="display: none;">
+      <div style="font-size: 11px; color: #8b949e; margin-bottom: 8px; padding: 6px 10px; background: #0d1117; border-radius: 4px;">
+        V2: 10-20% position, 10-20x leverage, 2-3% callback (vs V1's 100%/50x/0.5%). Designed to survive volatility.
+      </div>
+      <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 12px;">
+        <div class="stat-box" style="border-left: 3px solid #58a6ff;">
+          <div class="stat-value" id="biasV220x10trailBalance" style="font-size: 16px;">$2,000</div>
+          <div class="stat-label">20% 10x Trail 3%</div>
+          <div class="stat-label" style="margin-top: 2px;">PnL: <span id="biasV220x10trailPnL" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="biasV220x10trailStatus">-</span></div>
+        </div>
+        <div class="stat-box" style="border-left: 3px solid #58a6ff;">
+          <div class="stat-value" id="biasV220x20trailBalance" style="font-size: 16px;">$2,000</div>
+          <div class="stat-label">20% 20x Trail 2%</div>
+          <div class="stat-label" style="margin-top: 2px;">PnL: <span id="biasV220x20trailPnL" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="biasV220x20trailStatus">-</span></div>
+        </div>
+        <div class="stat-box" style="border-left: 3px solid #79c0ff;">
+          <div class="stat-value" id="biasV210x10trailBalance" style="font-size: 16px;">$2,000</div>
+          <div class="stat-label">10% 10x Trail 3%</div>
+          <div class="stat-label" style="margin-top: 2px;">PnL: <span id="biasV210x10trailPnL" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="biasV210x10trailStatus">-</span></div>
+        </div>
+        <div class="stat-box" style="border-left: 3px solid #79c0ff;">
+          <div class="stat-value" id="biasV210x20trailBalance" style="font-size: 16px;">$2,000</div>
+          <div class="stat-label">10% 20x Trail 2%</div>
+          <div class="stat-label" style="margin-top: 2px;">PnL: <span id="biasV210x20trailPnL" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="biasV210x20trailStatus">-</span></div>
+        </div>
+      </div>
+      <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
+        <div class="stat-box" style="border-left: 3px solid #a371f7;">
+          <div class="stat-value" id="biasV220x10hardBalance" style="font-size: 16px;">$2,000</div>
+          <div class="stat-label">20% 10x Hard 30%</div>
+          <div class="stat-label" style="margin-top: 2px;">PnL: <span id="biasV220x10hardPnL" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="biasV220x10hardStatus">-</span></div>
+        </div>
+        <div class="stat-box" style="border-left: 3px solid #a371f7;">
+          <div class="stat-value" id="biasV220x20hardBalance" style="font-size: 16px;">$2,000</div>
+          <div class="stat-label">20% 20x Hard 30%</div>
+          <div class="stat-label" style="margin-top: 2px;">PnL: <span id="biasV220x20hardPnL" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="biasV220x20hardStatus">-</span></div>
+        </div>
+        <div class="stat-box" style="border-left: 3px solid #d2a8ff;">
+          <div class="stat-value" id="biasV210x10hardBalance" style="font-size: 16px;">$2,000</div>
+          <div class="stat-label">10% 10x Hard 30%</div>
+          <div class="stat-label" style="margin-top: 2px;">PnL: <span id="biasV210x10hardPnL" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="biasV210x10hardStatus">-</span></div>
+        </div>
+        <div class="stat-box" style="border-left: 3px solid #d2a8ff;">
+          <div class="stat-value" id="biasV210x20hardBalance" style="font-size: 16px;">$2,000</div>
+          <div class="stat-label">10% 20x Hard 30%</div>
+          <div class="stat-label" style="margin-top: 2px;">PnL: <span id="biasV210x20hardPnL" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="biasV210x20hardStatus">-</span></div>
         </div>
       </div>
     </div>
@@ -4317,6 +4567,78 @@ function getHtmlPage(): string {
         }
       }
 
+      // Update Golden Pocket V2 bots stats (Bots 30-33)
+      if (state.goldenPocketBotsV2) {
+        const gp2KeyMap = {
+          'gp2-conservative': 'gp2Conservative',
+          'gp2-standard': 'gp2Standard',
+          'gp2-aggressive': 'gp2Aggressive',
+          'gp2-yolo': 'gp2Yolo',
+        };
+        for (const [key, elementId] of Object.entries(gp2KeyMap)) {
+          const bot = state.goldenPocketBotsV2[key];
+          if (bot) {
+            const balEl = document.getElementById(elementId + 'Balance');
+            const pnlEl = document.getElementById(elementId + 'PnL');
+            const unrealEl = document.getElementById(elementId + 'UnrealPnL');
+            const winRateEl = document.getElementById(elementId + 'WinRate');
+            const tp1RateEl = document.getElementById(elementId + 'TP1Rate');
+            const posCountEl = document.getElementById(elementId + 'PositionCount');
+            if (balEl) balEl.textContent = formatCurrency(bot.balance);
+            if (pnlEl) {
+              pnlEl.textContent = formatCurrency(bot.stats.totalPnL);
+              pnlEl.className = bot.stats.totalPnL >= 0 ? 'positive' : 'negative';
+            }
+            if (unrealEl) {
+              unrealEl.textContent = formatCurrency(bot.unrealizedPnL || 0);
+              unrealEl.className = (bot.unrealizedPnL || 0) >= 0 ? 'positive' : 'negative';
+            }
+            if (winRateEl) winRateEl.textContent = bot.stats.winRate.toFixed(0) + '%';
+            if (tp1RateEl) tp1RateEl.textContent = (bot.stats.tp1HitRate || 0).toFixed(0) + '%';
+            if (posCountEl) posCountEl.textContent = (bot.openPositions || []).length;
+          }
+        }
+      }
+
+      // Update BTC Bias V2 bots stats (Bots 34-41)
+      if (state.btcBiasBotsV2) {
+        const biasV2KeyMap = {
+          'bias-v2-20x10-trail': 'biasV220x10trail',
+          'bias-v2-20x20-trail': 'biasV220x20trail',
+          'bias-v2-10x10-trail': 'biasV210x10trail',
+          'bias-v2-10x20-trail': 'biasV210x20trail',
+          'bias-v2-20x10-hard': 'biasV220x10hard',
+          'bias-v2-20x20-hard': 'biasV220x20hard',
+          'bias-v2-10x10-hard': 'biasV210x10hard',
+          'bias-v2-10x20-hard': 'biasV210x20hard',
+        };
+        for (const [key, elementId] of Object.entries(biasV2KeyMap)) {
+          const bot = state.btcBiasBotsV2[key];
+          if (bot) {
+            const balEl = document.getElementById(elementId + 'Balance');
+            const pnlEl = document.getElementById(elementId + 'PnL');
+            const statusEl = document.getElementById(elementId + 'Status');
+            if (balEl) balEl.textContent = formatCurrency(bot.balance);
+            const displayPnL = bot.position ? bot.unrealizedPnL : bot.stats.totalPnL;
+            if (pnlEl) {
+              pnlEl.textContent = formatCurrency(displayPnL);
+              pnlEl.className = displayPnL >= 0 ? 'positive' : 'negative';
+            }
+            if (statusEl) {
+              if (bot.position) {
+                const dir = bot.position.direction.toUpperCase();
+                const roiPct = bot.position.marginUsed > 0 ? (bot.unrealizedPnL / bot.position.marginUsed * 100).toFixed(1) : '0';
+                statusEl.innerHTML = '<span style="color: ' + (bot.position.direction === 'long' ? '#3fb950' : '#f85149') + ';">' + dir + ' ' + roiPct + '% ROI</span>';
+              } else if (bot.isStoppedOut) {
+                statusEl.innerHTML = '<span style="color: #f85149;">Stopped (' + (bot.stoppedOutDirection || '-') + ')</span>';
+              } else {
+                statusEl.innerHTML = '<span style="color: #8b949e;">No position</span>';
+              }
+            }
+          }
+        }
+      }
+
       // Update Fixed TP/SL positions (Bot 1)
       document.getElementById('fixedPositionCount').textContent = state.fixedTPBot.openPositions.length;
       document.getElementById('fixedPositionsTable').innerHTML = renderPositionsTable(state.fixedTPBot.openPositions, 'fixed');
@@ -5032,9 +5354,17 @@ async function main() {
   dataPersistence.logBotConfig('btcExtreme', 'BTC Contrarian', { ...btcExtremeBot.getConfig() });
   dataPersistence.logBotConfig('btcTrend', 'BTC Momentum', { ...btcTrendBot.getConfig() });
 
-  // Log BTC Bias bot configurations
+  // Log BTC Bias bot configurations (V1)
   for (const [key, bot] of btcBiasBots) {
     dataPersistence.logBotConfig(key, bot.getName(), { ...bot.getConfig() });
+  }
+  // Log BTC Bias V2 bot configurations
+  for (const [key, bot] of btcBiasBotsV2) {
+    dataPersistence.logBotConfig(key, bot.getName(), { ...bot.getConfig() });
+  }
+  // Log GP V2 bot configurations
+  for (const [key, bot] of goldenPocketBotsV2) {
+    dataPersistence.logBotConfig(key, `GP2 ${key.replace('gp2-', '')}`, { ...bot.getConfig() });
   }
   console.log('📊 Bot configurations logged to data persistence');
 
@@ -5092,7 +5422,7 @@ async function main() {
       };
     }
 
-    // BTC Bias bots
+    // BTC Bias bots (V1)
     for (const [key, bot] of btcBiasBots) {
       const stats = bot.getStats();
       const position = bot.getPosition();
@@ -5110,6 +5440,52 @@ async function main() {
           unrealizedPnL: position.unrealizedPnL,
           unrealizedROI: position.unrealizedROI,
         }] : [],
+        closedTradesToday: stats.totalTrades,
+        pnlToday: stats.totalPnL,
+      };
+    }
+
+    // BTC Bias V2 bots (conservative params)
+    for (const [key, bot] of btcBiasBotsV2) {
+      const stats = bot.getStats();
+      const position = bot.getPosition();
+      bots[key] = {
+        botId: key,
+        botType: 'btc_bias_v2',
+        balance: stats.currentBalance,
+        unrealizedPnL: bot.getUnrealizedPnL(),
+        openPositionCount: position ? 1 : 0,
+        openPositions: position ? [{
+          symbol: 'BTCUSDT',
+          direction: position.direction,
+          entryPrice: position.entryPrice,
+          currentPrice: position.highestPrice,
+          unrealizedPnL: position.unrealizedPnL,
+          unrealizedROI: position.unrealizedROI,
+        }] : [],
+        closedTradesToday: stats.totalTrades,
+        pnlToday: stats.totalPnL,
+      };
+    }
+
+    // GP V2 bots (loose thresholds)
+    for (const [key, bot] of goldenPocketBotsV2) {
+      const stats = bot.getStats();
+      const positions = bot.getOpenPositions();
+      bots[key] = {
+        botId: key,
+        botType: 'gp_v2',
+        balance: bot.getBalance(),
+        unrealizedPnL: bot.getUnrealizedPnL(),
+        openPositionCount: positions.length,
+        openPositions: positions.map(p => ({
+          symbol: p.symbol,
+          direction: p.direction,
+          entryPrice: p.entryPrice,
+          currentPrice: p.currentPrice || p.entryPrice,
+          unrealizedPnL: p.unrealizedPnL || 0,
+          unrealizedROI: 0,
+        })),
         closedTradesToday: stats.totalTrades,
         pnlToday: stats.totalPnL,
       };
