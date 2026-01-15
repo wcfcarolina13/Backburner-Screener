@@ -4,10 +4,74 @@
 
 ## Summary
 
-- Iterations completed: 15
-- Current status: GUI "Connecting..." Bug Fixed
+- Iterations completed: 17
+- Current status: GP V2 Detector Wired Up + Position Notifications Added
 
-## Current Task: GUI Connection Fix
+## Current Task: GP V2 Bot Functionality
+
+### Iteration 17 - GP V2 Detector Wired Up + Position Notifications
+**Date**: 2026-01-15
+**Status**: ✅ Complete
+
+**Problem**: GP V2 (loose threshold) bots weren't receiving any trades while V1 bots were trading
+- V2 detector existed but was NEVER instantiated in screener.ts
+- No V2 setups were being generated (all setups lacked `isV2: true` flag)
+- V2 bots had nothing to trade on
+- Desktop notifications were missing when GP bots opened positions
+
+**Root Cause**: The screener only created the V1 GoldenPocketDetector, never the V2 version
+- Line 78 in screener.ts only instantiated V1 detector
+- V2 detector code existed in `golden-pocket-detector-v2.ts` but was unused
+
+**Fixes Applied**:
+1. Added V2 detector import and instantiation in screener.ts
+2. Added V2 tracking maps (`previousGPV2Setups`, `playedOutGPV2Setups`)
+3. Added `processGoldenPocketV2Setup()` method (mirrors V1 but with V2 tracking)
+4. Wired V2 analysis into both full scan and incremental scan loops
+5. Added cleanup for V2 setups in `cleanupExpiredSetups()`
+6. Added `getGoldenPocketV2Setups()` getter
+7. Exposed V2 setups in web-server's `getFullState()` as `goldenPocketV2`
+8. Added `notifyGPPositionOpened()` function for powerful desktop alerts
+
+**V2 Thresholds (vs V1)**:
+- Impulse: 4% (V1: 5%)
+- Volume: 1.5x average (V1: 2x)
+- Long RSI trigger: < 50 (V1: < 40)
+- Short RSI trigger: > 50 (V1: > 60)
+
+**Files Modified**:
+- `src/screener.ts` - Added V2 detector, tracking, and getters
+- `src/web-server.ts` - Added V2 state exposure and position notifications
+
+**Build**: ✅ Passes successfully
+
+---
+
+### Iteration 16 - Remove V1 BTC Bias Bots from GUI
+**Date**: 2026-01-15
+**Status**: ✅ Complete
+
+**Problem**: Archived V1 BTC Bias bots (8 total) still showing in GUI cluttering the interface
+
+**Solution**:
+- Created archive document: `data/archived/BTC_BIAS_V1_EXPERIMENT.md`
+- Contains full performance results (-$12k loss), root cause analysis, lessons learned
+- Removed ALL V1 bot code from GUI:
+  - Toggle controls and stats sections
+  - State broadcasting in `getFullState()`
+  - Bias update processing
+  - Config/snapshot logging
+  - Import of `createBtcBiasBots`
+
+**Files Created**:
+- `data/archived/BTC_BIAS_V1_EXPERIMENT.md`
+
+**Files Modified**:
+- `src/web-server.ts` - Removed V1 BTC Bias bot code
+
+---
+
+## Previous Task: GUI Connection Fix
 
 ### Iteration 15 - Fix "Connecting..." Status Bug
 **Date**: 2026-01-15

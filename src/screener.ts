@@ -1,5 +1,6 @@
 import { BackburnerDetector } from './backburner-detector.js';
 import { GoldenPocketDetector, type GoldenPocketSetup } from './golden-pocket-detector.js';
+import { GoldenPocketDetectorV2, type GoldenPocketV2Setup } from './golden-pocket-detector-v2.js';
 import {
   getExchangeInfo,
   get24hTickers,
@@ -52,6 +53,7 @@ const SYMBOL_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 export class BackburnerScreener {
   private detector: BackburnerDetector;
   private goldenPocketDetector: GoldenPocketDetector;
+  private goldenPocketDetectorV2: GoldenPocketDetectorV2;
   private config: ScreenerConfig;
   private events: ScreenerEvents;
   private isRunning = false;
@@ -66,19 +68,28 @@ export class BackburnerScreener {
   private playedOutSetups: Map<string, BackburnerSetup> = new Map();
   // Track futures symbols that consistently fail (don't retry them)
   private badFuturesSymbols: Set<string> = new Set();
-  // Golden Pocket specific tracking
+  // Golden Pocket specific tracking (V1 strict)
   private previousGPSetups: Map<string, GoldenPocketSetup> = new Map();
   private playedOutGPSetups: Map<string, GoldenPocketSetup> = new Map();
+  // Golden Pocket V2 tracking (loose thresholds)
+  private previousGPV2Setups: Map<string, GoldenPocketV2Setup> = new Map();
+  private playedOutGPV2Setups: Map<string, GoldenPocketV2Setup> = new Map();
 
   constructor(config?: Partial<ScreenerConfig>, events?: ScreenerEvents) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.events = events || {};
     this.detector = new BackburnerDetector(this.config);
-    // Golden Pocket detector with specific config for hype plays
+    // Golden Pocket detector with specific config for hype plays (V1 - strict)
     this.goldenPocketDetector = new GoldenPocketDetector({
       minImpulsePercent: 5,          // 5% move minimum
       impulseLookbackCandles: 12,    // ~60min on 5m, ~3h on 15m
       minRelativeVolume: 2,          // 2x average volume (lowered from 3x for more signals)
+    });
+    // Golden Pocket V2 - loosened thresholds for more signals
+    this.goldenPocketDetectorV2 = new GoldenPocketDetectorV2({
+      minImpulsePercent: 4,          // 4% move (vs 5% in V1)
+      impulseLookbackCandles: 15,    // Wider lookback
+      minRelativeVolume: 1.5,        // 1.5x volume (vs 2x in V1)
     });
   }
 
@@ -572,12 +583,18 @@ export class BackburnerScreener {
         this.processSetup(setup, symbol, timeframe, marketType, volume24h, liquidityRisk);
       }
 
-      // Also run Golden Pocket detector (for hype/pump plays)
+      // Also run Golden Pocket detectors (for hype/pump plays)
       // Only run on 5m and 15m timeframes where the strategy is most effective
       if (timeframe === '5m' || timeframe === '15m') {
+        // V1 (strict thresholds)
         const gpSetups = this.goldenPocketDetector.analyzeSymbol(symbol, timeframe, candles, higherTFCandles);
         for (const gpSetup of gpSetups) {
           this.processGoldenPocketSetup(gpSetup as GoldenPocketSetup, symbol, timeframe, marketType, volume24h, liquidityRisk);
+        }
+        // V2 (loose thresholds - should generate more signals)
+        const gpV2Setups = this.goldenPocketDetectorV2.analyzeSymbol(symbol, timeframe, candles, higherTFCandles);
+        for (const gpV2Setup of gpV2Setups) {
+          this.processGoldenPocketV2Setup(gpV2Setup as GoldenPocketV2Setup, symbol, timeframe, marketType, volume24h, liquidityRisk);
         }
       }
     }
@@ -729,6 +746,75 @@ export class BackburnerScreener {
   }
 
   /**
+   * Process a Golden Pocket V2 setup (loose thresholds version)
+   * V2 setups are identified with 'gp2-' prefix and have isV2: true flag
+   */
+  private processGoldenPocketV2Setup(
+    setup: GoldenPocketV2Setup,
+    symbol: string,
+    timeframe: Timeframe,
+    marketType: MarketType = 'spot',
+    volume24h: number = 0,
+    liquidityRisk: LiquidityRisk = 'medium'
+  ): void {
+    // Add metadata
+    setup.volume24h = volume24h || this.symbolVolumes.get(symbol) || 0;
+    setup.coinName = getCoinName(symbol);
+    setup.marketCap = getMarketCap(symbol);
+    setup.marketCapRank = getMarketCapRank(symbol);
+    setup.qualityTier = this.getQualityTier(setup.marketCap || 0);
+    setup.marketType = marketType;
+    setup.liquidityRisk = liquidityRisk;
+
+    // Use 'gp2-' prefix to distinguish from V1 setups
+    const key = `gp2-${symbol}-${timeframe}-${setup.direction}-${marketType}`;
+    const previousSetup = this.previousGPV2Setups.get(key);
+    const recentlyPlayedOut = this.playedOutGPV2Setups.get(key);
+
+    if (setup.state === 'played_out') {
+      if (previousSetup) {
+        this.previousGPV2Setups.delete(key);
+        setup.playedOutAt = Date.now();
+        this.playedOutGPV2Setups.set(key, setup);
+        this.events.onSetupRemoved?.(setup);
+      }
+    } else if (!previousSetup) {
+      // Check cooldown
+      if (recentlyPlayedOut) {
+        const timeSincePlayedOut = Date.now() - (recentlyPlayedOut.playedOutAt || 0);
+        const cooldownMs = timeframe === '5m' ? 5 * 60 * 1000 : 15 * 60 * 1000;
+        if (timeSincePlayedOut < cooldownMs) {
+          return;
+        }
+        this.playedOutGPV2Setups.delete(key);
+      }
+      // New Golden Pocket V2 setup
+      this.previousGPV2Setups.set(key, setup);
+      // Log for visibility - mark as V2
+      const timestamp = new Date().toLocaleTimeString();
+      console.log(
+        `[GP-V2 ${timestamp}] NEW SETUP: ${symbol} ${setup.direction.toUpperCase()} ${timeframe} | ` +
+        `Retracement: ${setup.retracementPercent.toFixed(1)}% | State: ${setup.state}`
+      );
+      this.events.onNewSetup?.(setup);
+    } else {
+      // Update existing
+      const priceChangePercent = Math.abs(
+        (setup.currentPrice - previousSetup.currentPrice) / previousSetup.currentPrice
+      ) * 100;
+      const shouldUpdate =
+        previousSetup.state !== setup.state ||
+        Math.abs(previousSetup.retracementPercent - setup.retracementPercent) > 1 ||
+        priceChangePercent > 0.1;
+
+      if (shouldUpdate) {
+        this.events.onSetupUpdated?.(setup);
+      }
+      this.previousGPV2Setups.set(key, setup);
+    }
+  }
+
+  /**
    * Analyze a single symbol on a single timeframe
    * Used for incremental updates of specific setups
    * Now supports both spot and futures with market type awareness
@@ -786,11 +872,17 @@ export class BackburnerScreener {
       this.processSetup(setup, symbol, timeframe, marketType, volume24h, liquidityRisk);
     }
 
-    // Also run Golden Pocket detector for incremental updates
+    // Also run Golden Pocket detectors for incremental updates
     if (timeframe === '5m' || timeframe === '15m') {
+      // V1 (strict thresholds)
       const gpSetups = this.goldenPocketDetector.analyzeSymbol(symbol, timeframe, candles, higherTFCandles);
       for (const gpSetup of gpSetups) {
         this.processGoldenPocketSetup(gpSetup as GoldenPocketSetup, symbol, timeframe, marketType, volume24h, liquidityRisk);
+      }
+      // V2 (loose thresholds)
+      const gpV2Setups = this.goldenPocketDetectorV2.analyzeSymbol(symbol, timeframe, candles, higherTFCandles);
+      for (const gpV2Setup of gpV2Setups) {
+        this.processGoldenPocketV2Setup(gpV2Setup as GoldenPocketV2Setup, symbol, timeframe, marketType, volume24h, liquidityRisk);
       }
     }
   }
@@ -841,6 +933,26 @@ export class BackburnerScreener {
         this.playedOutGPSetups.delete(key);
       }
     }
+
+    // Clean up Golden Pocket V2 setups
+    const gpV2ActiveSetups = this.goldenPocketDetectorV2.getActiveSetups();
+    for (const setup of gpV2ActiveSetups) {
+      const expiryMs = SETUP_EXPIRY_MS[setup.timeframe];
+      const age = now - setup.detectedAt;
+
+      if (age > expiryMs) {
+        this.goldenPocketDetectorV2.removeSetup(setup.symbol, setup.timeframe, setup.direction);
+        this.previousGPV2Setups.delete(`gp2-${setup.symbol}-${setup.timeframe}-${setup.direction}-${setup.marketType}`);
+        this.events.onSetupRemoved?.(setup);
+      }
+    }
+
+    // Clean up old played-out GP V2 setups
+    for (const [key, setup] of this.playedOutGPV2Setups) {
+      if (setup.playedOutAt && now - setup.playedOutAt > PLAYED_OUT_DISPLAY_MS) {
+        this.playedOutGPV2Setups.delete(key);
+      }
+    }
   }
 
   /**
@@ -865,11 +977,18 @@ export class BackburnerScreener {
   }
 
   /**
-   * Get active Golden Pocket setups
+   * Get active Golden Pocket setups (V1 - strict thresholds)
    */
   getGoldenPocketSetups(): import('./golden-pocket-detector.js').GoldenPocketSetup[] {
     // Return from screener's tracking, not detector's internal state
     return Array.from(this.previousGPSetups.values());
+  }
+
+  /**
+   * Get active Golden Pocket V2 setups (loose thresholds)
+   */
+  getGoldenPocketV2Setups(): GoldenPocketV2Setup[] {
+    return Array.from(this.previousGPV2Setups.values());
   }
 
   /**

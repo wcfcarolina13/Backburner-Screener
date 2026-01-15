@@ -410,6 +410,73 @@ const notifier = new NotificationManager({
   onlyTriggered: true,
 });
 
+/**
+ * POWERFUL desktop notification when GP bots open positions
+ * These are rare, high-signal events that warrant attention
+ */
+async function notifyGPPositionOpened(
+  botId: string,
+  position: any,
+  setup: any,
+  isV2: boolean
+): Promise<void> {
+  const { exec } = await import('child_process');
+  const { promisify } = await import('util');
+  const execAsync = promisify(exec);
+
+  const ticker = position.symbol.replace('USDT', '');
+  const dir = position.direction.toUpperCase();
+  const version = isV2 ? 'V2' : 'V1';
+  const botLabel = botId.replace('gp-', '').toUpperCase();
+  const stateIcon = setup.state === 'deep_extreme' ? '🔥' : '🎯';
+  const dirIcon = position.direction === 'long' ? '🟢' : '🔴';
+
+  // Format entry price
+  const entryPrice = position.entryPrice < 1
+    ? position.entryPrice.toFixed(6)
+    : position.entryPrice.toFixed(2);
+
+  // Format market cap
+  let mcap = '';
+  if (setup.marketCap) {
+    if (setup.marketCap >= 1_000_000_000) {
+      mcap = `$${(setup.marketCap / 1_000_000_000).toFixed(1)}B`;
+    } else if (setup.marketCap >= 1_000_000) {
+      mcap = `$${(setup.marketCap / 1_000_000).toFixed(0)}M`;
+    }
+  }
+
+  const title = `${stateIcon}${dirIcon} GP ${version} TRADE: ${ticker} ${dir}`;
+  const subtitle = `Bot: ${botLabel} | ${setup.timeframe} | MCap: ${mcap}`;
+  const message = `Entry: $${entryPrice} | RSI: ${setup.currentRSI?.toFixed(1) || 'N/A'}`;
+
+  // Use terminal-notifier with sticky sound (Submarine is more attention-grabbing)
+  const escapeShell = (str: string) => str.replace(/'/g, "'\\\\''" );
+
+  try {
+    // Primary: terminal-notifier (macOS)
+    const cmd = `terminal-notifier -title '${escapeShell(title)}' -subtitle '${escapeShell(subtitle)}' -message '${escapeShell(message)}' -sound Submarine -group 'gp-trade'`;
+    await execAsync(cmd);
+  } catch {
+    // Fallback: osascript
+    try {
+      const escapeAppleScript = (str: string) => str.replace(/"/g, '\\\\"');
+      const script = `display notification "${escapeAppleScript(message)}" with title "${escapeAppleScript(title)}" subtitle "${escapeAppleScript(subtitle)}" sound name "Submarine"`;
+      await execAsync(`osascript -e '${script}'`);
+    } catch {
+      console.error('[GP-NOTIFY] Desktop notification failed');
+    }
+  }
+
+  // Also log prominently
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`🚨 GP ${version} POSITION OPENED 🚨`);
+  console.log(`   ${ticker} ${dir} | Bot: ${botLabel}`);
+  console.log(`   Entry: $${entryPrice} | RSI: ${setup.currentRSI?.toFixed(1)}`);
+  console.log(`   State: ${setup.state} | TF: ${setup.timeframe}`);
+  console.log(`${'='.repeat(60)}\n`);
+}
+
 // Focus Mode - for manual trade copying with notifications
 const focusMode = getFocusModeManager();
 
@@ -562,6 +629,8 @@ async function handleNewSetup(setup: BackburnerSetup) {
         if (position) {
           console.log(`[GP-BOT:${botId}] OPENED: ${position.symbol} ${position.direction}`);
           broadcast('position_opened', { bot: botId, position });
+          // POWERFUL desktop notification for GP bot position opens (rare, high-signal)
+          await notifyGPPositionOpened(botId, position, setup, false);
         }
       }
     }
@@ -573,6 +642,8 @@ async function handleNewSetup(setup: BackburnerSetup) {
         if (position) {
           console.log(`[GP2-BOT:${botId}] OPENED: ${position.symbol} ${position.direction}`);
           broadcast('position_opened', { bot: botId, position });
+          // POWERFUL desktop notification for GP V2 bot position opens
+          await notifyGPPositionOpened(botId, position, setup, true);
         }
       }
     }
@@ -991,6 +1062,7 @@ function getFullState() {
   const activeSetups = screener.getActiveSetups();
   const playedOutSetups = screener.getPlayedOutSetups();
   const goldenPocketSetups = screener.getGoldenPocketSetups();
+  const goldenPocketV2Setups = screener.getGoldenPocketV2Setups();
 
   return {
     setups: {
@@ -1011,7 +1083,8 @@ function getFullState() {
         spot: allSetups.filter(s => s.marketType === 'spot').length,
         futures: allSetups.filter(s => s.marketType === 'futures').length,
       },
-      goldenPocket: goldenPocketSetups,
+      goldenPocket: goldenPocketSetups,      // V1 - strict thresholds
+      goldenPocketV2: goldenPocketV2Setups,  // V2 - loose thresholds
     },
     // Bot 1: Fixed TP/SL (1% position, 10x leverage)
     fixedTPBot: {
