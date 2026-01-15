@@ -1,6 +1,7 @@
 import type { BackburnerSetup, MarketType } from './types.js';
 import { getDataPersistence } from './data-persistence.js';
 import type { GoldenPocketSetup } from './golden-pocket-detector.js';
+import { ExecutionCostsCalculator, determineVolatility } from './execution-costs.js';
 
 /**
  * Golden Pocket Bot Configuration
@@ -17,6 +18,7 @@ export interface GoldenPocketBotConfig {
   leverage: number;
   maxOpenPositions: number;
   requireFutures?: boolean;
+  enableFriction?: boolean;     // Enable execution costs modeling (fees + slippage)
 
   // Split entry configuration (limit orders across the pocket)
   splitEntry: boolean;          // If true, simulate split entries
@@ -81,6 +83,11 @@ export interface GoldenPocketPosition {
   realizedPnLPercent?: number;
   exitReason?: string;
 
+  // Friction costs (if enabled)
+  entryCosts?: number;
+  exitCosts?: number;
+  totalCosts?: number;
+
   // Golden Pocket specific
   fibHigh: number;              // Swing high for reference
   fibLow: number;               // Swing low for reference
@@ -118,6 +125,7 @@ export class GoldenPocketBot {
   private balance: number;
   private peakBalance: number;
   private botId: string;
+  private costsCalculator: ExecutionCostsCalculator | null = null;
 
   // Stats tracking
   private tp1Hits: number = 0;
@@ -129,6 +137,11 @@ export class GoldenPocketBot {
     this.balance = this.config.initialBalance;
     this.peakBalance = this.config.initialBalance;
     this.botId = botId;
+
+    // Initialize friction modeling if enabled
+    if (this.config.enableFriction) {
+      this.costsCalculator = new ExecutionCostsCalculator();
+    }
   }
 
   getBotId(): string {
@@ -191,6 +204,19 @@ export class GoldenPocketBot {
 
     const entryPrice = setup.currentPrice;
 
+    // Calculate entry costs if friction is enabled
+    let entryCosts = 0;
+    if (this.costsCalculator) {
+      const volatility = determineVolatility(setup.currentRSI);
+      const costs = this.costsCalculator.calculateEntryCosts(
+        entryPrice,
+        notional,
+        setup.direction,
+        volatility
+      );
+      entryCosts = costs.entryCosts;
+    }
+
     const position: GoldenPocketPosition = {
       id: this.generatePositionId(setup),
       symbol: setup.symbol,
@@ -216,6 +242,7 @@ export class GoldenPocketBot {
       status: 'open',
       remainingSize: notional,
       tp1Closed: false,
+      entryCosts,  // Track entry friction costs
 
       fibHigh: setup.fibLevels.high,
       fibLow: setup.fibLevels.low,
@@ -334,12 +361,31 @@ export class GoldenPocketBot {
         ? (position.currentPrice - position.entryPrice) / position.entryPrice
         : (position.entryPrice - position.currentPrice) / position.entryPrice;
 
-      const pnl = closeSize * priceChange;
+      let rawPnL = closeSize * priceChange;
+
+      // Calculate exit costs for partial close if friction enabled
+      let partialExitCosts = 0;
+      if (this.costsCalculator) {
+        const costs = this.costsCalculator.calculateExitCosts(
+          position.currentPrice,
+          closeSize,
+          position.direction,
+          'normal'
+        );
+        partialExitCosts = costs.exitCosts;
+      }
+
+      // Apply friction: 50% of entry costs + exit costs for this partial
+      const partialEntryCosts = (position.entryCosts || 0) * 0.5;
+      const partialTotalCosts = partialEntryCosts + partialExitCosts;
+      const pnl = rawPnL - partialTotalCosts;
 
       position.tp1Closed = true;
       position.tp1PnL = pnl;
       position.remainingSize = position.notionalSize * 0.5;
       position.status = 'partial_tp1';
+      // Track remaining entry costs for final close
+      position.entryCosts = (position.entryCosts || 0) * 0.5;
 
       // Return partial margin + PnL to balance
       const marginReturn = position.marginUsed * 0.5;
@@ -371,12 +417,28 @@ export class GoldenPocketBot {
       return;
     }
 
-    // Calculate final PnL on remaining size
+    // Calculate final PnL on remaining size (raw, before friction)
     const priceChange = position.direction === 'long'
       ? (position.currentPrice - position.entryPrice) / position.entryPrice
       : (position.entryPrice - position.currentPrice) / position.entryPrice;
 
-    const remainingPnL = position.remainingSize * priceChange;
+    let rawRemainingPnL = position.remainingSize * priceChange;
+
+    // Calculate exit costs for remaining position if friction enabled
+    let exitCosts = 0;
+    let totalCosts = position.entryCosts || 0;
+    if (this.costsCalculator) {
+      const costs = this.costsCalculator.calculateExitCosts(
+        position.currentPrice,
+        position.remainingSize,
+        position.direction,
+        'normal'
+      );
+      exitCosts = costs.exitCosts;
+      totalCosts += exitCosts;
+    }
+
+    const remainingPnL = rawRemainingPnL - totalCosts;
     const totalPnL = (position.tp1PnL || 0) + remainingPnL;
 
     position.realizedPnL = totalPnL;
@@ -385,6 +447,8 @@ export class GoldenPocketBot {
     position.exitTime = Date.now();
     position.status = status;
     position.exitReason = reason;
+    position.exitCosts = exitCosts;
+    position.totalCosts = totalCosts;
 
     // Return remaining margin + PnL
     this.balance += position.marginUsed + remainingPnL;
