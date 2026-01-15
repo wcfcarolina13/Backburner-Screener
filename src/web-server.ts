@@ -2620,14 +2620,14 @@ function getHtmlPage(): string {
       </div>
     </div>
 
-    <!-- Section: BTC Bias Bots -->
+    <!-- Section: BTC Bias Bots V1 (ARCHIVED - hidden by default) -->
     <div class="section-header" onclick="toggleSection('btcBiasBots')" style="margin-top: 12px;">
-      <span class="section-title">₿ BTC Bias Bots (8)</span>
-      <span class="section-toggle" id="btcBiasBotsToggle">▼</span>
+      <span class="section-title" style="color: #6e7681;">₿ BTC Bias V1 (ARCHIVED)</span>
+      <span class="section-toggle" id="btcBiasBotsToggle">▸</span>
     </div>
-    <div class="section-content" id="btcBiasBotsContent">
-      <div style="font-size: 11px; color: #8b949e; margin-bottom: 8px; padding: 6px 10px; background: #0d1117; border-radius: 4px;">
-        BTC-only bots that trade based on macro bias. Hold through neutral, exit on opposite bias or stop. Require bias to cycle/strengthen after stop-out for re-entry.
+    <div class="section-content" id="btcBiasBotsContent" style="display: none;">
+      <div style="font-size: 11px; color: #f85149; margin-bottom: 8px; padding: 6px 10px; background: #2d1b1b; border-radius: 4px; border: 1px solid #f85149;">
+        ⚠️ ARCHIVED: These V1 bots lost -$12k due to 100% position sizing. Kept for historical data only. Use V2 bots instead.
       </div>
       <div class="bot-toggles-row">
         <div class="bot-toggle" id="toggleBias100x20trail" onclick="event.stopPropagation(); toggleBot('bias100x20trail')" style="flex: 1; min-width: 110px; padding: 6px 10px; background: #161b22; border: 2px solid #ffd700; border-radius: 6px; cursor: pointer;">
@@ -2681,12 +2681,12 @@ function getHtmlPage(): string {
       </div>
     </div>
 
-    <!-- BTC Bias Bots Stats (collapsible) -->
+    <!-- BTC Bias V1 Stats (ARCHIVED - hidden by default) -->
     <div class="section-header" onclick="toggleSection('btcBiasStats')" style="margin-top: 12px;">
-      <span class="section-title">₿ BTC Bias Bot Stats</span>
-      <span class="section-toggle" id="btcBiasStatsToggle">▼</span>
+      <span class="section-title" style="color: #6e7681;">₿ BTC Bias V1 Stats (ARCHIVED)</span>
+      <span class="section-toggle" id="btcBiasStatsToggle">▸</span>
     </div>
-    <div class="section-content" id="btcBiasStatsContent">
+    <div class="section-content" id="btcBiasStatsContent" style="display: none;">
       <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 12px;">
         <div class="stat-box" style="border-left: 3px solid #ffd700;">
           <div class="stat-value" id="bias100x20trailBalance" style="font-size: 16px;">$2,000</div>
@@ -3484,8 +3484,8 @@ function getHtmlPage(): string {
     // Section collapse/expand state
     const sectionState = {
       altcoinBots: true,
-      btcBiasBots: true,
-      btcBiasStats: true,
+      btcBiasBots: false,    // V1 ARCHIVED - hidden by default
+      btcBiasStats: false,   // V1 ARCHIVED - hidden by default
       mexcSim: true,
       goldenPocket: true,
       // Focus Mode and Bot Cards
