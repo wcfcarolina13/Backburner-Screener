@@ -4,10 +4,51 @@
 
 ## Summary
 
-- Iterations completed: 10
-- Current status: Market Friction Integration Complete
+- Iterations completed: 11
+- Current status: Short Setup Investigation Complete
 
-## Current Task: Fixed BE Backtest & Friction Integration
+## Current Task: Short Setup Investigation
+
+### Iteration 11 - Why Are There Few Short Setups?
+**Date**: 2026-01-15
+**Status**: ✅ Diagnosis Complete
+
+**Problem**: Despite bearish market bias all day (BTC bias: short/strong_short), system detected 74 long triggers vs only 14 short triggers.
+
+**Root Causes Identified**:
+
+1. **Impulse Detection Requires Bounce** (`indicators.ts:379-381`):
+   - For SHORT setups, price must bounce 1%+ from recent low
+   - In a straight dump, this never happens → no short detected
+
+2. **RSI Threshold Asymmetry**:
+   - LONGs trigger at RSI < 30 (oversold)
+   - SHORTs trigger at RSI > 70 (overbought)
+   - In a dump, coins go oversold frequently but rarely reach overbought
+   - Jan 15 data: 218 new long setups vs 123 new short setups
+
+3. **HTF Trend Filter** (`backburner-detector.ts:196-200`):
+   - Shorts require HTF to be bearish
+   - Many coins still show bullish HTF structure during fresh dumps
+
+**Fundamental Issue**: Backburner is **mean reversion**, not momentum:
+- LONG = buy oversold dips in uptrends (RSI < 30)
+- SHORT = sell overbought bounces in downtrends (RSI > 70)
+
+In a straight dump without bounces, shorts won't trigger.
+
+**Potential Fixes** (not implemented - need user decision):
+1. Lower bounce threshold for shorts (1% → 0.5%)
+2. Add momentum-based short detection (RSI dropping through 50)
+3. Reduce RSI threshold for shorts in bearish markets (70 → 65)
+4. Separate "trend following" bot for catching dumps
+
+**Also Completed**:
+- Added friction to `golden-pocket-bot.ts` (commit e04266f)
+
+---
+
+## Previous Task: Fixed BE Backtest & Friction Integration
 
 ### Iteration 10 - PaperTradingEngine Friction Integration
 **Date**: 2026-01-15
