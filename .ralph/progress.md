@@ -4,10 +4,49 @@
 
 ## Summary
 
-- Iterations completed: 14
-- Current status: Trading Guide Updated
+- Iterations completed: 15
+- Current status: GUI "Connecting..." Bug Fixed
 
-## Current Task: Documentation Update
+## Current Task: GUI Connection Fix
+
+### Iteration 15 - Fix "Connecting..." Status Bug
+**Date**: 2026-01-15
+**Status**: ✅ Complete
+
+**Problem**: GUI showed "Connecting..." forever on both localhost:3000 and backburner.onrender.com
+- No trades/setups were populating
+- Analytics section showed loading states
+- Browser console showed: `SyntaxError: Unexpected token '<'` at line 1393
+
+**Root Cause**: Duplicate `<script>` tag in the HTML template
+- Lines 3301-3302 had `<script>\n<script>` instead of just `<script>`
+- This caused JavaScript parsing to fail
+- SSE event handlers never initialized properly
+- The page appeared to connect but couldn't process incoming events
+
+**Fix Applied**:
+- Removed the duplicate `<script>` tag at line 3301
+- Single line deletion in src/web-server.ts
+
+**Verification**:
+- Local server starts and serves HTML correctly
+- SSE endpoint (`/events`) returns valid JSON events
+- `curl` test confirms events are properly formatted
+
+**Files Modified**:
+- `src/web-server.ts` (-1 line - removed duplicate script tag)
+
+**Guardrails Added**:
+- "Check for Duplicate HTML Tags" - search for `<script><script>` after editing HTML
+- "Test SSE Endpoints After Changes" - use curl to verify JSON events
+
+**Build**: ✅ Passes successfully
+
+**Note**: Push to GitHub required to trigger Render redeploy (user needs to push)
+
+---
+
+## Previous Task: Documentation Update
 
 ### Iteration 14 - Trading Guide Expansion
 **Date**: 2026-01-15
