@@ -28,6 +28,7 @@ export interface PaperTradingConfig {
   stopLossPercent: number;     // Stop loss % (e.g., 20%)
   maxOpenPositions: number;    // Max concurrent positions
   requireFutures?: boolean;    // Only trade setups available on futures (default true)
+  breakevenTriggerPercent?: number;  // Move SL to breakeven when ROI hits this % (e.g., 10)
 }
 
 export const DEFAULT_PAPER_CONFIG: PaperTradingConfig = {
@@ -40,7 +41,7 @@ export const DEFAULT_PAPER_CONFIG: PaperTradingConfig = {
 };
 
 // Position status
-export type PositionStatus = 'open' | 'closed_tp' | 'closed_sl' | 'closed_played_out';
+export type PositionStatus = 'open' | 'closed_tp' | 'closed_sl' | 'closed_breakeven' | 'closed_played_out';
 
 // A paper trading position
 export interface PaperPosition {
@@ -60,6 +61,8 @@ export interface PaperPosition {
   // Targets
   takeProfitPrice: number;
   stopLossPrice: number;
+  initialStopLossPrice?: number;  // Original SL before breakeven lock
+  breakevenLocked?: boolean;      // Whether SL has been moved to breakeven
 
   // Current state
   currentPrice: number;
@@ -240,6 +243,8 @@ export class PaperTradingEngine {
       leverage: this.config.leverage,
       takeProfitPrice: takeProfit,
       stopLossPrice: stopLoss,
+      initialStopLossPrice: stopLoss,  // Store original SL for breakeven tracking
+      breakevenLocked: false,
       currentPrice: entryPrice,
       unrealizedPnL: 0,
       unrealizedPnLPercent: 0,
@@ -296,6 +301,20 @@ export class PaperTradingEngine {
     position.unrealizedPnL = position.notionalSize * priceChange;
     position.unrealizedPnLPercent = priceChange * 100;
 
+    // Breakeven lock: Move SL to entry price when profit exceeds trigger
+    if (this.config.breakevenTriggerPercent !== undefined &&
+        !position.breakevenLocked &&
+        position.unrealizedPnLPercent >= this.config.breakevenTriggerPercent) {
+      // Lock in breakeven
+      position.initialStopLossPrice = position.stopLossPrice;
+      position.stopLossPrice = position.entryPrice;
+      position.breakevenLocked = true;
+      debugLog(`BREAKEVEN LOCK: ${position.symbol} ${position.direction.toUpperCase()} - SL moved to entry @ ${position.entryPrice}`, {
+        triggerPercent: this.config.breakevenTriggerPercent,
+        currentPnLPercent: position.unrealizedPnLPercent,
+      }, true);
+    }
+
     // Check for exit conditions
     let shouldClose = false;
     let exitReason = '';
@@ -315,12 +334,23 @@ export class PaperTradingEngine {
     // Check stop loss
     if (position.direction === 'long' && position.currentPrice <= position.stopLossPrice) {
       shouldClose = true;
-      exitReason = 'Stop Loss Hit';
-      exitStatus = 'closed_sl';
+      // Differentiate between breakeven exit and regular stop loss
+      if (position.breakevenLocked) {
+        exitReason = 'Breakeven Stop Hit';
+        exitStatus = 'closed_breakeven';
+      } else {
+        exitReason = 'Stop Loss Hit';
+        exitStatus = 'closed_sl';
+      }
     } else if (position.direction === 'short' && position.currentPrice >= position.stopLossPrice) {
       shouldClose = true;
-      exitReason = 'Stop Loss Hit';
-      exitStatus = 'closed_sl';
+      if (position.breakevenLocked) {
+        exitReason = 'Breakeven Stop Hit';
+        exitStatus = 'closed_breakeven';
+      } else {
+        exitReason = 'Stop Loss Hit';
+        exitStatus = 'closed_sl';
+      }
     }
 
     // Check if setup played out

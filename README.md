@@ -83,17 +83,36 @@ Logs are written to `logs/daily-summary.log`.
 
 The system runs multiple paper trading strategies simultaneously:
 
+### Core Bots
 | Bot | Strategy |
 |-----|----------|
-| Trail Wide | Wide trailing stops, lets winners run |
-| Trail Standard (10x) | Standard trailing with 10x leverage |
-| Trail Aggressive (20x) | Aggressive trailing with 20x leverage |
-| Trail Light (1%) | Light 1% trailing stop |
-| Fixed TP/SL | Fixed take profit and stop loss |
-| GP-Conservative | Golden Pocket entry, conservative sizing |
-| GP-Standard | Golden Pocket entry, standard sizing |
-| GP-Aggressive | Golden Pocket entry, aggressive sizing |
-| GP-YOLO | Golden Pocket entry, maximum conviction |
+| Fixed 20/20 | 1% position, 10x leverage, fixed 20% TP / 20% SL |
+| Fixed BE | 1% position, 10x leverage, 20% TP, **SL moves to breakeven at +10% ROI** |
+| Trail Light | 1% position, 10x leverage, trailing stops |
+| Trail Standard | 10% position, 10x leverage, trailing stops |
+| Trail Aggressive | 10% position, 20x leverage, trailing stops |
+| Trail Wide | 10% position, 20x leverage, 20% trail trigger, 10% L1 lock |
+| Confluence | Multi-timeframe confirmation (5m + 15m/1h required) |
+
+### BTC-Specific Bots
+| Bot | Strategy |
+|-----|----------|
+| BTC Contrarian | 10% position, 50x leverage, fades extreme RSI |
+| BTC Momentum | 10% position, 50x leverage, follows strong trends |
+
+### Golden Pocket Bots (Fibonacci Retracement)
+| Bot | Strategy |
+|-----|----------|
+| GP-Conservative | 1% position, 5x leverage, strictest filters |
+| GP-Standard | 5% position, 10x leverage, balanced approach |
+| GP-Aggressive | 10% position, 20x leverage, looser filters |
+| GP-YOLO | 25% position, 50x leverage, maximum risk |
+
+### BTC Bias V2 Bots (Conservative)
+8 variants with 10-20% position sizing, 10-20x leverage, 2-3% callback rates.
+
+### Archived Bots
+**BTC Bias V1** (8 variants with 100% position sizing, 50x leverage) - **DISABLED** due to catastrophic losses (-$12k in Jan 2026). Data preserved for analysis but no longer trading.
 
 ## Environment Variables
 

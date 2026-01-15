@@ -94,6 +94,7 @@ const clients: Set<express.Response> = new Set();
 // Bot visibility state (which bots are shown in UI)
 const botVisibility: Record<string, boolean> = {
   fixedTP: true,
+  fixedBE: true,        // Fixed TP with breakeven lock at +10%
   trailing1pct: true,
   trailing10pct10x: true,
   trailing10pct20x: true,
@@ -103,15 +104,16 @@ const botVisibility: Record<string, boolean> = {
   confluence: true,     // Multi-TF confluence (5m + 15m/1h)
   btcExtreme: true,
   btcTrend: true,
-  // BTC Bias bots (8 variants)
-  bias100x20trail: true,
-  bias100x50trail: true,
-  bias10x20trail: true,
-  bias10x50trail: true,
-  bias100x20hard: true,
-  bias100x50hard: true,
-  bias10x20hard: true,
-  bias10x50hard: true,
+  // BTC Bias V1 bots - ARCHIVED (100% position was too risky, caused -$12k losses)
+  // These are disabled by default but kept for historical data viewing
+  bias100x20trail: false,
+  bias100x50trail: false,
+  bias10x20trail: false,
+  bias10x50trail: false,
+  bias100x20hard: false,
+  bias100x50hard: false,
+  bias10x20hard: false,
+  bias10x50hard: false,
   // MEXC Simulation bots (6 variants)
   'mexc-aggressive': true,
   'mexc-aggressive-2cb': true,
@@ -171,6 +173,18 @@ const fixedTPBot = new PaperTradingEngine({
   stopLossPercent: 20,
   maxOpenPositions: 10,
 }, 'fixed');
+
+// Bot 1b: Fixed TP with breakeven lock (1% position, 10x leverage)
+// Moves SL to breakeven at +10% ROI, still exits at fixed +20% TP
+const fixedBreakevenBot = new PaperTradingEngine({
+  initialBalance: 2000,
+  positionSizePercent: 1,
+  leverage: 10,
+  takeProfitPercent: 20,  // 20% TP target
+  stopLossPercent: 20,    // Initial 20% SL
+  breakevenTriggerPercent: 10,  // Move SL to breakeven at +10% ROI
+  maxOpenPositions: 10,
+}, 'fixed-be');
 
 // Bot 2: Trailing stop strategy (1% position, 10x leverage)
 const trailing1pctBot = new TrailingStopEngine({
@@ -465,6 +479,7 @@ async function handleNewSetup(setup: BackburnerSetup) {
 
   // Only open positions for main bots if setup passes filter
   let fixedPosition = null;
+  let fixedBEPosition = null;
   let trail1pctPosition = null;
   let trail10pct10xPosition = null;
   let trail10pct20xPosition = null;
@@ -473,6 +488,7 @@ async function handleNewSetup(setup: BackburnerSetup) {
 
   if (passesFilter) {
     fixedPosition = fixedTPBot.openPosition(setup);
+    fixedBEPosition = fixedBreakevenBot.openPosition(setup);
     trail1pctPosition = trailing1pctBot.openPosition(setup);
     trail10pct10xPosition = trailing10pct10xBot.openPosition(setup);
     trail10pct20xPosition = trailing10pct20xBot.openPosition(setup);
@@ -629,6 +645,7 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
 
   // First try to update existing positions (always update regardless of filter)
   let fixedPosition = fixedTPBot.updatePosition(setup);
+  let fixedBEPosition = fixedBreakevenBot.updatePosition(setup);
   let trail1pctPosition = trailing1pctBot.updatePosition(setup);
   let trail10pct10xPosition = trailing10pct10xBot.updatePosition(setup);
   let trail10pct20xPosition = trailing10pct20xBot.updatePosition(setup);
@@ -646,6 +663,13 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
     fixedPosition = fixedTPBot.openPosition(setup);
     if (fixedPosition) {
       broadcast('position_opened', { bot: 'fixedTP', position: fixedPosition });
+      newlyOpened = true;
+    }
+  }
+  if (passesFilter && !fixedBEPosition && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
+    fixedBEPosition = fixedBreakevenBot.openPosition(setup);
+    if (fixedBEPosition) {
+      broadcast('position_opened', { bot: 'fixedBE', position: fixedBEPosition });
       newlyOpened = true;
     }
   }
@@ -1006,6 +1030,18 @@ function getFullState() {
       closedPositions: fixedTPBot.getClosedPositions(20),
       stats: fixedTPBot.getStats(),
       visible: botVisibility.fixedTP,
+    },
+    // Bot 1b: Fixed TP with Breakeven Lock (1% position, 10x leverage)
+    fixedBEBot: {
+      name: 'Fixed BE',
+      description: '1% pos, 10x, 20% TP, BE at +10%',
+      config: fixedBreakevenBot.getConfig(),
+      balance: fixedBreakevenBot.getBalance(),
+      unrealizedPnL: fixedBreakevenBot.getUnrealizedPnL(),
+      openPositions: fixedBreakevenBot.getOpenPositions(),
+      closedPositions: fixedBreakevenBot.getClosedPositions(20),
+      stats: fixedBreakevenBot.getStats(),
+      visible: botVisibility.fixedBE,
     },
     // Bot 2: Trailing Stop (1% position, 10x leverage)
     trailing1pctBot: {
@@ -2073,6 +2109,10 @@ function getHtmlPage(): string {
               <strong style="color: #3fb950;">🎯 Fixed 20/20</strong>
               <p style="color: #8b949e; margin: 4px 0 0 0;">1% position, 10x leverage, 20% TP/20% SL. Conservative with fixed exits. Exits on RSI played_out or setup removal.</p>
             </div>
+            <div style="padding: 12px; background: #0d1117; border-radius: 8px; border-left: 3px solid #2ea043;">
+              <strong style="color: #2ea043;">🛡️ Fixed BE (Breakeven Lock)</strong>
+              <p style="color: #8b949e; margin: 4px 0 0 0;">1% position, 10x leverage, 20% TP. <strong style="color: #c9d1d9;">SL moves to breakeven at +10% ROI</strong>. Protects gains while still targeting full 20% profit.</p>
+            </div>
             <div style="padding: 12px; background: #0d1117; border-radius: 8px; border-left: 3px solid #8957e5;">
               <strong style="color: #a371f7;">📉 Trail Light</strong>
               <p style="color: #8b949e; margin: 4px 0 0 0;">1% position, 10x leverage, trailing stops. Most conservative trailing bot. Good for testing strategies with minimal risk.</p>
@@ -2402,6 +2442,11 @@ function getHtmlPage(): string {
         <div class="stat-value" id="fixedBalance" style="font-size: 18px;">$2,000</div>
         <div class="stat-label">Fix20 | P&L: <span id="fixedPnL" class="positive">$0</span> | Unreal: <span id="fixedUnrealPnL" class="positive">$0</span></div>
         <div class="stat-label" style="margin-top: 2px;"><span id="fixedWinRate">0%</span> win (<span id="fixedTrades">0</span> trades) | Costs: <span id="fixedCosts" style="color: #f85149;">$0</span></div>
+      </div>
+      <div class="stat-box" style="border-left: 3px solid #2ea043;" title="Fixed 20% TP, SL moves to breakeven at +10% ROI">
+        <div class="stat-value" id="fixedBEBalance" style="font-size: 18px;">$2,000</div>
+        <div class="stat-label">🛡️FixBE | P&L: <span id="fixedBEPnL" class="positive">$0</span> | Unreal: <span id="fixedBEUnrealPnL" class="positive">$0</span></div>
+        <div class="stat-label" style="margin-top: 2px;"><span id="fixedBEWinRate">0%</span> win (<span id="fixedBETrades">0</span> trades) | Costs: <span id="fixedBECosts" style="color: #f85149;">$0</span></div>
       </div>
       <div class="stat-box" style="border-left: 3px solid #8957e5;">
         <div class="stat-value" id="trail1pctBalance" style="font-size: 18px;">$2,000</div>
@@ -2812,6 +2857,19 @@ function getHtmlPage(): string {
           </div>
         </div>
         <div id="fixedTPContent"><div id="fixedPositionsTable"><div class="empty-state">No positions</div></div></div>
+      </div>
+      <div class="card bot-card" id="fixedBECard" style="border-left: 3px solid #2ea043;">
+        <div class="card-header" style="cursor: pointer;" onclick="toggleSection('fixedBE')">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="section-toggle" id="fixedBEToggle">▼</span>
+            <span class="card-title" title="Fixed 20% TP, moves SL to breakeven at +10% ROI">🛡️ Fixed BE</span>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <button onclick="event.stopPropagation(); showBotHistory('fixedBE', '🛡️ Fixed BE')" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">📜 <span id="fixedBEHistoryCount">0</span></button>
+            <span id="fixedBEPositionCount">0</span>
+          </div>
+        </div>
+        <div id="fixedBEContent"><div id="fixedBEPositionsTable"><div class="empty-state">No positions</div></div></div>
       </div>
       <div class="card bot-card" id="trailing1pctCard" style="border-left: 3px solid #8957e5;">
         <div class="card-header" style="cursor: pointer;" onclick="toggleSection('trailing1pct')">
@@ -4223,6 +4281,10 @@ function getHtmlPage(): string {
       setDisplay(['fixedTPCard'], botVisibility.fixedTP ? 'block' : 'none');
       setToggle('toggleFixedTP', botVisibility.fixedTP, '#3fb950');
 
+      // Fixed BE bot (lighter green)
+      setDisplay(['fixedBECard'], botVisibility.fixedBE ? 'block' : 'none');
+      setToggle('toggleFixedBE', botVisibility.fixedBE, '#2ea043');
+
       // Trailing 1% bot (purple)
       setDisplay(['trailing1pctCard'], botVisibility.trailing1pct ? 'block' : 'none');
       setToggle('toggleTrailing1pct', botVisibility.trailing1pct, '#a371f7');
@@ -4320,6 +4382,22 @@ function getHtmlPage(): string {
       document.getElementById('fixedWinRate').textContent = fixedStats.winRate.toFixed(0) + '%';
       document.getElementById('fixedTrades').textContent = fixedStats.totalTrades;
       document.getElementById('fixedCosts').textContent = formatCurrency(fixedStats.totalExecutionCosts || 0);
+
+      // Update Fixed BE bot stats (Bot 1b)
+      if (state.fixedBEBot) {
+        const fixedBEStats = state.fixedBEBot.stats;
+        const fixedBEUnreal = state.fixedBEBot.unrealizedPnL;
+        document.getElementById('fixedBEBalance').textContent = formatCurrency(fixedBEStats.currentBalance);
+        const fixedBEPnL = document.getElementById('fixedBEPnL');
+        fixedBEPnL.textContent = formatCurrency(fixedBEStats.totalPnL);
+        fixedBEPnL.className = fixedBEStats.totalPnL >= 0 ? 'positive' : 'negative';
+        const fixedBEUnrealEl = document.getElementById('fixedBEUnrealPnL');
+        fixedBEUnrealEl.textContent = formatCurrency(fixedBEUnreal);
+        fixedBEUnrealEl.className = fixedBEUnreal >= 0 ? 'positive' : 'negative';
+        document.getElementById('fixedBEWinRate').textContent = fixedBEStats.winRate.toFixed(0) + '%';
+        document.getElementById('fixedBETrades').textContent = fixedBEStats.totalTrades;
+        document.getElementById('fixedBECosts').textContent = formatCurrency(fixedBEStats.totalExecutionCosts || 0);
+      }
 
       // Update Trailing 1% bot stats (Bot 2)
       const trail1pctStats = state.trailing1pctBot.stats;
@@ -4642,6 +4720,12 @@ function getHtmlPage(): string {
       // Update Fixed TP/SL positions (Bot 1)
       document.getElementById('fixedPositionCount').textContent = state.fixedTPBot.openPositions.length;
       document.getElementById('fixedPositionsTable').innerHTML = renderPositionsTable(state.fixedTPBot.openPositions, 'fixed');
+
+      // Update Fixed BE positions (Bot 1b)
+      if (state.fixedBEBot) {
+        document.getElementById('fixedBEPositionCount').textContent = state.fixedBEBot.openPositions.length;
+        document.getElementById('fixedBEPositionsTable').innerHTML = renderPositionsTable(state.fixedBEBot.openPositions, 'fixed-be');
+      }
 
       // Update Trailing 1% positions (Bot 2)
       document.getElementById('trail1pctPositionCount').textContent = state.trailing1pctBot.openPositions.length;
@@ -5346,6 +5430,7 @@ async function main() {
   // Log bot configurations to data persistence
   const dataPersistence = getDataPersistence();
   dataPersistence.logBotConfig('fixed', 'Fixed 20/20', { ...fixedTPBot.getConfig() });
+  dataPersistence.logBotConfig('fixed-be', 'Fixed BE', { ...fixedBreakevenBot.getConfig() });
   dataPersistence.logBotConfig('1pct', 'Trail Light', { ...trailing1pctBot.getConfig() });
   dataPersistence.logBotConfig('10pct10x', 'Trail Standard', { ...trailing10pct10xBot.getConfig() });
   dataPersistence.logBotConfig('10pct20x', 'Trail Aggressive', { ...trailing10pct20xBot.getConfig() });
@@ -5540,6 +5625,15 @@ async function main() {
       fixedTPBot.getClosedPositions(100),
       fixedTPBot.getBalance(),
       fixedTPBot.getStats().peakBalance
+    );
+
+    // Fixed BE bot - manual save
+    dataPersistence.savePositions(
+      'fixed-be',
+      fixedBreakevenBot.getOpenPositions(),
+      fixedBreakevenBot.getClosedPositions(100),
+      fixedBreakevenBot.getBalance(),
+      fixedBreakevenBot.getStats().peakBalance
     );
 
     // Confluence bot - manual save
