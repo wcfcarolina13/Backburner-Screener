@@ -10,7 +10,8 @@ import { BTCExtremeBot } from './btc-extreme-bot.js';
 import { BTCTrendBot } from './btc-trend-bot.js';
 import { TrendOverrideBot } from './trend-override-bot.js';
 import { TrendFlipBot } from './trend-flip-bot.js';
-import { createBtcBiasBots, createBtcBiasBotsV2, type BiasLevel } from './btc-bias-bot.js';
+import { createBtcBiasBotsV2, type BiasLevel } from './btc-bias-bot.js';
+// createBtcBiasBots (V1) REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
 import { createMexcSimulationBots } from './mexc-trailing-simulation.js';
 import { NotificationManager } from './notifications.js';
 import { FocusModeManager, getFocusModeManager } from './focus-mode.js';
@@ -104,16 +105,7 @@ const botVisibility: Record<string, boolean> = {
   confluence: true,     // Multi-TF confluence (5m + 15m/1h)
   btcExtreme: true,
   btcTrend: true,
-  // BTC Bias V1 bots - ARCHIVED (100% position was too risky, caused -$12k losses)
-  // These are disabled by default but kept for historical data viewing
-  bias100x20trail: false,
-  bias100x50trail: false,
-  bias10x20trail: false,
-  bias10x50trail: false,
-  bias100x20hard: false,
-  bias100x50hard: false,
-  bias10x20hard: false,
-  bias10x50hard: false,
+  // BTC Bias V1 bots REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
   // MEXC Simulation bots (6 variants)
   'mexc-aggressive': true,
   'mexc-aggressive-2cb': true,
@@ -312,9 +304,7 @@ const trendFlipBot = new TrendFlipBot({
   flipStopLossPercent: 20,  // Same stop for flipped positions
 }, 'flip');
 
-// Bots 12-19: BTC Bias Bots V1 (8 variants) - AGGRESSIVE, mostly losing
-// Only trade BTC based on macro bias, hold through neutral, require stronger bias after stop-out
-const btcBiasBots = createBtcBiasBots(2000);
+// BTC Bias V1 Bots REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
 
 // Bots 30-37: BTC Bias Bots V2 (8 variants) - CONSERVATIVE
 // Reduced leverage (10-20x), smaller positions (10-20%), wider callbacks (2-3%)
@@ -1157,24 +1147,7 @@ function getFullState() {
       pendingFlips: trendFlipBot.getPendingFlips(),
       visible: botVisibility.trendFlip,
     },
-    // Bots 12-19: BTC Bias Bots
-    btcBiasBots: Object.fromEntries(
-      Array.from(btcBiasBots.entries()).map(([key, bot]) => [
-        key,
-        {
-          name: bot.getName(),
-          config: bot.getConfig(),
-          balance: bot.getBalance(),
-          unrealizedPnL: bot.getUnrealizedPnL(),
-          position: bot.getPosition(),
-          closedPositions: bot.getClosedPositions(20),
-          stats: bot.getStats(),
-          isStoppedOut: bot.isStoppedOut(),
-          stoppedOutDirection: bot.getStoppedOutDirection(),
-          visible: botVisibility[key],
-        },
-      ])
-    ),
+    // BTC Bias V1 Bots REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
     // Bots 20-25: MEXC Simulation Bots
     mexcSimBots: Object.fromEntries(
       Array.from(mexcSimBots.entries()).map(([key, bot]) => [
@@ -1388,15 +1361,7 @@ app.post('/api/toggle-bot', express.json(), (req, res) => {
   } else if (bot === 'trendFlip') {
     botVisibility.trendFlip = visible !== false;
     res.json({ success: true, bot: 'trendFlip', visible: botVisibility.trendFlip });
-  } else if (bot.startsWith('bias')) {
-    // Handle BTC Bias bots dynamically
-    if (btcBiasBots.has(bot)) {
-      botVisibility[bot] = visible !== false;
-      res.json({ success: true, bot, visible: botVisibility[bot] });
-    } else {
-      res.status(400).json({ error: 'Invalid bot name' });
-      return;
-    }
+  // BTC Bias V1 bots REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
   } else {
     res.status(400).json({ error: 'Invalid bot name' });
     return;
@@ -1708,10 +1673,7 @@ app.get('/api/btc-rsi', async (req, res) => {
       btcExtremeBot.update(btcPrice, rsiData);
       btcTrendBot.update(btcPrice, rsiData);
 
-      // Update BTC Bias bots (all 8 V1 variants)
-      for (const [botKey, bot] of btcBiasBots) {
-        bot.processBiasUpdate(marketBias as BiasLevel, btcPrice, biasScore);
-      }
+      // BTC Bias V1 bots REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
 
       // Update BTC Bias V2 bots (all 8 V2 variants - conservative params)
       for (const [botKey, bot] of btcBiasBotsV2) {
@@ -2620,116 +2582,7 @@ function getHtmlPage(): string {
       </div>
     </div>
 
-    <!-- Section: BTC Bias Bots V1 (ARCHIVED - hidden by default) -->
-    <div class="section-header" onclick="toggleSection('btcBiasBots')" style="margin-top: 12px;">
-      <span class="section-title" style="color: #6e7681;">₿ BTC Bias V1 (ARCHIVED)</span>
-      <span class="section-toggle" id="btcBiasBotsToggle">▸</span>
-    </div>
-    <div class="section-content" id="btcBiasBotsContent" style="display: none;">
-      <div style="font-size: 11px; color: #f85149; margin-bottom: 8px; padding: 6px 10px; background: #2d1b1b; border-radius: 4px; border: 1px solid #f85149;">
-        ⚠️ ARCHIVED: These V1 bots lost -$12k due to 100% position sizing. Kept for historical data only. Use V2 bots instead.
-      </div>
-      <div class="bot-toggles-row">
-        <div class="bot-toggle" id="toggleBias100x20trail" onclick="event.stopPropagation(); toggleBot('bias100x20trail')" style="flex: 1; min-width: 110px; padding: 6px 10px; background: #161b22; border: 2px solid #ffd700; border-radius: 6px; cursor: pointer;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #ffd700; font-size: 11px;">100% 20x Trail</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #ffd700;"></span>
-          </div>
-        </div>
-        <div class="bot-toggle" id="toggleBias100x50trail" onclick="event.stopPropagation(); toggleBot('bias100x50trail')" style="flex: 1; min-width: 110px; padding: 6px 10px; background: #161b22; border: 2px solid #ff8c00; border-radius: 6px; cursor: pointer;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #ff8c00; font-size: 11px;">100% 50x Trail</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #ff8c00;"></span>
-          </div>
-        </div>
-        <div class="bot-toggle" id="toggleBias10x20trail" onclick="event.stopPropagation(); toggleBot('bias10x20trail')" style="flex: 1; min-width: 110px; padding: 6px 10px; background: #161b22; border: 2px solid #98fb98; border-radius: 6px; cursor: pointer;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #98fb98; font-size: 11px;">10% 20x Trail</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #98fb98;"></span>
-          </div>
-        </div>
-        <div class="bot-toggle" id="toggleBias10x50trail" onclick="event.stopPropagation(); toggleBot('bias10x50trail')" style="flex: 1; min-width: 110px; padding: 6px 10px; background: #161b22; border: 2px solid #00ced1; border-radius: 6px; cursor: pointer;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #00ced1; font-size: 11px;">10% 50x Trail</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #00ced1;"></span>
-          </div>
-        </div>
-        <div class="bot-toggle" id="toggleBias100x20hard" onclick="event.stopPropagation(); toggleBot('bias100x20hard')" style="flex: 1; min-width: 110px; padding: 6px 10px; background: #161b22; border: 2px solid #dc143c; border-radius: 6px; cursor: pointer;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #dc143c; font-size: 11px;">100% 20x Hard</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #dc143c;"></span>
-          </div>
-        </div>
-        <div class="bot-toggle" id="toggleBias100x50hard" onclick="event.stopPropagation(); toggleBot('bias100x50hard')" style="flex: 1; min-width: 110px; padding: 6px 10px; background: #161b22; border: 2px solid #8b0000; border-radius: 6px; cursor: pointer;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #ff6666; font-size: 11px;">100% 50x Hard</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #ff6666;"></span>
-          </div>
-        </div>
-        <div class="bot-toggle" id="toggleBias10x20hard" onclick="event.stopPropagation(); toggleBot('bias10x20hard')" style="flex: 1; min-width: 110px; padding: 6px 10px; background: #161b22; border: 2px solid #9370db; border-radius: 6px; cursor: pointer;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #9370db; font-size: 11px;">10% 20x Hard</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #9370db;"></span>
-          </div>
-        </div>
-        <div class="bot-toggle" id="toggleBias10x50hard" onclick="event.stopPropagation(); toggleBot('bias10x50hard')" style="flex: 1; min-width: 110px; padding: 6px 10px; background: #161b22; border: 2px solid #4169e1; border-radius: 6px; cursor: pointer;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600; color: #4169e1; font-size: 11px;">10% 50x Hard</span>
-            <span class="toggle-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #4169e1;"></span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- BTC Bias V1 Stats (ARCHIVED - hidden by default) -->
-    <div class="section-header" onclick="toggleSection('btcBiasStats')" style="margin-top: 12px;">
-      <span class="section-title" style="color: #6e7681;">₿ BTC Bias V1 Stats (ARCHIVED)</span>
-      <span class="section-toggle" id="btcBiasStatsToggle">▸</span>
-    </div>
-    <div class="section-content" id="btcBiasStatsContent" style="display: none;">
-      <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 12px;">
-        <div class="stat-box" style="border-left: 3px solid #ffd700;">
-          <div class="stat-value" id="bias100x20trailBalance" style="font-size: 16px;">$2,000</div>
-          <div class="stat-label">100% 20x Trail | <span id="bias100x20trailPnL" class="positive">$0</span></div>
-          <div class="stat-label" style="margin-top: 2px;"><span id="bias100x20trailStatus">-</span></div>
-        </div>
-        <div class="stat-box" style="border-left: 3px solid #ff8c00;">
-          <div class="stat-value" id="bias100x50trailBalance" style="font-size: 16px;">$2,000</div>
-          <div class="stat-label">100% 50x Trail | <span id="bias100x50trailPnL" class="positive">$0</span></div>
-          <div class="stat-label" style="margin-top: 2px;"><span id="bias100x50trailStatus">-</span></div>
-        </div>
-        <div class="stat-box" style="border-left: 3px solid #98fb98;">
-          <div class="stat-value" id="bias10x20trailBalance" style="font-size: 16px;">$2,000</div>
-          <div class="stat-label">10% 20x Trail | <span id="bias10x20trailPnL" class="positive">$0</span></div>
-          <div class="stat-label" style="margin-top: 2px;"><span id="bias10x20trailStatus">-</span></div>
-        </div>
-        <div class="stat-box" style="border-left: 3px solid #00ced1;">
-          <div class="stat-value" id="bias10x50trailBalance" style="font-size: 16px;">$2,000</div>
-          <div class="stat-label">10% 50x Trail | <span id="bias10x50trailPnL" class="positive">$0</span></div>
-          <div class="stat-label" style="margin-top: 2px;"><span id="bias10x50trailStatus">-</span></div>
-        </div>
-        <div class="stat-box" style="border-left: 3px solid #dc143c;">
-          <div class="stat-value" id="bias100x20hardBalance" style="font-size: 16px;">$2,000</div>
-          <div class="stat-label">100% 20x Hard | <span id="bias100x20hardPnL" class="positive">$0</span></div>
-          <div class="stat-label" style="margin-top: 2px;"><span id="bias100x20hardStatus">-</span></div>
-        </div>
-        <div class="stat-box" style="border-left: 3px solid #8b0000;">
-          <div class="stat-value" id="bias100x50hardBalance" style="font-size: 16px;">$2,000</div>
-          <div class="stat-label">100% 50x Hard | <span id="bias100x50hardPnL" class="positive">$0</span></div>
-          <div class="stat-label" style="margin-top: 2px;"><span id="bias100x50hardStatus">-</span></div>
-        </div>
-        <div class="stat-box" style="border-left: 3px solid #9370db;">
-          <div class="stat-value" id="bias10x20hardBalance" style="font-size: 16px;">$2,000</div>
-          <div class="stat-label">10% 20x Hard | <span id="bias10x20hardPnL" class="positive">$0</span></div>
-          <div class="stat-label" style="margin-top: 2px;"><span id="bias10x20hardStatus">-</span></div>
-        </div>
-        <div class="stat-box" style="border-left: 3px solid #4169e1;">
-          <div class="stat-value" id="bias10x50hardBalance" style="font-size: 16px;">$2,000</div>
-          <div class="stat-label">10% 50x Hard | <span id="bias10x50hardPnL" class="positive">$0</span></div>
-          <div class="stat-label" style="margin-top: 2px;"><span id="bias10x50hardStatus">-</span></div>
-        </div>
-      </div>
-    </div>
+    <!-- BTC Bias V1 bots REMOVED - See data/archived/BTC_BIAS_V1_EXPERIMENT.md for learnings -->
 
     <!-- Section: MEXC Simulation Bots -->
     <div class="section-header" onclick="toggleSection('mexcSim')" style="margin-top: 12px;">
@@ -3484,8 +3337,7 @@ function getHtmlPage(): string {
     // Section collapse/expand state
     const sectionState = {
       altcoinBots: true,
-      btcBiasBots: false,    // V1 ARCHIVED - hidden by default
-      btcBiasStats: false,   // V1 ARCHIVED - hidden by default
+      // btcBiasBots V1 REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
       mexcSim: true,
       goldenPocket: true,
       // Focus Mode and Bot Cards
@@ -3592,9 +3444,7 @@ function getHtmlPage(): string {
       fixedTP: true, trailing1pct: true, trailing10pct10x: true, trailing10pct20x: true,
       trailWide: true, confluence: true,
       btcExtreme: true, btcTrend: true, trendOverride: true, trendFlip: true,
-      // BTC Bias bots
-      bias100x20trail: true, bias100x50trail: true, bias10x20trail: true, bias10x50trail: true,
-      bias100x20hard: true, bias100x50hard: true, bias10x20hard: true, bias10x50hard: true,
+      // BTC Bias V1 bots REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
     };
 
     // Setups tab state
@@ -4491,15 +4341,7 @@ function getHtmlPage(): string {
       setDisplay(['trendFlipCard'], botVisibility.trendFlip ? 'block' : 'none');
       setToggle('toggleTrendFlip', botVisibility.trendFlip, '#00bcd4');
 
-      // BTC Bias bots
-      setToggle('toggleBias100x20trail', botVisibility.bias100x20trail, '#ffd700');
-      setToggle('toggleBias100x50trail', botVisibility.bias100x50trail, '#ff8c00');
-      setToggle('toggleBias10x20trail', botVisibility.bias10x20trail, '#98fb98');
-      setToggle('toggleBias10x50trail', botVisibility.bias10x50trail, '#00ced1');
-      setToggle('toggleBias100x20hard', botVisibility.bias100x20hard, '#dc143c');
-      setToggle('toggleBias100x50hard', botVisibility.bias100x50hard, '#ff6666');
-      setToggle('toggleBias10x20hard', botVisibility.bias10x20hard, '#9370db');
-      setToggle('toggleBias10x50hard', botVisibility.bias10x50hard, '#4169e1');
+      // BTC Bias V1 bots REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
     }
 
     function updateUI(state) {
@@ -4699,37 +4541,7 @@ function getHtmlPage(): string {
         document.getElementById('trendFlipCosts').textContent = formatCurrency(trendFlipStats.totalExecutionCosts || 0);
       }
 
-      // Update BTC Bias bots stats (Bots 12-19)
-      if (state.btcBiasBots) {
-        const biasKeys = ['bias100x20trail', 'bias100x50trail', 'bias10x20trail', 'bias10x50trail',
-                         'bias100x20hard', 'bias100x50hard', 'bias10x20hard', 'bias10x50hard'];
-        for (const key of biasKeys) {
-          const bot = state.btcBiasBots[key];
-          if (bot) {
-            const balEl = document.getElementById(key + 'Balance');
-            const pnlEl = document.getElementById(key + 'PnL');
-            const statusEl = document.getElementById(key + 'Status');
-            if (balEl) balEl.textContent = formatCurrency(bot.balance);
-            // Show unrealized PnL if position is open, otherwise show realized
-            const displayPnL = bot.position ? bot.unrealizedPnL : bot.stats.totalPnL;
-            if (pnlEl) {
-              pnlEl.textContent = formatCurrency(displayPnL);
-              pnlEl.className = displayPnL >= 0 ? 'positive' : 'negative';
-            }
-            if (statusEl) {
-              if (bot.position) {
-                const dir = bot.position.direction.toUpperCase();
-                const roiPct = bot.position.marginUsed > 0 ? (bot.unrealizedPnL / bot.position.marginUsed * 100).toFixed(1) : '0';
-                statusEl.innerHTML = '<span style="color: ' + (bot.position.direction === 'long' ? '#3fb950' : '#f85149') + ';">' + dir + ' ' + roiPct + '% ROI</span>';
-              } else if (bot.isStoppedOut) {
-                statusEl.innerHTML = '<span style="color: #f85149;">Stopped out (' + (bot.stoppedOutDirection || '-') + ')</span>';
-              } else {
-                statusEl.innerHTML = '<span style="color: #8b949e;">No position</span>';
-              }
-            }
-          }
-        }
-      }
+      // BTC Bias V1 bots REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
 
       // Update MEXC Simulation bots stats (Bots 20-25)
       if (state.mexcSimBots) {
@@ -5620,10 +5432,7 @@ async function main() {
   dataPersistence.logBotConfig('btcExtreme', 'BTC Contrarian', { ...btcExtremeBot.getConfig() });
   dataPersistence.logBotConfig('btcTrend', 'BTC Momentum', { ...btcTrendBot.getConfig() });
 
-  // Log BTC Bias bot configurations (V1)
-  for (const [key, bot] of btcBiasBots) {
-    dataPersistence.logBotConfig(key, bot.getName(), { ...bot.getConfig() });
-  }
+  // BTC Bias V1 bots REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
   // Log BTC Bias V2 bot configurations
   for (const [key, bot] of btcBiasBotsV2) {
     dataPersistence.logBotConfig(key, bot.getName(), { ...bot.getConfig() });
@@ -5688,28 +5497,7 @@ async function main() {
       };
     }
 
-    // BTC Bias bots (V1)
-    for (const [key, bot] of btcBiasBots) {
-      const stats = bot.getStats();
-      const position = bot.getPosition();
-      bots[key] = {
-        botId: key,
-        botType: 'btc_bias',
-        balance: stats.currentBalance,
-        unrealizedPnL: bot.getUnrealizedPnL(),
-        openPositionCount: position ? 1 : 0,
-        openPositions: position ? [{
-          symbol: 'BTCUSDT',
-          direction: position.direction,
-          entryPrice: position.entryPrice,
-          currentPrice: position.highestPrice, // Best approximation
-          unrealizedPnL: position.unrealizedPnL,
-          unrealizedROI: position.unrealizedROI,
-        }] : [],
-        closedTradesToday: stats.totalTrades,
-        pnlToday: stats.totalPnL,
-      };
-    }
+    // BTC Bias V1 bots REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
 
     // BTC Bias V2 bots (conservative params)
     for (const [key, bot] of btcBiasBotsV2) {
