@@ -1743,6 +1743,70 @@ app.get('/api/btc-rsi', async (req, res) => {
       });
     }
 
+    // Calculate momentum indicators from 1h candles (most relevant for trading)
+    let momentum: {
+      price?: number;
+      change1h?: number;
+      change4h?: number;
+      change24h?: number;
+      atrPercent?: number;
+      volumeRatio?: number;
+      rangePosition?: number;
+      isChoppy?: boolean;
+    } = {};
+
+    try {
+      // Get more candles for 24h data (need ~24 candles for 1h timeframe)
+      const candles1h = await getKlines('BTCUSDT', '1h', 50);
+      if (candles1h && candles1h.length >= 25) {
+        const currentPrice = candles1h[candles1h.length - 1].close;
+        const price1hAgo = candles1h[candles1h.length - 2].close;
+        const price4hAgo = candles1h[candles1h.length - 5]?.close || price1hAgo;
+        const price24hAgo = candles1h[candles1h.length - 25]?.close || price4hAgo;
+
+        momentum.price = currentPrice;
+        momentum.change1h = ((currentPrice - price1hAgo) / price1hAgo) * 100;
+        momentum.change4h = ((currentPrice - price4hAgo) / price4hAgo) * 100;
+        momentum.change24h = ((currentPrice - price24hAgo) / price24hAgo) * 100;
+
+        // Calculate ATR (14-period) as % of price
+        const atrPeriod = 14;
+        const recentCandles = candles1h.slice(-atrPeriod - 1);
+        let atrSum = 0;
+        for (let i = 1; i < recentCandles.length; i++) {
+          const high = recentCandles[i].high;
+          const low = recentCandles[i].low;
+          const prevClose = recentCandles[i - 1].close;
+          const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+          atrSum += tr;
+        }
+        const atr = atrSum / atrPeriod;
+        momentum.atrPercent = (atr / currentPrice) * 100;
+
+        // Volume ratio: current volume vs 20-period average
+        const recentVol = candles1h.slice(-20);
+        const avgVolume = recentVol.reduce((sum, c) => sum + c.volume, 0) / 20;
+        const currentVolume = candles1h[candles1h.length - 1].volume;
+        momentum.volumeRatio = avgVolume > 0 ? currentVolume / avgVolume : 1;
+
+        // 24h range position: where is price in the high-low range?
+        const last24h = candles1h.slice(-24);
+        const high24h = Math.max(...last24h.map(c => c.high));
+        const low24h = Math.min(...last24h.map(c => c.low));
+        const range = high24h - low24h;
+        momentum.rangePosition = range > 0 ? ((currentPrice - low24h) / range) * 100 : 50;
+
+        // Choppy market detection: many direction changes, low net movement
+        // If we moved back and forth but ended up < 1% from start, it's choppy
+        const netMove = Math.abs(momentum.change24h || 0);
+        const totalMove = last24h.reduce((sum, c) => sum + Math.abs(c.close - c.open), 0);
+        const efficiency = (netMove / (totalMove / currentPrice * 100)) || 0;
+        momentum.isChoppy = netMove < 2 && efficiency < 0.3;
+      }
+    } catch (err) {
+      console.error('Error calculating momentum:', err);
+    }
+
     res.json({
       symbol: 'BTCUSDT',
       timestamp: Date.now(),
@@ -1760,6 +1824,7 @@ app.get('/api/btc-rsi', async (req, res) => {
           ltfBearish,
         },
       },
+      momentum,
     });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
@@ -3114,24 +3179,70 @@ function getHtmlPage(): string {
         </div>
       </div>
 
-      <!-- Chart Container -->
-      <div style="position: relative; height: 300px;">
-        <canvas id="btcRsiChart"></canvas>
+      <!-- Momentum Indicators Row -->
+      <div id="momentumIndicators" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px;">
+        <div class="momentum-box" style="padding: 12px; background: #0d1117; border-radius: 6px; text-align: center; border: 1px solid #30363d;">
+          <div style="font-size: 10px; color: #8b949e; text-transform: uppercase;">BTC Price</div>
+          <div id="btcCurrentPrice" style="font-size: 18px; font-weight: bold; color: #f0f6fc; margin: 4px 0;">-</div>
+          <div style="display: flex; justify-content: center; gap: 8px; font-size: 11px;">
+            <span id="btcChange1h" style="color: #8b949e;">1h: -</span>
+            <span id="btcChange4h" style="color: #8b949e;">4h: -</span>
+            <span id="btcChange24h" style="color: #8b949e;">24h: -</span>
+          </div>
+        </div>
+        <div class="momentum-box" style="padding: 12px; background: #0d1117; border-radius: 6px; text-align: center; border: 1px solid #30363d;">
+          <div style="font-size: 10px; color: #8b949e; text-transform: uppercase;">Volatility (ATR)</div>
+          <div id="btcVolatility" style="font-size: 18px; font-weight: bold; color: #f0f6fc; margin: 4px 0;">-</div>
+          <div id="btcVolatilityLabel" style="font-size: 11px; color: #8b949e;">Loading...</div>
+        </div>
+        <div class="momentum-box" style="padding: 12px; background: #0d1117; border-radius: 6px; text-align: center; border: 1px solid #30363d;">
+          <div style="font-size: 10px; color: #8b949e; text-transform: uppercase;">Volume vs Avg</div>
+          <div id="btcVolumeRatio" style="font-size: 18px; font-weight: bold; color: #f0f6fc; margin: 4px 0;">-</div>
+          <div id="btcVolumeLabel" style="font-size: 11px; color: #8b949e;">Loading...</div>
+        </div>
+        <div class="momentum-box" style="padding: 12px; background: #0d1117; border-radius: 6px; text-align: center; border: 1px solid #30363d;">
+          <div style="font-size: 10px; color: #8b949e; text-transform: uppercase;">24h Range</div>
+          <div id="btcRangePosition" style="font-size: 18px; font-weight: bold; color: #f0f6fc; margin: 4px 0;">-</div>
+          <div id="btcRangeLabel" style="font-size: 11px; color: #8b949e;">Loading...</div>
+        </div>
       </div>
-      <div style="display: flex; justify-content: center; gap: 16px; margin-top: 12px; font-size: 11px;">
-        <span><span style="display: inline-block; width: 12px; height: 3px; background: #f85149; margin-right: 4px;"></span>4H</span>
-        <span><span style="display: inline-block; width: 12px; height: 3px; background: #d29922; margin-right: 4px;"></span>1H</span>
-        <span><span style="display: inline-block; width: 12px; height: 3px; background: #3fb950; margin-right: 4px;"></span>15M</span>
-        <span><span style="display: inline-block; width: 12px; height: 3px; background: #58a6ff; margin-right: 4px;"></span>5M</span>
-        <span><span style="display: inline-block; width: 12px; height: 3px; background: #a371f7; margin-right: 4px;"></span>1M</span>
-        <span style="color: #6e7681;">|</span>
-        <span style="color: #6e7681;">Dashed = SMA(9)</span>
+
+      <!-- Strategy Performance Summary -->
+      <div id="performanceSummary" style="background: #0d1117; border-radius: 8px; border: 1px solid #30363d; padding: 12px;">
+        <div style="font-size: 11px; color: #8b949e; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 1px;">Today's Performance</div>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+          <div style="text-align: center;">
+            <div style="font-size: 10px; color: #6e7681;">GP Bots (Best)</div>
+            <div id="perfGpPnL" style="font-size: 16px; font-weight: bold; color: #8b949e;">$0.00</div>
+            <div id="perfGpWinRate" style="font-size: 10px; color: #6e7681;">0W / 0L</div>
+          </div>
+          <div style="text-align: center;">
+            <div style="font-size: 10px; color: #6e7681;">Trailing Bots</div>
+            <div id="perfTrailPnL" style="font-size: 16px; font-weight: bold; color: #8b949e;">$0.00</div>
+            <div id="perfTrailWinRate" style="font-size: 10px; color: #6e7681;">0W / 0L</div>
+          </div>
+          <div style="text-align: center;">
+            <div style="font-size: 10px; color: #6e7681;">Active Positions</div>
+            <div id="perfActiveCount" style="font-size: 16px; font-weight: bold; color: #58a6ff;">0</div>
+            <div id="perfUnrealizedPnL" style="font-size: 10px; color: #6e7681;">Unreal: $0</div>
+          </div>
+        </div>
+        <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #21262d; display: flex; justify-content: space-between; align-items: center;">
+          <div style="font-size: 11px;">
+            <span style="color: #6e7681;">GP Setups:</span>
+            <span id="perfGpSetups" style="color: #c9d1d9; margin-left: 4px;">0 active</span>
+            <span style="color: #6e7681; margin-left: 12px;">BB Setups:</span>
+            <span id="perfBbSetups" style="color: #c9d1d9; margin-left: 4px;">0 active</span>
+          </div>
+          <div id="perfChoppyWarning" style="font-size: 11px; color: #d29922; display: none;">
+            ⚠️ Choppy Market Detected
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+  <script>
   <script>
     const eventSource = new EventSource('/events');
 
@@ -4818,6 +4929,9 @@ function getHtmlPage(): string {
       if (state.focusMode) {
         updateFocusPositions(state.focusMode);
       }
+
+      // Update performance summary panel
+      updatePerformanceSummary(state);
     }
 
     function formatCurrency(value) {
@@ -5123,8 +5237,7 @@ function getHtmlPage(): string {
       return '$' + (mcap / 1e3).toFixed(0) + 'K';
     }
 
-    // BTC RSI Chart
-    let btcRsiChart = null;
+    // Momentum indicator colors
     const tfColors = {
       '4h': '#f85149',
       '1h': '#d29922',
@@ -5141,15 +5254,154 @@ function getHtmlPage(): string {
       try {
         const res = await fetch('/api/btc-rsi');
         const data = await res.json();
-        updateBtcRsiChart(data);
         updateBtcSignalSummary(data);
         updateMarketBias(data);
+        updateMomentumIndicators(data);
       } catch (err) {
         console.error('Failed to fetch BTC RSI:', err);
       } finally {
         btn.textContent = 'Refresh';
         btn.disabled = false;
       }
+    }
+
+    function updateMomentumIndicators(data) {
+      if (!data.momentum) return;
+      const m = data.momentum;
+
+      // BTC Price and changes
+      const priceEl = document.getElementById('btcCurrentPrice');
+      const change1h = document.getElementById('btcChange1h');
+      const change4h = document.getElementById('btcChange4h');
+      const change24h = document.getElementById('btcChange24h');
+
+      if (m.price) {
+        priceEl.textContent = '$' + m.price.toLocaleString(undefined, { maximumFractionDigits: 0 });
+      }
+      if (m.change1h !== undefined) {
+        const pct = m.change1h.toFixed(2);
+        change1h.textContent = '1h: ' + (m.change1h >= 0 ? '+' : '') + pct + '%';
+        change1h.style.color = m.change1h >= 0 ? '#3fb950' : '#f85149';
+      }
+      if (m.change4h !== undefined) {
+        const pct = m.change4h.toFixed(2);
+        change4h.textContent = '4h: ' + (m.change4h >= 0 ? '+' : '') + pct + '%';
+        change4h.style.color = m.change4h >= 0 ? '#3fb950' : '#f85149';
+      }
+      if (m.change24h !== undefined) {
+        const pct = m.change24h.toFixed(2);
+        change24h.textContent = '24h: ' + (m.change24h >= 0 ? '+' : '') + pct + '%';
+        change24h.style.color = m.change24h >= 0 ? '#3fb950' : '#f85149';
+      }
+
+      // Volatility
+      const volEl = document.getElementById('btcVolatility');
+      const volLabel = document.getElementById('btcVolatilityLabel');
+      if (m.atrPercent !== undefined) {
+        volEl.textContent = m.atrPercent.toFixed(2) + '%';
+        let volLevel = 'Normal';
+        let volColor = '#8b949e';
+        if (m.atrPercent > 3) { volLevel = 'HIGH'; volColor = '#f85149'; }
+        else if (m.atrPercent > 2) { volLevel = 'Elevated'; volColor = '#d29922'; }
+        else if (m.atrPercent < 1) { volLevel = 'Low'; volColor = '#3fb950'; }
+        volLabel.textContent = volLevel;
+        volLabel.style.color = volColor;
+        volEl.style.color = volColor;
+      }
+
+      // Volume ratio
+      const volRatioEl = document.getElementById('btcVolumeRatio');
+      const volRatioLabel = document.getElementById('btcVolumeLabel');
+      if (m.volumeRatio !== undefined) {
+        volRatioEl.textContent = m.volumeRatio.toFixed(1) + 'x';
+        let volStatus = 'Average';
+        let volStatusColor = '#8b949e';
+        if (m.volumeRatio > 2) { volStatus = 'High Activity'; volStatusColor = '#3fb950'; }
+        else if (m.volumeRatio > 1.5) { volStatus = 'Above Avg'; volStatusColor = '#58a6ff'; }
+        else if (m.volumeRatio < 0.5) { volStatus = 'Low Activity'; volStatusColor = '#d29922'; }
+        volRatioLabel.textContent = volStatus;
+        volRatioLabel.style.color = volStatusColor;
+      }
+
+      // Range position
+      const rangeEl = document.getElementById('btcRangePosition');
+      const rangeLabel = document.getElementById('btcRangeLabel');
+      if (m.rangePosition !== undefined) {
+        rangeEl.textContent = m.rangePosition.toFixed(0) + '%';
+        let rangeStatus = 'Mid Range';
+        let rangeColor = '#8b949e';
+        if (m.rangePosition > 80) { rangeStatus = 'Near 24h High'; rangeColor = '#3fb950'; }
+        else if (m.rangePosition < 20) { rangeStatus = 'Near 24h Low'; rangeColor = '#f85149'; }
+        else if (m.rangePosition > 60) { rangeStatus = 'Upper Range'; rangeColor = '#58a6ff'; }
+        else if (m.rangePosition < 40) { rangeStatus = 'Lower Range'; rangeColor = '#d29922'; }
+        rangeLabel.textContent = rangeStatus;
+        rangeLabel.style.color = rangeColor;
+      }
+
+      // Choppy market warning
+      const choppyEl = document.getElementById('perfChoppyWarning');
+      if (m.isChoppy) {
+        choppyEl.style.display = 'block';
+      } else {
+        choppyEl.style.display = 'none';
+      }
+    }
+
+    function updatePerformanceSummary(state) {
+      // GP Bots performance
+      let gpPnL = 0, gpWins = 0, gpLosses = 0;
+      const gpBotKeys = ['gpConservative', 'gpStandard', 'gpAggressive', 'gpYolo'];
+      for (const key of gpBotKeys) {
+        const botState = state[key + 'Bot'];
+        if (botState && botState.stats) {
+          gpPnL += botState.stats.realizedPnL || 0;
+          gpWins += botState.stats.wins || 0;
+          gpLosses += botState.stats.losses || 0;
+        }
+      }
+
+      const gpPnLEl = document.getElementById('perfGpPnL');
+      gpPnLEl.textContent = formatCurrency(gpPnL);
+      gpPnLEl.style.color = gpPnL >= 0 ? '#3fb950' : '#f85149';
+      document.getElementById('perfGpWinRate').textContent = gpWins + 'W / ' + gpLosses + 'L';
+
+      // Trailing Bots performance
+      let trailPnL = 0, trailWins = 0, trailLosses = 0;
+      const trailBotKeys = ['trailing1pctBot', 'trailing10pct10xBot', 'trailing10pct20xBot'];
+      for (const key of trailBotKeys) {
+        const botState = state[key];
+        if (botState && botState.stats) {
+          trailPnL += botState.stats.realizedPnL || 0;
+          trailWins += botState.stats.wins || 0;
+          trailLosses += botState.stats.losses || 0;
+        }
+      }
+
+      const trailPnLEl = document.getElementById('perfTrailPnL');
+      trailPnLEl.textContent = formatCurrency(trailPnL);
+      trailPnLEl.style.color = trailPnL >= 0 ? '#3fb950' : '#f85149';
+      document.getElementById('perfTrailWinRate').textContent = trailWins + 'W / ' + trailLosses + 'L';
+
+      // Active positions and unrealized PnL
+      let activeCount = 0, unrealizedPnL = 0;
+      for (const key of [...gpBotKeys.map(k => k + 'Bot'), ...trailBotKeys]) {
+        const botState = state[key];
+        if (botState && botState.openPositions) {
+          activeCount += botState.openPositions.length;
+          for (const pos of botState.openPositions) {
+            unrealizedPnL += pos.unrealizedPnL || 0;
+          }
+        }
+      }
+
+      document.getElementById('perfActiveCount').textContent = activeCount;
+      const unrealEl = document.getElementById('perfUnrealizedPnL');
+      unrealEl.textContent = 'Unreal: ' + formatCurrency(unrealizedPnL);
+      unrealEl.style.color = unrealizedPnL >= 0 ? '#3fb950' : unrealizedPnL < 0 ? '#f85149' : '#6e7681';
+
+      // Setup counts
+      document.getElementById('perfGpSetups').textContent = (state.goldenPocketStats?.activeSetups || 0) + ' active';
+      document.getElementById('perfBbSetups').textContent = (state.stats?.activeSetups || 0) + ' active';
     }
 
     function updateBtcSignalSummary(data) {
@@ -5248,136 +5500,6 @@ function getHtmlPage(): string {
       }
       biasAdvice.textContent = advice;
       biasAdvice.style.color = bias.includes('long') ? '#3fb950' : bias.includes('short') ? '#f85149' : '#d29922';
-    }
-
-    function updateBtcRsiChart(data) {
-      const ctx = document.getElementById('btcRsiChart').getContext('2d');
-
-      // Destroy existing chart
-      if (btcRsiChart) {
-        btcRsiChart.destroy();
-      }
-
-      const datasets = [];
-      const tfs = ['4h', '1h', '15m', '5m', '1m'];
-
-      // Use 1m timeframe timestamps as the base (most data points)
-      for (const tf of tfs) {
-        const tfData = data.timeframes[tf];
-        if (!tfData) continue;
-
-        // RSI line
-        datasets.push({
-          label: tf.toUpperCase() + ' RSI',
-          data: tfData.rsi.map(r => ({ x: r.timestamp, y: r.value })),
-          borderColor: tfColors[tf],
-          backgroundColor: 'transparent',
-          borderWidth: 2,
-          pointRadius: 0,
-          tension: 0.1,
-        });
-
-        // SMA line (dashed)
-        datasets.push({
-          label: tf.toUpperCase() + ' SMA',
-          data: tfData.rsiSMA.map(r => ({ x: r.timestamp, y: r.value })),
-          borderColor: tfColors[tf],
-          backgroundColor: 'transparent',
-          borderWidth: 1,
-          borderDash: [4, 4],
-          pointRadius: 0,
-          tension: 0.1,
-        });
-      }
-
-      btcRsiChart = new Chart(ctx, {
-        type: 'line',
-        data: { datasets },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          interaction: {
-            mode: 'index',
-            intersect: false,
-          },
-          plugins: {
-            legend: {
-              display: false,
-            },
-            tooltip: {
-              backgroundColor: '#161b22',
-              borderColor: '#30363d',
-              borderWidth: 1,
-              titleColor: '#f0f6fc',
-              bodyColor: '#c9d1d9',
-              callbacks: {
-                title: function(items) {
-                  if (!items.length) return '';
-                  return new Date(items[0].parsed.x).toLocaleString();
-                },
-              },
-            },
-          },
-          scales: {
-            x: {
-              type: 'time',
-              time: {
-                displayFormats: {
-                  minute: 'HH:mm',
-                  hour: 'HH:mm',
-                },
-              },
-              grid: {
-                color: '#21262d',
-              },
-              ticks: {
-                color: '#8b949e',
-                maxTicksLimit: 8,
-              },
-            },
-            y: {
-              min: 0,
-              max: 100,
-              grid: {
-                color: '#21262d',
-              },
-              ticks: {
-                color: '#8b949e',
-                stepSize: 10,
-              },
-            },
-          },
-          // Add horizontal lines at 30, 50, 70
-          annotation: {
-            annotations: {
-              line30: {
-                type: 'line',
-                yMin: 30,
-                yMax: 30,
-                borderColor: '#da3633',
-                borderWidth: 1,
-                borderDash: [2, 2],
-              },
-              line50: {
-                type: 'line',
-                yMin: 50,
-                yMax: 50,
-                borderColor: '#8b949e',
-                borderWidth: 1,
-                borderDash: [2, 2],
-              },
-              line70: {
-                type: 'line',
-                yMin: 70,
-                yMax: 70,
-                borderColor: '#238636',
-                borderWidth: 1,
-                borderDash: [2, 2],
-              },
-            },
-          },
-        },
-      });
     }
 
     // Load BTC RSI on page load

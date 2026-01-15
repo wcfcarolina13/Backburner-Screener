@@ -4,10 +4,57 @@
 
 ## Summary
 
-- Iterations completed: 12
-- Current status: Leverage Comparison Backtest Complete
+- Iterations completed: 13
+- Current status: Market Bias Tracker UI Improved
 
-## Current Task: Leverage Impact Analysis
+## Current Task: Market Bias Tracker Enhancement
+
+### Iteration 13 - Replace Chart with Actionable Indicators
+**Date**: 2026-01-15
+**Status**: ✅ Complete
+
+**Goal**: Remove the unused RSI chart and replace with actionable trading indicators.
+
+**Changes Made**:
+
+1. **Removed RSI Multi-Timeframe Chart**:
+   - Removed Chart.js canvas and related code
+   - Removed chart.js and chartjs-adapter-date-fns script imports
+   - Removed `btcRsiChart` variable and `updateBtcRsiChart()` function
+
+2. **Added Momentum Indicators Panel**:
+   - **BTC Price**: Current price with 1h, 4h, 24h % changes (color-coded green/red)
+   - **Volatility (ATR)**: 14-period ATR as % of price with level indicator (Low/Normal/Elevated/HIGH)
+   - **Volume vs Avg**: Current volume ratio vs 20-period average (High Activity/Above Avg/Average/Low Activity)
+   - **24h Range Position**: Where price is in the 24h high-low range (Near High/Upper/Mid/Lower/Near Low)
+
+3. **Added Strategy Performance Summary**:
+   - **GP Bots PnL**: Total PnL and win/loss count from all GP bots (best performers)
+   - **Trailing Bots PnL**: Total PnL and win/loss count from trailing bots
+   - **Active Positions**: Count of open positions with total unrealized PnL
+   - **Setup Counts**: Active GP setups and Backburner setups
+   - **Choppy Market Warning**: Displays when detected (low net movement, high back-and-forth)
+
+4. **Backend Momentum Calculation** (`/api/btc-rsi` endpoint):
+   - Added momentum data calculation from 1h candles
+   - Calculates: price, change1h, change4h, change24h, atrPercent, volumeRatio, rangePosition
+   - Choppy market detection: netMove < 2% && efficiency < 0.3
+
+**Files Modified**:
+- `src/web-server.ts`:
+  - Removed chart HTML (~20 lines)
+  - Added momentum indicators HTML (~30 lines)
+  - Added performance summary HTML (~30 lines)
+  - Removed chart JS code (~130 lines)
+  - Added `updateMomentumIndicators()` function (~60 lines)
+  - Added `updatePerformanceSummary()` function (~45 lines)
+  - Added momentum calculation to API (~55 lines)
+
+**Build**: ✅ Passes successfully
+
+---
+
+## Previous Task: Leverage Impact Analysis
 
 ### Iteration 12 - Leverage Comparison Backtest
 **Date**: 2026-01-15
