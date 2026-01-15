@@ -51,13 +51,14 @@ export const DEFAULT_EXECUTION_COSTS: ExecutionCostsConfig = {
     takerFee: 0.0004,   // 0.04% taker fee (market orders)
   },
   slippage: {
-    // Minimal slippage for liquid pairs
-    // Real trading shows minimal slippage on most pairs
-    baseSlippageBps: 2,           // 0.02% base slippage
+    // Conservative slippage estimates for MEXC alt perps
+    // Simulates crossing the spread + order book depth impact
+    // 15bps = 0.15% per side, 0.30% round-trip (spread + slippage)
+    baseSlippageBps: 15,          // 0.15% base slippage (conservative for alts)
     volatilityMultiplier: 1.5,    // 1.5x slippage in volatile conditions
-    sizeImpactFactor: 0.5,        // +0.5bp per $10k notional (minimal)
-    minSlippageBps: 1,            // Minimum 0.01% slippage floor
-    maxSlippageBps: 20,           // Maximum 0.20% slippage cap
+    sizeImpactFactor: 1.0,        // +1bp per $10k notional (size impact)
+    minSlippageBps: 5,            // Minimum 0.05% slippage floor
+    maxSlippageBps: 50,           // Maximum 0.50% slippage cap (volatile alts)
   },
   funding: {
     // Perpetual futures funding rates
