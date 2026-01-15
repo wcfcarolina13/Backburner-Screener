@@ -829,6 +829,14 @@ export class BackburnerScreener {
       s => s.symbol === symbol && s.marketType === marketType
     );
 
+    // CRITICAL: Skip symbols that are not in the eligible list
+    // This prevents analyzing delisted/invalid symbols that may still have stale setups
+    if (!eligibleSymbol) {
+      // Clean up any stale setups for this symbol
+      this.cleanupStaleSetups(symbol, timeframe, marketType);
+      return;
+    }
+
     // Skip futures symbols that have consistently failed
     if (marketType === 'futures' && eligibleSymbol?.futuresSymbol &&
         this.badFuturesSymbols.has(eligibleSymbol.futuresSymbol)) {
@@ -885,6 +893,47 @@ export class BackburnerScreener {
         this.processGoldenPocketV2Setup(gpV2Setup as GoldenPocketV2Setup, symbol, timeframe, marketType, volume24h, liquidityRisk);
       }
     }
+  }
+
+  /**
+   * Clean up stale setups for a symbol that is no longer in the eligible list
+   * Called when analyzeSymbol() is invoked for a symbol that doesn't exist anymore
+   */
+  private cleanupStaleSetups(symbol: string, timeframe: Timeframe, marketType: MarketType): void {
+    // Remove from Backburner detector
+    for (const direction of ['long', 'short'] as const) {
+      this.detector.removeSetup(symbol, timeframe, direction);
+      const key = `${symbol}-${timeframe}-${direction}-${marketType}`;
+      if (this.previousSetups.has(key)) {
+        const setup = this.previousSetups.get(key);
+        this.previousSetups.delete(key);
+        if (setup) this.events.onSetupRemoved?.(setup);
+      }
+    }
+
+    // Remove from Golden Pocket V1 detector
+    for (const direction of ['long', 'short'] as const) {
+      this.goldenPocketDetector.removeSetup(symbol, timeframe, direction);
+      const key = `gp-${symbol}-${timeframe}-${direction}-${marketType}`;
+      if (this.previousGPSetups.has(key)) {
+        const setup = this.previousGPSetups.get(key);
+        this.previousGPSetups.delete(key);
+        if (setup) this.events.onSetupRemoved?.(setup);
+      }
+    }
+
+    // Remove from Golden Pocket V2 detector
+    for (const direction of ['long', 'short'] as const) {
+      this.goldenPocketDetectorV2.removeSetup(symbol, timeframe, direction);
+      const key = `gp2-${symbol}-${timeframe}-${direction}-${marketType}`;
+      if (this.previousGPV2Setups.has(key)) {
+        const setup = this.previousGPV2Setups.get(key);
+        this.previousGPV2Setups.delete(key);
+        if (setup) this.events.onSetupRemoved?.(setup);
+      }
+    }
+
+    console.log(`[SCREENER] Cleaned up stale setups for ${symbol} ${timeframe} (no longer eligible)`);
   }
 
   /**
