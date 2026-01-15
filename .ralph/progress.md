@@ -4,14 +4,61 @@
 
 ## Summary
 
-- Iterations completed: 7
-- Current status: Market Friction Audit (Phase 1 Complete)
+- Iterations completed: 10
+- Current status: Market Friction Integration Complete
 
-## Current Task: Market Friction Hardening
+## Current Task: Fixed BE Backtest & Friction Integration
 
-### Iteration 7 - Market Friction Audit
-**Date**: 2025-01-15
-**Status**: Phase 1 Complete, Phase 2 In Progress
+### Iteration 10 - PaperTradingEngine Friction Integration
+**Date**: 2026-01-15
+**Status**: ✅ Complete
+
+**Work Completed**:
+
+1. **Added friction modeling to `paper-trading.ts`**:
+   - Imported `ExecutionCostsCalculator` from `execution-costs.ts`
+   - Added `enableFriction?: boolean` config option
+   - Track `entryCosts`, `exitCosts`, `totalCosts` per position
+   - Adjusted realized PnL by subtracting friction at close
+
+2. **Enabled friction on Fixed and Fixed BE bots** (web-server.ts):
+   - Both `fixedTPBot` and `fixedBreakevenBot` now have `enableFriction: true`
+   - Trailing bots already had friction via `paper-trading-trailing.ts`
+
+3. **Created Fixed BE backtest script** (`src/backtest-fixed-be.ts`):
+   - Simulates Fixed BE strategy on historical trade data
+   - Raw vs Net PnL comparison
+   - Ghost trade detection (profitable raw, unprofitable after friction)
+   - Breakeven lock analysis
+
+4. **Backtest Results** (Jan 14-15, 2026):
+   - 13 unique trades analyzed
+   - Raw PnL: -$1.97
+   - Net PnL (with friction): -$10.96
+   - Friction costs: $8.99 total (~$0.69/trade)
+   - 0 breakeven locks triggered (market didn't reach +10% ROI threshold)
+   - 0 ghost trades (friction didn't flip any winners to losers)
+
+**Previous Remaining Work** (from Iteration 7):
+1. [x] Add execution costs to `paper-trading.ts` ← DONE this iteration
+2. [x] Increase `baseSlippageBps` from 2 to 15 ← Was already done (execution-costs.ts line 57)
+3. [ ] Add execution costs to `golden-pocket-bot.ts` ← Still TODO
+4. [ ] Optional: Implement "Next Tick" execution mode
+
+**Files modified**:
+- src/paper-trading.ts (+40 lines - friction integration)
+- src/web-server.ts (+2 lines - enabled friction on Fixed bots)
+- src/backtest-fixed-be.ts (NEW - 600+ lines)
+
+**Commits**:
+- f98cade "feat: Add Fixed BE bot with breakeven lock at +10% ROI"
+- d59a4bb "feat: Add friction modeling to PaperTradingEngine and Fixed BE backtest"
+
+---
+
+## Previous: Iteration 7 - Market Friction Audit
+**Date**: 2026-01-15
+**Status**: Phase 1 Complete → Now superseded by Iteration 10
 
 **Audit Findings**:
 
@@ -22,16 +69,11 @@
 
 3. **Fee/Drag Calculations**: Comprehensive `execution-costs.ts` module EXISTS:
    - ✅ Maker/Taker fees (0.02%/0.04%)
-   - ✅ Slippage: 2bps base, volatility multiplier 1.5x
-   - ✅ Size impact: +0.5bp per $10k
+   - ✅ Slippage: 15bps base (was 2bps, updated per Gemini recommendation)
+   - ✅ Size impact: +1bp per $10k
    - ✅ Funding rate modeling
-   - Used by: `paper-trading-trailing.ts`, `mexc-trailing-simulation.ts`
-   - NOT used by: `golden-pocket-bot.ts`, `paper-trading.ts`
-
-**Remaining Work**:
-1. [ ] Add execution costs to `golden-pocket-bot.ts`
-2. [ ] Increase `baseSlippageBps` from 2 to 15 (per Gemini recommendation)
-3. [ ] Optional: Implement "Next Tick" execution mode
+   - Now used by: `paper-trading-trailing.ts`, `mexc-trailing-simulation.ts`, `paper-trading.ts`
+   - Still NOT used by: `golden-pocket-bot.ts`
 
 ---
 
