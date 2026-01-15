@@ -3299,7 +3299,6 @@ function getHtmlPage(): string {
   </div>
 
   <script>
-  <script>
     const eventSource = new EventSource('/events');
 
     eventSource.onopen = () => {
