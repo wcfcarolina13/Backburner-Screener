@@ -506,6 +506,13 @@ function getTargetBotPositions(targetBotId: string): any[] {
       const gpBot = goldenPocketBots.get(targetBotId);
       return gpBot ? gpBot.getOpenPositions() : [];
     }
+    case 'gp2-conservative':
+    case 'gp2-standard':
+    case 'gp2-aggressive':
+    case 'gp2-yolo': {
+      const gpV2Bot = goldenPocketBotsV2.get(targetBotId);
+      return gpV2Bot ? gpV2Bot.getOpenPositions() : [];
+    }
     default: return [];
   }
 }
@@ -663,12 +670,22 @@ async function handleNewSetup(setup: BackburnerSetup) {
     else if (targetBotId === 'trailing1pct') targetPosition = trail1pctPosition;
     else if (targetBotId === 'fixedTP') targetPosition = fixedPosition;
     else if (targetBotId === 'confluence') targetPosition = confluencePosition;
-    // GP bots - find newly opened position for this setup
-    else if (targetBotId.startsWith('gp-')) {
+    // GP V1 bots - find newly opened position for this setup
+    else if (targetBotId.startsWith('gp-') && !targetBotId.startsWith('gp2-')) {
       const gpBot = goldenPocketBots.get(targetBotId);
       if (gpBot) {
         const gpPositions = gpBot.getOpenPositions();
         targetPosition = gpPositions.find((p: any) =>
+          p.symbol === setup.symbol && p.direction === setup.direction
+        );
+      }
+    }
+    // GP V2 bots - find newly opened position for this setup
+    else if (targetBotId.startsWith('gp2-')) {
+      const gpV2Bot = goldenPocketBotsV2.get(targetBotId);
+      if (gpV2Bot) {
+        const gpV2Positions = gpV2Bot.getOpenPositions();
+        targetPosition = gpV2Positions.find((p: any) =>
           p.symbol === setup.symbol && p.direction === setup.direction
         );
       }
@@ -865,11 +882,21 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
       targetPosition = fixedPosition;
     } else if (targetBotId === 'confluence' && confluencePosition?.status === 'open') {
       targetPosition = confluencePosition;
-    } else if (targetBotId.startsWith('gp-')) {
+    } else if (targetBotId.startsWith('gp-') && !targetBotId.startsWith('gp2-')) {
+      // GP V1 bots
       const gpBot = goldenPocketBots.get(targetBotId);
       if (gpBot) {
         const gpPositions = gpBot.getOpenPositions();
         targetPosition = gpPositions.find((p: any) =>
+          p.symbol === setup.symbol && p.direction === setup.direction && p.status === 'open'
+        );
+      }
+    } else if (targetBotId.startsWith('gp2-')) {
+      // GP V2 bots
+      const gpV2Bot = goldenPocketBotsV2.get(targetBotId);
+      if (gpV2Bot) {
+        const gpV2Positions = gpV2Bot.getOpenPositions();
+        targetPosition = gpV2Positions.find((p: any) =>
           p.symbol === setup.symbol && p.direction === setup.direction && p.status === 'open'
         );
       }
@@ -2483,11 +2510,17 @@ function getHtmlPage(): string {
                 <option value="trendOverride">↕ Trend Override</option>
                 <option value="trendFlip">🔄 Trend Flip</option>
               </optgroup>
-              <optgroup label="Golden Pocket Bots">
-                <option value="gp-conservative">🎯 GP-Conservative (3% 5x)</option>
-                <option value="gp-standard">🎯 GP-Standard (5% 10x)</option>
-                <option value="gp-aggressive">🎯 GP-Aggressive (5% 15x)</option>
-                <option value="gp-yolo">💀 GP-YOLO (10% 20x)</option>
+              <optgroup label="Golden Pocket V1 (Strict)">
+                <option value="gp-conservative">🎯 GP-Conservative (5% 10x)</option>
+                <option value="gp-standard">🎯 GP-Standard (10% 10x)</option>
+                <option value="gp-aggressive">🎯 GP-Aggressive (10% 20x)</option>
+                <option value="gp-yolo">💀 GP-YOLO (15% 25x)</option>
+              </optgroup>
+              <optgroup label="Golden Pocket V2 (Loose)">
+                <option value="gp2-conservative">🎯 GP2-Conservative (5% 10x)</option>
+                <option value="gp2-standard">🎯 GP2-Standard (10% 10x)</option>
+                <option value="gp2-aggressive">🎯 GP2-Aggressive (10% 20x)</option>
+                <option value="gp2-yolo">💀 GP2-YOLO (15% 25x)</option>
               </optgroup>
               <optgroup label="BTC Bias Bots">
                 <option value="btcExtreme">₿ Contrarian</option>

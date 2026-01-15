@@ -4,10 +4,43 @@
 
 ## Summary
 
-- Iterations completed: 17
-- Current status: GP V2 Detector Wired Up + Position Notifications Added
+- Iterations completed: 18
+- Current status: Focus Mode Fixed for All GP Bots
 
-## Current Task: GP V2 Bot Functionality
+## Current Task: Focus Mode Fix
+
+### Iteration 18 - Focus Mode Support for GP V2 Bots
+**Date**: 2026-01-15
+**Status**: ✅ Complete
+
+**Problem**: Focus Mode wasn't working for GP bots (V1 or V2)
+- When selecting `gp-yolo` or any GP bot, no notifications or GUI updates
+- The `getTargetBotPositions()` function didn't include GP V2 bots
+- Focus Mode lookup code only checked `goldenPocketBots` (V1), not `goldenPocketBotsV2`
+- GUI dropdown was missing all GP V2 bot options
+
+**Root Causes**:
+1. `FocusTargetBot` type in focus-mode.ts didn't include `gp2-*` variants
+2. `getTargetBotPositions()` had no case for `gp2-*` bots
+3. `handleNewSetup()` and `handleSetupUpdated()` only checked `goldenPocketBots.get()`, never `goldenPocketBotsV2`
+4. Focus Mode dropdown in HTML missing GP V2 options
+
+**Fixes Applied**:
+1. Added `gp2-conservative | gp2-standard | gp2-aggressive | gp2-yolo` to `FocusTargetBot` type
+2. Added case block for `gp2-*` bots in `getTargetBotPositions()`
+3. Updated `handleNewSetup()` to check both V1 and V2 bot maps
+4. Updated `handleSetupUpdated()` to check both V1 and V2 bot maps
+5. Added "Golden Pocket V2 (Loose)" optgroup to Focus Mode dropdown
+
+**Files Modified**:
+- `src/focus-mode.ts` - Added gp2-* to FocusTargetBot type
+- `src/web-server.ts` - Updated getTargetBotPositions, handleNewSetup, handleSetupUpdated, and HTML dropdown
+
+**Build**: ✅ Passes successfully
+
+---
+
+## Previous Task: GP V2 Bot Functionality
 
 ### Iteration 17 - GP V2 Detector Wired Up + Position Notifications
 **Date**: 2026-01-15

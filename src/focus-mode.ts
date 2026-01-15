@@ -21,7 +21,8 @@ export type FocusTargetBot =
   | 'trailing10pct10x' | 'trailing10pct20x' | 'trailWide' | 'trailing1pct'
   | 'fixedTP' | 'confluence' | 'trendOverride' | 'trendFlip'
   | 'btcExtreme' | 'btcTrend'
-  | 'gp-conservative' | 'gp-standard' | 'gp-aggressive' | 'gp-yolo';
+  | 'gp-conservative' | 'gp-standard' | 'gp-aggressive' | 'gp-yolo'
+  | 'gp2-conservative' | 'gp2-standard' | 'gp2-aggressive' | 'gp2-yolo';
 
 export interface FocusModeConfig {
   enabled: boolean;
