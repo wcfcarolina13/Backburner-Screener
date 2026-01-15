@@ -3674,7 +3674,13 @@ function getHtmlPage(): string {
 
     function updateSavedListCount() {
       const el = document.getElementById('savedListCount');
-      if (el) el.textContent = savedList.size;
+      if (el) {
+        // Show count of saved items that actually have matching current data
+        // (not just total keys in localStorage, which may include stale entries)
+        const all = [...(allSetupsData.all || []), ...(allSetupsData.goldenPocket || [])];
+        const visibleCount = all.filter(s => savedList.has(getSetupKey(s))).length;
+        el.textContent = visibleCount;
+      }
     }
 
     // Cross-strategy signal detection
@@ -4483,6 +4489,8 @@ function getHtmlPage(): string {
       document.getElementById('historyCount').textContent = (state.setups.history || []).length;
       document.getElementById('allCount').textContent = state.setups.all.length;
       document.getElementById('gpCount').textContent = (state.setups.goldenPocket || []).length;
+      // Update saved list count (depends on current data, not just localStorage keys)
+      updateSavedListCount();
 
       // Render setups table based on current tab
       renderSetupsWithTab();
