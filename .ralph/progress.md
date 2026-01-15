@@ -46,6 +46,12 @@ In a straight dump without bounces, shorts won't trigger.
 **Also Completed**:
 - Added friction to `golden-pocket-bot.ts` (commit e04266f)
 
+**BUG FOUND & FIXED - GP Shorts Were Broken**:
+- `golden-pocket-detector.ts` was hardcoded to ONLY check LONG setups!
+- Line 104: `const longKey = this.getSetupKey(symbol, timeframe, 'long')`
+- SHORT direction was NEVER checked despite code supporting it
+- Fix: Now loops through both `['long', 'short']` directions (commit 1ee27c1)
+
 ---
 
 ## Previous Task: Fixed BE Backtest & Friction Integration
