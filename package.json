@@ -14,7 +14,10 @@
     "check": "tsx src/check-symbol.ts",
     "analyze": "tsx src/analyze.ts",
     "summary": "tsx scripts/daily-summary.ts",
-    "summary:today": "tsx scripts/daily-summary.ts"
+    "summary:today": "tsx scripts/daily-summary.ts",
+    "backtest": "tsx src/backtest-cli.ts",
+    "prefetch": "tsx src/prefetch-candles.ts",
+    "generate-signals": "tsx src/generate-signals.ts"
   },
   "keywords": [
     "trading",

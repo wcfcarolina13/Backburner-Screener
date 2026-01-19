@@ -367,8 +367,10 @@ export async function getFuturesKlines(
       }
 
       if (!data.success || !Array.isArray(data.data?.time)) {
-        // Non-rate-limit error - always log these
-        console.error(`[ERROR] Futures kline failed for ${symbol}: code=${data.code} msg=${data.message || 'unknown'}`);
+        // Non-rate-limit error - only log if not "contract does not exist" (common for spot-only symbols)
+        if (data.code !== 1001) {
+          console.error(`[ERROR] Futures kline failed for ${symbol}: code=${data.code} msg=${data.message || 'unknown'}`);
+        }
         throw new Error(`Invalid futures kline response for ${symbol}`);
       }
 

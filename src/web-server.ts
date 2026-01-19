@@ -10,6 +10,7 @@ import { BTCExtremeBot } from './btc-extreme-bot.js';
 import { BTCTrendBot } from './btc-trend-bot.js';
 import { TrendOverrideBot } from './trend-override-bot.js';
 import { TrendFlipBot } from './trend-flip-bot.js';
+import { FadeBot } from './fade-bot.js';
 // V2 CHANGE: BTC Bias bots REMOVED - 0% win rate, responsible for 40% of losses (~$7,459)
 // import { createBtcBiasBotsV2, type BiasLevel } from './btc-bias-bot.js';
 import type { BiasLevel } from './btc-bias-bot.js';  // Keep type for BTC bias filter
@@ -335,6 +336,76 @@ const shadowBots = [
   { id: 'shadow-10pct10x-sl18', bot: shadow10pct10x_sl18, stopPct: 18 },
 ];
 
+// ============================================================================
+// TIMEFRAME STRATEGY SHADOW BOTS
+// Testing backtest findings: 5m fade vs 4H normal
+// ============================================================================
+import { TimeframeShadowBot } from './timeframe-shadow-bot.js';
+
+// 5m Fade Strategy (backtest showed fade wins on 5m - RSI signals seem backwards)
+const shadow5mFade = new TimeframeShadowBot({
+  initialBalance: 2000,
+  positionSizePercent: 5,
+  leverage: 10,
+  initialStopLossPercent: 15,
+  trailTriggerPercent: 10,
+  trailStepPercent: 5,
+  level1LockPercent: 2,
+  maxOpenPositions: 50,
+  allowedTimeframes: ['5m'],
+  fadeSignals: true,  // FADE: opposite of signal direction
+}, 'shadow-5m-fade');
+
+// 5m Normal Strategy (control - what current bots do)
+const shadow5mNormal = new TimeframeShadowBot({
+  initialBalance: 2000,
+  positionSizePercent: 5,
+  leverage: 10,
+  initialStopLossPercent: 15,
+  trailTriggerPercent: 10,
+  trailStepPercent: 5,
+  level1LockPercent: 2,
+  maxOpenPositions: 50,
+  allowedTimeframes: ['5m'],
+  fadeSignals: false,  // NORMAL: follow signal direction
+}, 'shadow-5m-normal');
+
+// 4H Normal Strategy (backtest showed normal wins on 4H - RSI signals reliable)
+const shadow4hNormal = new TimeframeShadowBot({
+  initialBalance: 2000,
+  positionSizePercent: 5,
+  leverage: 10,
+  initialStopLossPercent: 15,
+  trailTriggerPercent: 10,
+  trailStepPercent: 5,
+  level1LockPercent: 2,
+  maxOpenPositions: 50,
+  allowedTimeframes: ['4h'],
+  fadeSignals: false,  // NORMAL: follow signal direction
+}, 'shadow-4h-normal');
+
+// 4H Fade Strategy (control - to verify normal beats fade on 4H)
+const shadow4hFade = new TimeframeShadowBot({
+  initialBalance: 2000,
+  positionSizePercent: 5,
+  leverage: 10,
+  initialStopLossPercent: 15,
+  trailTriggerPercent: 10,
+  trailStepPercent: 5,
+  level1LockPercent: 2,
+  maxOpenPositions: 50,
+  allowedTimeframes: ['4h'],
+  fadeSignals: true,  // FADE: opposite of signal direction
+}, 'shadow-4h-fade');
+
+// Array of timeframe strategy shadow bots
+const timeframeShadowBots = [
+  { id: 'shadow-5m-fade', bot: shadow5mFade, desc: '5m Fade (backtest winner)' },
+  { id: 'shadow-5m-normal', bot: shadow5mNormal, desc: '5m Normal (control)' },
+  { id: 'shadow-4h-normal', bot: shadow4hNormal, desc: '4H Normal (backtest winner)' },
+  { id: 'shadow-4h-fade', bot: shadow4hFade, desc: '4H Fade (control)' },
+];
+
 // Bot 5: Wide trailing (20% trigger, 10% L1 lock)
 // V2 CHANGE: Tighter initial stop, keep wide trail trigger for runners
 const trailWideBot = new TrailingStopEngine({
@@ -438,36 +509,37 @@ const mexcSimBots = createMexcSimulationBots(2000);
 // IMPROVED: Tighter entry zone (0.618-0.635), wider stop (0.85), RSI confirmation required
 // Targets coins with sudden volatility spikes, enters on 0.618 retracement with RSI confirmation
 
-// GP Bot 1: Conservative (3% pos, 5x leverage) - Reduced from 5%/10x
+// GP Bot 1: Conservative (3% pos, 2x leverage)
+// LEVERAGE NOTE: GP SL is ~15-25% (fib invalidation), so max safe leverage is 3-5x
 const gpConservativeBot = new GoldenPocketBot({
   initialBalance: 2000,
   positionSizePercent: 3,
-  leverage: 5,
-  maxOpenPositions: 100,  // V2: No limit
+  leverage: 2,            // Safe: liquidation at 50%, SL at ~20%
+  maxOpenPositions: 100,
 }, 'gp-conservative');
 
-// GP Bot 2: Standard (5% pos, 10x leverage) - Reduced from 10%/10x
+// GP Bot 2: Standard (5% pos, 3x leverage)
 const gpStandardBot = new GoldenPocketBot({
   initialBalance: 2000,
   positionSizePercent: 5,
-  leverage: 10,
-  maxOpenPositions: 100,  // V2: No limit
+  leverage: 3,            // Safe: liquidation at 33%, SL at ~20%
+  maxOpenPositions: 100,
 }, 'gp-standard');
 
-// GP Bot 3: Aggressive (5% pos, 15x leverage) - Reduced from 10%/20x
+// GP Bot 3: Aggressive (5% pos, 4x leverage)
 const gpAggressiveBot = new GoldenPocketBot({
   initialBalance: 2000,
   positionSizePercent: 5,
-  leverage: 15,
-  maxOpenPositions: 100,  // V2: No limit
+  leverage: 4,            // Safe: liquidation at 25%, SL at ~20%
+  maxOpenPositions: 100,
 }, 'gp-aggressive');
 
-// GP Bot 4: YOLO (10% pos, 20x leverage) - Reduced from 20%/20x
+// GP Bot 4: Max (10% pos, 5x leverage) - renamed from YOLO
 const gpYoloBot = new GoldenPocketBot({
   initialBalance: 2000,
   positionSizePercent: 10,
-  leverage: 20,
-  maxOpenPositions: 100,  // V2: No limit
+  leverage: 5,            // Borderline: liquidation at 20%, SL at ~20%
+  maxOpenPositions: 100,
 }, 'gp-yolo');
 
 // Collect all GP bots for easy iteration
@@ -480,33 +552,33 @@ const goldenPocketBots = new Map([
 
 // Bots 38-41: Golden Pocket V2 Bots (4 variants) - LOOSENED THRESHOLDS
 // Looser RSI requirements (50 instead of 40/60), lower volume requirement (1.5x instead of 2x)
-// Purpose: A/B test against strict V1 to see if more signals = more profit
+// LEVERAGE NOTE: GP SL is ~15-25% (fib invalidation), so max safe leverage is 3-5x
 const gpV2ConservativeBot = new GoldenPocketBotV2({
   initialBalance: 2000,
   positionSizePercent: 3,
-  leverage: 5,
-  maxOpenPositions: 100,  // V2: No limit
+  leverage: 2,            // Safe: liquidation at 50%, SL at ~20%
+  maxOpenPositions: 100,
 }, 'gp2-conservative');
 
 const gpV2StandardBot = new GoldenPocketBotV2({
   initialBalance: 2000,
   positionSizePercent: 5,
-  leverage: 10,
-  maxOpenPositions: 100,  // V2: No limit
+  leverage: 3,            // Safe: liquidation at 33%, SL at ~20%
+  maxOpenPositions: 100,
 }, 'gp2-standard');
 
 const gpV2AggressiveBot = new GoldenPocketBotV2({
   initialBalance: 2000,
   positionSizePercent: 5,
-  leverage: 15,
-  maxOpenPositions: 100,  // V2: No limit
+  leverage: 4,            // Safe: liquidation at 25%, SL at ~20%
+  maxOpenPositions: 100,
 }, 'gp2-aggressive');
 
 const gpV2YoloBot = new GoldenPocketBotV2({
   initialBalance: 2000,
   positionSizePercent: 10,
-  leverage: 20,
-  maxOpenPositions: 100,  // V2: No limit
+  leverage: 5,            // Borderline: liquidation at 20%, SL at ~20%
+  maxOpenPositions: 100,
 }, 'gp2-yolo');
 
 // Collect all GP V2 bots
@@ -515,6 +587,50 @@ const goldenPocketBotsV2 = new Map([
   ['gp2-standard', gpV2StandardBot],
   ['gp2-aggressive', gpV2AggressiveBot],
   ['gp2-yolo', gpV2YoloBot],
+]);
+
+// ============================================================================
+// FADE BOTS - Contrarian strategy (take OPPOSITE of RSI signal)
+// Hypothesis: RSI signals might be backwards - oversold often continues down
+// ============================================================================
+const fadeConservativeBot = new FadeBot({
+  initialBalance: 2000,
+  positionSizePercent: 3,
+  leverage: 3,
+  initialStopLossPercent: 12,
+  trailTriggerPercent: 8,
+  trailStepPercent: 6,
+  level1LockPercent: 2,
+  maxOpenPositions: 10,
+}, 'fade-conservative');
+
+const fadeStandardBot = new FadeBot({
+  initialBalance: 2000,
+  positionSizePercent: 5,
+  leverage: 5,
+  initialStopLossPercent: 12,
+  trailTriggerPercent: 8,
+  trailStepPercent: 6,
+  level1LockPercent: 2,
+  maxOpenPositions: 10,
+}, 'fade-standard');
+
+const fadeAggressiveBot = new FadeBot({
+  initialBalance: 2000,
+  positionSizePercent: 10,
+  leverage: 5,
+  initialStopLossPercent: 15,
+  trailTriggerPercent: 10,
+  trailStepPercent: 8,
+  level1LockPercent: 3,
+  maxOpenPositions: 10,
+}, 'fade-aggressive');
+
+// Collect all fade bots
+const fadeBots = new Map([
+  ['fade-conservative', fadeConservativeBot],
+  ['fade-standard', fadeStandardBot],
+  ['fade-aggressive', fadeAggressiveBot],
 ]);
 
 // GP V2 Detector (loosened thresholds)
@@ -625,6 +741,12 @@ function resetAllBots(): void {
     console.log(`  ✓ Reset ${id}`);
   }
 
+  // Timeframe strategy shadow bots (5m fade vs 4H normal testing)
+  for (const { id, bot } of timeframeShadowBots) {
+    bot.reset();
+    console.log(`  ✓ Reset ${id}`);
+  }
+
   // MEXC simulation bots
   for (const [botId, bot] of mexcSimBots) {
     bot.reset();
@@ -645,6 +767,12 @@ function resetAllBots(): void {
 
   // BTC Bias V2 bots
   for (const [botId, bot] of btcBiasBotsV2) {
+    bot.reset();
+    console.log(`  ✓ Reset ${botId}`);
+  }
+
+  // Fade bots (contrarian strategy)
+  for (const [botId, bot] of fadeBots) {
     bot.reset();
     console.log(`  ✓ Reset ${botId}`);
   }
@@ -768,6 +896,12 @@ async function handleNewSetup(setup: BackburnerSetup) {
     console.log(`[FILTER] Skipped ${setup.symbol} ${setup.timeframe} ${setup.direction} (BTC bias: ${currentBtcBias})`);
   }
 
+  // Timeframe strategy shadow bots - ALWAYS try to open (they filter internally by timeframe)
+  // These test: 5m fade vs 5m normal, 4H normal vs 4H fade
+  for (const { bot } of timeframeShadowBots) {
+    bot.openPosition(setup);
+  }
+
   // Get active timeframes for this symbol to check for confluence
   const allSetups = screener.getAllSetups();
   const symbolSetups = allSetups.filter(s =>
@@ -864,6 +998,18 @@ async function handleNewSetup(setup: BackburnerSetup) {
     console.log(`[GP-BOT] Skipped ${setup.symbol} ${setup.timeframe} - timeframe not allowed`);
   }
 
+  // FADE BOTS: Contrarian strategy - take OPPOSITE direction of RSI signals
+  // These bots trade ANY triggered/deep_extreme signal, futures only
+  if (setup.marketType === 'futures' && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
+    for (const [botId, bot] of fadeBots) {
+      const position = bot.openPosition(setup);
+      if (position) {
+        console.log(`[FADE:${botId}] OPENED ${position.direction.toUpperCase()} ${setup.symbol} (signal was ${setup.direction})`);
+        broadcast('position_opened', { bot: botId, position });
+      }
+    }
+  }
+
   // Focus Mode: Track positions from target bot
   if (focusMode.isEnabled()) {
     const targetBotId = focusMode.getConfig().targetBot;
@@ -942,6 +1088,11 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
 
   // Update shadow bots (always update regardless of filter)
   for (const { bot } of shadowBots) {
+    bot.updatePosition(setup);
+  }
+
+  // Update timeframe strategy shadow bots
+  for (const { bot } of timeframeShadowBots) {
     bot.updatePosition(setup);
   }
 
@@ -1282,6 +1433,11 @@ function handleSetupRemoved(setup: BackburnerSetup) {
     bot.handleSetupRemoved(setup);
   }
 
+  // Handle timeframe strategy shadow bots
+  for (const { bot } of timeframeShadowBots) {
+    bot.handleSetupRemoved(setup);
+  }
+
   // Handle MEXC simulation bots
   for (const [botId, bot] of mexcSimBots) {
     bot.onSetupRemoved(setup);
@@ -1559,6 +1715,25 @@ function getFullState() {
         },
       ])
     ),
+    // Bots 42-44: Fade Bots (Contrarian - opposite direction of RSI signals)
+    fadeBots: Object.fromEntries(
+      Array.from(fadeBots.entries()).map(([key, bot]) => [
+        key,
+        {
+          name: key === 'fade-conservative' ? 'Fade Conservative' :
+                key === 'fade-standard' ? 'Fade Standard' :
+                'Fade Aggressive',
+          description: key === 'fade-conservative' ? '3% pos, 3x, Contrarian' :
+                       key === 'fade-standard' ? '5% pos, 5x, Contrarian' :
+                       '10% pos, 5x, Contrarian',
+          balance: bot.getStats().currentBalance,
+          openPositions: bot.getOpenPositions(),
+          closedPositions: bot.getClosedPositions().slice(-20),
+          stats: bot.getStats(),
+          visible: botVisibility[key] ?? true,
+        },
+      ])
+    ),
     botVisibility,
     // Focus Mode state - sync with target bot positions first
     focusMode: (() => {
@@ -1655,6 +1830,10 @@ app.post('/api/reset', express.json(), (req, res) => {
     for (const { bot: shadowBot } of shadowBots) {
       shadowBot.reset();
     }
+    // Reset timeframe strategy shadow bots
+    for (const { bot: tfBot } of timeframeShadowBots) {
+      tfBot.reset();
+    }
     res.json({
       success: true,
       bot: 'all',
@@ -1669,6 +1848,7 @@ app.post('/api/reset', express.json(), (req, res) => {
         btcTrend: btcTrendBot.getBalance(),
         ...Object.fromEntries(Array.from(mexcSimBots.entries()).map(([k, b]) => [k, b.getBalance()])),
         ...Object.fromEntries(shadowBots.map(s => [s.id, s.bot.getBalance()])),
+        ...Object.fromEntries(timeframeShadowBots.map(s => [s.id, s.bot.getBalance()])),
       },
     });
   }
@@ -6010,6 +6190,11 @@ async function main() {
     dataPersistence.logBotConfig(id, `Shadow SL${stopPct}%`, { ...bot.getConfig(), isShadow: true });
   }
 
+  // Log timeframe strategy shadow bot configurations
+  for (const { id, bot, desc } of timeframeShadowBots) {
+    dataPersistence.logBotConfig(id, desc, { ...bot.getConfig(), isTimeframeShadow: true });
+  }
+
   // BTC Bias V1 bots REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
   // Log BTC Bias V2 bot configurations
   for (const [key, bot] of btcBiasBotsV2) {
@@ -6097,6 +6282,29 @@ async function main() {
         closedTradesToday: stats.totalTrades,
         pnlToday: stats.totalPnL,
         stopPct,  // Extra metadata for shadow bots
+      };
+    }
+
+    // Timeframe strategy shadow bots (5m fade vs 4H normal testing)
+    for (const { id, bot } of timeframeShadowBots) {
+      const stats = bot.getStats();
+      const positions = bot.getOpenPositions();
+      bots[id] = {
+        botId: id,
+        botType: 'timeframe_shadow',
+        balance: stats.currentBalance,
+        unrealizedPnL: positions.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0),
+        openPositionCount: positions.length,
+        openPositions: positions.map(p => ({
+          symbol: p.symbol,
+          direction: p.direction,
+          entryPrice: p.entryPrice,
+          currentPrice: p.currentPrice || p.entryPrice,
+          unrealizedPnL: p.unrealizedPnL || 0,
+          unrealizedROI: p.unrealizedPnLPercent || 0,
+        })),
+        closedTradesToday: stats.closedTrades,
+        pnlToday: stats.totalPnL,
       };
     }
 
@@ -6326,6 +6534,11 @@ async function main() {
         await bot.updateAllPositionPrices(getPrice);
       }
 
+      // Update timeframe strategy shadow bots with real-time prices
+      for (const { bot } of timeframeShadowBots) {
+        await bot.updateAllPositionPrices(getPrice);
+      }
+
       // Track and broadcast trend override closures
       const overrideBefore = trendOverrideBot.getOpenPositions();
       await trendOverrideBot.updateOrphanedPositions(getCurrentPrice);
@@ -6357,6 +6570,26 @@ async function main() {
         }
         bot.updateAllPositionsWithPrices(gpPriceMap);
       }
+
+      // Update Fade bot positions with current prices and track closures
+      const fadePriceMap = new Map<string, number>();
+      for (const [botId, bot] of fadeBots) {
+        const openBefore = bot.getOpenPositions();
+        // Collect all symbols that need prices
+        for (const pos of openBefore) {
+          if (!fadePriceMap.has(pos.symbol)) {
+            const price = await getPrice(pos.symbol, 'futures');
+            if (price) fadePriceMap.set(pos.symbol, price);
+          }
+        }
+        // Update positions and check for stop hits
+        const { closed } = bot.updatePositions(fadePriceMap);
+        // Broadcast any closed positions
+        for (const closedPos of closed) {
+          broadcast('position_closed', { bot: botId, position: closedPos });
+        }
+      }
+
       broadcastState(); // Update clients with new prices
     }, 10000);
   } catch (error) {

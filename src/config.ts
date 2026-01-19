@@ -2,8 +2,9 @@ import type { ScreenerConfig, Timeframe } from './types.js';
 
 // Default configuration for the Backburner screener
 export const DEFAULT_CONFIG: ScreenerConfig = {
-  // Target timeframes (5m, 15m, 1h as specified)
-  timeframes: ['5m', '15m', '1h'] as Timeframe[],
+  // Target timeframes (5m, 15m, 1h, 4h)
+  // Added 4h for testing higher timeframe hypothesis (backtest shows 4H normal beats 5m)
+  timeframes: ['5m', '15m', '1h', '4h'] as Timeframe[],
 
   // RSI settings based on TCG Backburner strategy
   rsiPeriod: 14,
