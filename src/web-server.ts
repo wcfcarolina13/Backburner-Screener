@@ -10,8 +10,11 @@ import { BTCExtremeBot } from './btc-extreme-bot.js';
 import { BTCTrendBot } from './btc-trend-bot.js';
 import { TrendOverrideBot } from './trend-override-bot.js';
 import { TrendFlipBot } from './trend-flip-bot.js';
-import { createBtcBiasBotsV2, type BiasLevel } from './btc-bias-bot.js';
+// V2 CHANGE: BTC Bias bots REMOVED - 0% win rate, responsible for 40% of losses (~$7,459)
+// import { createBtcBiasBotsV2, type BiasLevel } from './btc-bias-bot.js';
+import type { BiasLevel } from './btc-bias-bot.js';  // Keep type for BTC bias filter
 // createBtcBiasBots (V1) REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
+// createBtcBiasBotsV2 (V2) REMOVED - see V2 CHANGE note above
 import { createMexcSimulationBots } from './mexc-trailing-simulation.js';
 import { NotificationManager } from './notifications.js';
 import { FocusModeManager, getFocusModeManager } from './focus-mode.js';
@@ -39,7 +42,9 @@ const app = express();
 // - 15m SHORT: 47% win rate, -$490 total → ENABLED
 // - 5m trades: 35-38% win rate → ENABLED with BTC trend filter
 // ============================================================================
-const ALLOWED_TIMEFRAMES: Timeframe[] = ['5m', '15m'];  // Exclude 1h (0% win rate)
+// V2 CHANGE: Focus exclusively on 5m timeframe (best win rate: 31.8%)
+// Analysis showed 5m had best performance, 15m was marginal, 1h was terrible
+const ALLOWED_TIMEFRAMES: Timeframe[] = ['5m'];  // V2: 5m only (was: 5m, 15m)
 
 /**
  * Check if a setup should be traded based on TCG methodology
@@ -125,15 +130,15 @@ const botVisibility: Record<string, boolean> = {
   'gp2-standard': true,
   'gp2-aggressive': true,
   'gp2-yolo': true,
-  // BTC Bias V2 bots (conservative params - 8 variants)
-  'bias-v2-20x10-trail': true,
-  'bias-v2-20x20-trail': true,
-  'bias-v2-10x10-trail': true,
-  'bias-v2-10x20-trail': true,
-  'bias-v2-20x10-hard': true,
-  'bias-v2-20x20-hard': true,
-  'bias-v2-10x10-hard': true,
-  'bias-v2-10x20-hard': true,
+  // V2 CHANGE: BTC Bias V2 bots REMOVED - 0% win rate, -$7,459 losses
+  // 'bias-v2-20x10-trail': true,
+  // 'bias-v2-20x20-trail': true,
+  // 'bias-v2-10x10-trail': true,
+  // 'bias-v2-10x20-trail': true,
+  // 'bias-v2-20x10-hard': true,
+  // 'bias-v2-20x20-hard': true,
+  // 'bias-v2-10x10-hard': true,
+  // 'bias-v2-10x20-hard': true,
 };
 
 // Server settings (persisted across restarts)
@@ -201,90 +206,159 @@ const screener = new BackburnerScreener(
 
 // Bot 1: Fixed TP/SL strategy (1% position, 10x leverage)
 // Includes friction modeling (fees + slippage) for realistic PnL
+// V2 CHANGE: Adjusted TP/SL for better R:R ratio
+// - Old: 20% TP, 20% SL = 1:1 R:R
+// - New: 35% TP, 12% SL = 2.9:1 R:R (need >26% win rate to profit)
 const fixedTPBot = new PaperTradingEngine({
   initialBalance: 2000,
   positionSizePercent: 1,
   leverage: 10,
-  takeProfitPercent: 20,  // 20% TP or RSI played_out, whichever first
-  stopLossPercent: 20,
+  takeProfitPercent: 35,  // V2: 35% TP (was 20%) - wider target
+  stopLossPercent: 12,    // V2: 12% SL (was 20%) - tighter stop
   maxOpenPositions: 10,
   enableFriction: true,   // Enable slippage + fee modeling
 }, 'fixed');
 
 // Bot 1b: Fixed TP with breakeven lock (1% position, 10x leverage)
-// Moves SL to breakeven at +10% ROI, still exits at fixed +20% TP
-// Includes friction modeling (fees + slippage) for realistic PnL
+// Moves SL to breakeven at +10% ROI, then continues to TP
+// V2 CHANGE: Adjusted TP/SL for better R:R ratio
 const fixedBreakevenBot = new PaperTradingEngine({
   initialBalance: 2000,
   positionSizePercent: 1,
   leverage: 10,
-  takeProfitPercent: 20,  // 20% TP target
-  stopLossPercent: 20,    // Initial 20% SL
-  breakevenTriggerPercent: 10,  // Move SL to breakeven at +10% ROI
+  takeProfitPercent: 35,  // V2: 35% TP (was 20%)
+  stopLossPercent: 12,    // V2: 12% SL (was 20%)
+  breakevenTriggerPercent: 8,   // V2: BE trigger at +8% ROI (was 10%)
   maxOpenPositions: 10,
   enableFriction: true,   // Enable slippage + fee modeling
 }, 'fixed-be');
 
 // Bot 2: Trailing stop strategy (1% position, 10x leverage)
+// V2 CHANGE: Tighter initial stop, earlier trail trigger
 const trailing1pctBot = new TrailingStopEngine({
   initialBalance: 2000,
   positionSizePercent: 1,
   leverage: 10,
-  initialStopLossPercent: 20,
-  trailTriggerPercent: 10,
-  trailStepPercent: 10,
-  level1LockPercent: 0,     // Level 1 = breakeven
+  initialStopLossPercent: 12,  // V2: 12% (was 20%)
+  trailTriggerPercent: 8,      // V2: 8% (was 10%) - start trailing sooner
+  trailStepPercent: 8,         // V2: 8% (was 10%) - tighter trail steps
+  level1LockPercent: 0,        // Level 1 = breakeven
   maxOpenPositions: 10,
 }, '1pct');
 
 // Bot 3: Trailing stop strategy (10% position, 10x leverage) - AGGRESSIVE
+// V2 CHANGE: Tighter stops for better R:R
 const trailing10pct10xBot = new TrailingStopEngine({
   initialBalance: 2000,
   positionSizePercent: 10,  // 10% of account per trade
   leverage: 10,
-  initialStopLossPercent: 20,
-  trailTriggerPercent: 10,
-  trailStepPercent: 10,
-  level1LockPercent: 0,     // Level 1 = breakeven
-  maxOpenPositions: 100,  // No practical limit - uses 10% of available balance
+  initialStopLossPercent: 12,  // V2: 12% (was 20%)
+  trailTriggerPercent: 8,      // V2: 8% (was 10%)
+  trailStepPercent: 8,         // V2: 8% (was 10%)
+  level1LockPercent: 0,        // Level 1 = breakeven
+  maxOpenPositions: 100,
 }, '10pct10x');
 
 // Bot 4: Trailing stop strategy (10% position, 20x leverage) - VERY AGGRESSIVE
+// V2 CHANGE: Tighter stops for better R:R
 const trailing10pct20xBot = new TrailingStopEngine({
   initialBalance: 2000,
   positionSizePercent: 10,  // 10% of account per trade
   leverage: 20,             // 20x leverage
-  initialStopLossPercent: 20,
-  trailTriggerPercent: 10,
-  trailStepPercent: 10,
-  level1LockPercent: 0,     // Level 1 = breakeven
-  maxOpenPositions: 100,  // No practical limit - uses 10% of available balance
+  initialStopLossPercent: 12,  // V2: 12% (was 20%)
+  trailTriggerPercent: 8,      // V2: 8% (was 10%)
+  trailStepPercent: 8,         // V2: 8% (was 10%)
+  level1LockPercent: 0,        // Level 1 = breakeven
+  maxOpenPositions: 100,
 }, '10pct20x');
 
+// ============================================================================
+// SHADOW BOTS - Stop Loss Variants for A/B Testing
+// V2 CHANGE: Updated to test tighter stops around the new 12% baseline
+// These run in parallel with the main bots to test different stop levels
+// ============================================================================
+
+// Shadow: 8% initial stop (tightest - aggressive)
+const shadow10pct10x_sl8 = new TrailingStopEngine({
+  initialBalance: 2000,
+  positionSizePercent: 10,
+  leverage: 10,
+  initialStopLossPercent: 8,   // V2: 8% stop (tightest)
+  trailTriggerPercent: 6,
+  trailStepPercent: 6,
+  level1LockPercent: 0,
+  maxOpenPositions: 100,
+}, 'shadow-10pct10x-sl8');
+
+// Shadow: 10% initial stop
+const shadow10pct10x_sl10 = new TrailingStopEngine({
+  initialBalance: 2000,
+  positionSizePercent: 10,
+  leverage: 10,
+  initialStopLossPercent: 10,  // V2: 10% stop
+  trailTriggerPercent: 8,
+  trailStepPercent: 8,
+  level1LockPercent: 0,
+  maxOpenPositions: 100,
+}, 'shadow-10pct10x-sl10');
+
+// Shadow: 15% initial stop (looser)
+const shadow10pct10x_sl15 = new TrailingStopEngine({
+  initialBalance: 2000,
+  positionSizePercent: 10,
+  leverage: 10,
+  initialStopLossPercent: 15,  // V2: 15% stop
+  trailTriggerPercent: 10,
+  trailStepPercent: 10,
+  level1LockPercent: 0,
+  maxOpenPositions: 100,
+}, 'shadow-10pct10x-sl15');
+
+// Shadow: 18% initial stop (loosest in V2)
+const shadow10pct10x_sl18 = new TrailingStopEngine({
+  initialBalance: 2000,
+  positionSizePercent: 10,
+  leverage: 10,
+  initialStopLossPercent: 18,  // V2: 18% stop (closest to old 20%)
+  trailTriggerPercent: 12,
+  trailStepPercent: 10,
+  level1LockPercent: 0,
+  maxOpenPositions: 100,
+}, 'shadow-10pct10x-sl18');
+
+// Array of all shadow bots for easy iteration
+// V2 CHANGE: Testing 8%, 10%, 15%, 18% (removed 25%, 30% - too loose)
+const shadowBots = [
+  { id: 'shadow-10pct10x-sl8', bot: shadow10pct10x_sl8, stopPct: 8 },
+  { id: 'shadow-10pct10x-sl10', bot: shadow10pct10x_sl10, stopPct: 10 },
+  { id: 'shadow-10pct10x-sl15', bot: shadow10pct10x_sl15, stopPct: 15 },
+  { id: 'shadow-10pct10x-sl18', bot: shadow10pct10x_sl18, stopPct: 18 },
+];
+
 // Bot 5: Wide trailing (20% trigger, 10% L1 lock)
-// Hypothesis: Later trail trigger + non-zero L1 lock = fewer premature exits
+// V2 CHANGE: Tighter initial stop, keep wide trail trigger for runners
 const trailWideBot = new TrailingStopEngine({
   initialBalance: 2000,
   positionSizePercent: 10,  // 10% of account per trade
-  leverage: 20,             // 20x leverage (same as 10pct20x for comparison)
-  initialStopLossPercent: 20,
-  trailTriggerPercent: 20,  // Don't start trailing until 20% ROI
-  trailStepPercent: 10,
-  level1LockPercent: 10,    // Level 1 locks at 10% ROI instead of breakeven
+  leverage: 20,             // 20x leverage
+  initialStopLossPercent: 12,  // V2: 12% (was 20%)
+  trailTriggerPercent: 15,     // V2: 15% (was 20%) - wait for good move
+  trailStepPercent: 8,         // V2: 8% (was 10%)
+  level1LockPercent: 8,        // V2: 8% (was 10%)
   maxOpenPositions: 100,
 }, 'wide');
 
 // Bot 6: Multi-Timeframe Confluence (5m + 15m/1h required)
-// Only opens when same asset triggers on multiple timeframes within 5 minutes
-// Does NOT close on played_out - only exits via trailing stop
+// V2 NOTE: With 5m-only filter, this bot may see fewer signals
+// V2 CHANGE: Tighter stops
 const confluenceBot = new ConfluenceBot({
   initialBalance: 2000,
   positionSizePercent: 10,  // 10% of account per trade
   leverage: 20,             // 20x leverage
-  initialStopLossPercent: 20,
-  trailTriggerPercent: 10,
-  trailStepPercent: 10,
-  level1LockPercent: 0,     // Breakeven at L1
+  initialStopLossPercent: 12,  // V2: 12% (was 20%)
+  trailTriggerPercent: 8,      // V2: 8% (was 10%)
+  trailStepPercent: 8,         // V2: 8% (was 10%)
+  level1LockPercent: 0,        // Breakeven at L1
   maxOpenPositions: 100,
   requiredTimeframe: '5m',
   confirmingTimeframes: ['15m', '1h'],
@@ -322,36 +396,39 @@ const btcTrendBot = new BTCTrendBot({
 });
 
 // Bot 10: Trend Override - trades WITH trend when backburner conflicts
+// V2 CHANGE: Tighter stops
 const trendOverrideBot = new TrendOverrideBot({
   initialBalance: 2000,
   positionSizePercent: 10,
   leverage: 20,
-  initialStopLossPercent: 20,
-  trailTriggerPercent: 10,
-  trailStepPercent: 10,
+  initialStopLossPercent: 12,  // V2: 12% (was 20%)
+  trailTriggerPercent: 8,      // V2: 8% (was 10%)
+  trailStepPercent: 8,         // V2: 8% (was 10%)
   level1LockPercent: 0,
   maxOpenPositions: 100,
 }, 'override');
 
 // Bot 11: Trend Flip - same as override but flips on profitable close
+// V2 CHANGE: Tighter stops
 const trendFlipBot = new TrendFlipBot({
   initialBalance: 2000,
   positionSizePercent: 10,
   leverage: 20,
-  initialStopLossPercent: 20,
-  trailTriggerPercent: 10,
-  trailStepPercent: 10,
+  initialStopLossPercent: 12,  // V2: 12% (was 20%)
+  trailTriggerPercent: 8,      // V2: 8% (was 10%)
+  trailStepPercent: 8,         // V2: 8% (was 10%)
   level1LockPercent: 0,
   maxOpenPositions: 100,
   flipOnProfit: true,
-  flipStopLossPercent: 20,  // Same stop for flipped positions
+  flipStopLossPercent: 12,     // V2: 12% (was 20%)
 }, 'flip');
 
 // BTC Bias V1 Bots REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
 
+// V2 CHANGE: BTC Bias V2 Bots REMOVED - 0% win rate, -$7,459 losses (40% of total)
 // Bots 30-37: BTC Bias Bots V2 (8 variants) - CONSERVATIVE
-// Reduced leverage (10-20x), smaller positions (10-20%), wider callbacks (2-3%)
-const btcBiasBotsV2 = createBtcBiasBotsV2(2000);
+// const btcBiasBotsV2 = createBtcBiasBotsV2(2000);
+const btcBiasBotsV2 = new Map<string, any>();  // Empty map to prevent runtime errors
 
 // Bots 20-25: MEXC Trailing Stop Simulation Bots (6 variants)
 // Simulates MEXC's continuous trailing stop behavior for comparison with our discrete levels
@@ -542,6 +619,12 @@ function resetAllBots(): void {
   trendOverrideBot.reset();
   trendFlipBot.reset();
 
+  // Shadow bots (stop loss variants)
+  for (const { id, bot } of shadowBots) {
+    bot.reset();
+    console.log(`  ✓ Reset ${id}`);
+  }
+
   // MEXC simulation bots
   for (const [botId, bot] of mexcSimBots) {
     bot.reset();
@@ -675,6 +758,11 @@ async function handleNewSetup(setup: BackburnerSetup) {
     trail10pct20xPosition = trailing10pct20xBot.openPosition(setup);
     trailWidePosition = trailWideBot.openPosition(setup);
     confluencePosition = confluenceBot.openPosition(setup);
+
+    // Shadow bots - open positions in parallel for A/B testing stop levels
+    for (const { bot } of shadowBots) {
+      bot.openPosition(setup);
+    }
   } else {
     // Log skipped setups for debugging
     console.log(`[FILTER] Skipped ${setup.symbol} ${setup.timeframe} ${setup.direction} (BTC bias: ${currentBtcBias})`);
@@ -847,6 +935,11 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
   let trailWidePosition = trailWideBot.updatePosition(setup);
   let confluencePosition = confluenceBot.updatePosition(setup);
 
+  // Update shadow bots (always update regardless of filter)
+  for (const { bot } of shadowBots) {
+    bot.updatePosition(setup);
+  }
+
   // FILTER: Check if setup passes timeframe/BTC trend filter before opening NEW positions
   const passesFilter = shouldTradeSetup(setup, currentBtcBias);
 
@@ -901,6 +994,23 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
     if (confluencePosition) {
       broadcast('position_opened', { bot: 'confluence', position: confluencePosition });
       newlyOpened = true;
+    }
+  }
+
+  // Shadow bots - try to open new positions if setup triggered/deep_extreme
+  if (passesFilter && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
+    for (const { id, bot } of shadowBots) {
+      const existingPos = bot.getOpenPositions().find(
+        p => p.symbol === setup.symbol && p.direction === setup.direction &&
+             p.timeframe === setup.timeframe && p.marketType === setup.marketType
+      );
+      if (!existingPos) {
+        const position = bot.openPosition(setup);
+        if (position) {
+          // Don't broadcast for shadow bots - keep them quiet
+          newlyOpened = true;
+        }
+      }
     }
   }
 
@@ -1161,6 +1271,11 @@ function handleSetupRemoved(setup: BackburnerSetup) {
   trailing10pct20xBot.handleSetupRemoved(setup);
   trailWideBot.handleSetupRemoved(setup);
   confluenceBot.handleSetupRemoved(setup);
+
+  // Handle shadow bots
+  for (const { bot } of shadowBots) {
+    bot.handleSetupRemoved(setup);
+  }
 
   // Handle MEXC simulation bots
   for (const [botId, bot] of mexcSimBots) {
@@ -1508,6 +1623,15 @@ app.post('/api/reset', express.json(), (req, res) => {
     const mexcBot = mexcSimBots.get(bot)!;
     mexcBot.reset();
     res.json({ success: true, bot, balance: mexcBot.getBalance() });
+  } else if (bot && bot.startsWith('shadow-')) {
+    // Reset specific shadow bot
+    const shadowBot = shadowBots.find(s => s.id === bot);
+    if (shadowBot) {
+      shadowBot.bot.reset();
+      res.json({ success: true, bot, balance: shadowBot.bot.getBalance() });
+    } else {
+      res.status(404).json({ success: false, error: 'Shadow bot not found' });
+    }
   } else {
     // Reset all bots
     fixedTPBot.reset();
@@ -1522,6 +1646,10 @@ app.post('/api/reset', express.json(), (req, res) => {
     for (const [, mexcBot] of mexcSimBots) {
       mexcBot.reset();
     }
+    // Reset shadow bots
+    for (const { bot: shadowBot } of shadowBots) {
+      shadowBot.reset();
+    }
     res.json({
       success: true,
       bot: 'all',
@@ -1535,6 +1663,7 @@ app.post('/api/reset', express.json(), (req, res) => {
         btcExtreme: btcExtremeBot.getBalance(),
         btcTrend: btcTrendBot.getBalance(),
         ...Object.fromEntries(Array.from(mexcSimBots.entries()).map(([k, b]) => [k, b.getBalance()])),
+        ...Object.fromEntries(shadowBots.map(s => [s.id, s.bot.getBalance()])),
       },
     });
   }
@@ -5838,6 +5967,11 @@ async function main() {
   dataPersistence.logBotConfig('btcExtreme', 'BTC Contrarian', { ...btcExtremeBot.getConfig() });
   dataPersistence.logBotConfig('btcTrend', 'BTC Momentum', { ...btcTrendBot.getConfig() });
 
+  // Log shadow bot configurations
+  for (const { id, bot, stopPct } of shadowBots) {
+    dataPersistence.logBotConfig(id, `Shadow SL${stopPct}%`, { ...bot.getConfig(), isShadow: true });
+  }
+
   // BTC Bias V1 bots REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
   // Log BTC Bias V2 bot configurations
   for (const [key, bot] of btcBiasBotsV2) {
@@ -5871,6 +6005,7 @@ async function main() {
       }>;
       closedTradesToday: number;
       pnlToday: number;
+      stopPct?: number;  // For shadow bots - indicates the stop loss % being tested
     }> = {};
 
     // Trailing bots
@@ -5900,6 +6035,30 @@ async function main() {
         })),
         closedTradesToday: stats.totalTrades,
         pnlToday: stats.totalPnL,
+      };
+    }
+
+    // Shadow bots (stop loss A/B testing)
+    for (const { id, bot, stopPct } of shadowBots) {
+      const stats = bot.getStats();
+      const positions = bot.getOpenPositions();
+      bots[id] = {
+        botId: id,
+        botType: 'shadow',
+        balance: stats.currentBalance,
+        unrealizedPnL: positions.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0),
+        openPositionCount: positions.length,
+        openPositions: positions.map(p => ({
+          symbol: p.symbol,
+          direction: p.direction,
+          entryPrice: p.entryPrice,
+          currentPrice: p.currentPrice || p.entryPrice,
+          unrealizedPnL: p.unrealizedPnL || 0,
+          unrealizedROI: (p as any).unrealizedROI || 0,
+        })),
+        closedTradesToday: stats.totalTrades,
+        pnlToday: stats.totalPnL,
+        stopPct,  // Extra metadata for shadow bots
       };
     }
 
@@ -6123,6 +6282,11 @@ async function main() {
       await trailing10pct20xBot.updateAllPositionPrices(getPrice);
       await trailWideBot.updateAllPositionPrices(getPrice);
       await confluenceBot.updateOrphanedPositions(getCurrentPrice);
+
+      // Update shadow bots with real-time prices
+      for (const { bot } of shadowBots) {
+        await bot.updateAllPositionPrices(getPrice);
+      }
 
       // Track and broadcast trend override closures
       const overrideBefore = trendOverrideBot.getOpenPositions();
