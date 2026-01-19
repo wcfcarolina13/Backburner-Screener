@@ -4271,14 +4271,12 @@ function getHtmlPage(): string {
       html += '<th style="width: 30px; padding: 8px;"></th>';
       html += '<th style="text-align: left; padding: 8px; color: #8b949e;">Symbol</th>';
       html += '<th style="text-align: left; padding: 8px; color: #8b949e;">Dir</th>';
-      html += '<th style="text-align: left; padding: 8px; color: #8b949e;">TF</th>';
       html += '<th style="text-align: left; padding: 8px; color: #8b949e;">State</th>';
-      html += '<th style="text-align: center; padding: 8px; color: #8b949e;" title="Would bots trade this? Checks: HTF aligned, RSI crossed">Trade?</th>';
-      html += '<th style="text-align: left; padding: 8px; color: #8b949e;">Div</th>';
-      html += '<th style="text-align: right; padding: 8px; color: #8b949e;">Retrace%</th>';
-      html += '<th style="text-align: right; padding: 8px; color: #8b949e;">Entry Zone</th>';
-      html += '<th style="text-align: right; padding: 8px; color: #8b949e;">TP1</th>';
-      html += '<th style="text-align: right; padding: 8px; color: #8b949e;">Stop</th>';
+      html += '<th style="text-align: center; padding: 8px; color: #8b949e;" title="Would bots trade this?">Trade?</th>';
+      html += '<th style="text-align: right; padding: 8px; color: #8b949e;" title="Stop loss % from current price">SL%</th>';
+      html += '<th style="text-align: right; padding: 8px; color: #8b949e;" title="Take profit % from current price">TP%</th>';
+      html += '<th style="text-align: right; padding: 8px; color: #8b949e;" title="Reward:Risk ratio">R:R</th>';
+      html += '<th style="text-align: right; padding: 8px; color: #8b949e;">Entry</th>';
       html += '<th style="text-align: right; padding: 8px; color: #8b949e;">Updated</th>';
       html += '</tr></thead><tbody>';
 
@@ -4296,11 +4294,29 @@ function getHtmlPage(): string {
         const isSelected = selectedSetups.has(key);
         const inList = savedList.has(key);
 
+        // Calculate SL% and TP% from current price
+        const currentPrice = s.currentPrice || 0;
+        const stopPrice = s.stopPrice || 0;
+        const tp1Price = s.tp1Price || 0;
+        let slPercent = 0;
+        let tpPercent = 0;
+        if (currentPrice > 0) {
+          if (s.direction === 'long') {
+            // Long: SL is below entry, TP is above
+            slPercent = ((currentPrice - stopPrice) / currentPrice) * 100;
+            tpPercent = ((tp1Price - currentPrice) / currentPrice) * 100;
+          } else {
+            // Short: SL is above entry, TP is below
+            slPercent = ((stopPrice - currentPrice) / currentPrice) * 100;
+            tpPercent = ((currentPrice - tp1Price) / currentPrice) * 100;
+          }
+        }
+        const rrRatio = slPercent > 0 ? (tpPercent / slPercent).toFixed(1) : '-';
+
         html += '<tr style="border-bottom: 1px solid #21262d;' + (inList ? ' background: #1c2128;' : '') + '">';
         html += '<td style="padding: 8px;"><input type="checkbox" data-setup-key="' + key + '" onclick="toggleSetupSelection(\\'' + key + '\\')" ' + (isSelected ? 'checked' : '') + ' style="cursor: pointer;">' + (inList ? '<span title="In list" style="color: #58a6ff; margin-left: 4px;">📋</span>' : '') + '</td>';
         html += '<td style="padding: 8px; font-weight: 600;"><a href="' + mexcUrl + '" target="_blank" style="color: #58a6ff; text-decoration: none;" title="' + linkTitle + '">' + ticker + '</a></td>';
         html += '<td style="padding: 8px; color: ' + dirColor + ';">' + dirIcon + ' ' + s.direction.toUpperCase() + '</td>';
-        html += '<td style="padding: 8px;">' + s.timeframe + '</td>';
         html += '<td style="padding: 8px; color: ' + stateColor + ';">' + s.state + '</td>';
         // Trade? column - V2: simplified, just needs actionable state (HTF/RSI filters removed)
         const isActionableState = s.state === 'triggered' || s.state === 'deep_extreme';
@@ -4311,26 +4327,13 @@ function getHtmlPage(): string {
           tradeHtml = '<span style="color: #6e7681;" title="Bots skip: state=' + s.state + ' (need triggered/deep_extreme)">✗ ' + s.state + '</span>';
         }
         html += '<td style="padding: 8px; text-align: center; font-size: 10px;">' + tradeHtml + '</td>';
-        // Divergence display for GP table
-        let gpDivHtml = '-';
-        if (s.divergence && s.divergence.type) {
-          const divConfig = {
-            'bullish': { label: '⬆', color: '#3fb950' },
-            'bearish': { label: '⬇', color: '#f85149' },
-            'hidden_bullish': { label: '⬆H', color: '#58a6ff' },
-            'hidden_bearish': { label: '⬇H', color: '#ff7b72' }
-          };
-          const cfg = divConfig[s.divergence.type];
-          if (cfg) {
-            const strengthDots = s.divergence.strength === 'strong' ? '●●●' : s.divergence.strength === 'moderate' ? '●●○' : '●○○';
-            gpDivHtml = '<span style="color: ' + cfg.color + '; cursor: help;" title="' + (s.divergence.description || s.divergence.type) + '">' + cfg.label + ' ' + strengthDots + '</span>';
-          }
-        }
-        html += '<td style="padding: 8px; font-size: 11px;">' + gpDivHtml + '</td>';
-        html += '<td style="padding: 8px; text-align: right;">' + (s.retracementPercent || 0).toFixed(1) + '%</td>';
-        html += '<td style="padding: 8px; text-align: right; color: #f0883e;">' + (s.fibLevels?.level618?.toFixed(6) || '-') + ' - ' + (s.fibLevels?.level65?.toFixed(6) || '-') + '</td>';
-        html += '<td style="padding: 8px; text-align: right; color: #3fb950;">' + (s.tp1Price?.toFixed(6) || '-') + '</td>';
-        html += '<td style="padding: 8px; text-align: right; color: #f85149;">' + (s.stopPrice?.toFixed(6) || '-') + '</td>';
+        // SL%, TP%, R:R columns for manual trading
+        html += '<td style="padding: 8px; text-align: right; color: #f85149; font-weight: 600;">' + slPercent.toFixed(1) + '%</td>';
+        html += '<td style="padding: 8px; text-align: right; color: #3fb950; font-weight: 600;">' + tpPercent.toFixed(1) + '%</td>';
+        const rrColor = parseFloat(rrRatio) >= 2 ? '#3fb950' : parseFloat(rrRatio) >= 1 ? '#d29922' : '#f85149';
+        html += '<td style="padding: 8px; text-align: right; color: ' + rrColor + '; font-weight: 600;">' + rrRatio + '</td>';
+        // Entry price (current price they would enter at)
+        html += '<td style="padding: 8px; text-align: right; color: #8b949e;">' + (currentPrice ? currentPrice.toFixed(6) : '-') + '</td>';
         html += '<td style="padding: 8px; text-align: right; color: #8b949e;">' + lastUpdated + '</td>';
         html += '</tr>';
       }
