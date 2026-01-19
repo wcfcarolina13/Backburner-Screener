@@ -398,12 +398,111 @@ const shadow4hFade = new TimeframeShadowBot({
   fadeSignals: true,  // FADE: opposite of signal direction
 }, 'shadow-4h-fade');
 
-// Array of timeframe strategy shadow bots
+// Array of timeframe strategy shadow bots (BACKBURNER STRATEGY)
+// These use the full Backburner detection: impulse → RSI cross → state machine
 const timeframeShadowBots = [
-  { id: 'shadow-5m-fade', bot: shadow5mFade, desc: '5m Fade (backtest winner)' },
-  { id: 'shadow-5m-normal', bot: shadow5mNormal, desc: '5m Normal (control)' },
-  { id: 'shadow-4h-normal', bot: shadow4hNormal, desc: '4H Normal (backtest winner)' },
-  { id: 'shadow-4h-fade', bot: shadow4hFade, desc: '4H Fade (control)' },
+  { id: 'shadow-5m-fade', bot: shadow5mFade, desc: 'BB 5m Fade (backtest winner)' },
+  { id: 'shadow-5m-normal', bot: shadow5mNormal, desc: 'BB 5m Normal (control)' },
+  { id: 'shadow-4h-normal', bot: shadow4hNormal, desc: 'BB 4H Normal (backtest winner)' },
+  { id: 'shadow-4h-fade', bot: shadow4hFade, desc: 'BB 4H Fade (control)' },
+];
+
+// ============================================================================
+// GP SHADOW BOTS (Golden Pocket RSI Zone Strategy)
+// ============================================================================
+// These use SIMPLER entry logic than Backburner:
+// - Just check if RSI is in golden pocket zone (23.6-38.2 long, 61.8-76.4 short)
+// - No impulse requirement, no state machine
+//
+// BACKTEST RESULTS (Jan 2026, 83 days of 4H data, 152 symbols):
+// | Strategy            | Trades | Win%  | PF   | P&L       |
+// |---------------------|--------|-------|------|-----------|
+// | Backburner 4H Norm  | ~19    | 89.5% | 6.13 | +$412     |
+// | GP Zone 4H Norm     | 152    | 27.6% | 1.69 | +$10,672  |
+//
+// GP Zone generated MORE trades and MORE profit despite lower win rate.
+// Testing if this holds in live paper trading.
+// ============================================================================
+import { GpShadowBot } from './gp-shadow-bot.js';
+
+// GP 4H Normal (backtest showed +$10,672 profit)
+const gp4hNormal = new GpShadowBot({
+  initialBalance: 2000,
+  positionSizePercent: 5,
+  leverage: 10,
+  initialStopLossPercent: 15,
+  trailTriggerPercent: 10,
+  trailStepPercent: 5,
+  level1LockPercent: 2,
+  maxOpenPositions: 50,
+  allowedTimeframes: ['4h'],
+  fadeSignals: false,  // NORMAL: RSI 23.6-38.2 → LONG, RSI 61.8-76.4 → SHORT
+  gpLongLower: 23.6,
+  gpLongUpper: 38.2,
+  gpShortLower: 61.8,
+  gpShortUpper: 76.4,
+}, 'gp-4h-normal');
+
+// GP 4H Fade (control - testing if fade works better on GP too)
+const gp4hFade = new GpShadowBot({
+  initialBalance: 2000,
+  positionSizePercent: 5,
+  leverage: 10,
+  initialStopLossPercent: 15,
+  trailTriggerPercent: 10,
+  trailStepPercent: 5,
+  level1LockPercent: 2,
+  maxOpenPositions: 50,
+  allowedTimeframes: ['4h'],
+  fadeSignals: true,  // FADE: RSI 23.6-38.2 → SHORT, RSI 61.8-76.4 → LONG
+  gpLongLower: 23.6,
+  gpLongUpper: 38.2,
+  gpShortLower: 61.8,
+  gpShortUpper: 76.4,
+}, 'gp-4h-fade');
+
+// GP 5m Normal (control - comparing to 5m fade)
+const gp5mNormal = new GpShadowBot({
+  initialBalance: 2000,
+  positionSizePercent: 5,
+  leverage: 10,
+  initialStopLossPercent: 15,
+  trailTriggerPercent: 10,
+  trailStepPercent: 5,
+  level1LockPercent: 2,
+  maxOpenPositions: 50,
+  allowedTimeframes: ['5m'],
+  fadeSignals: false,  // NORMAL direction
+  gpLongLower: 23.6,
+  gpLongUpper: 38.2,
+  gpShortLower: 61.8,
+  gpShortUpper: 76.4,
+}, 'gp-5m-normal');
+
+// GP 5m Fade (testing if 5m fade works for GP like it does for Backburner)
+const gp5mFade = new GpShadowBot({
+  initialBalance: 2000,
+  positionSizePercent: 5,
+  leverage: 10,
+  initialStopLossPercent: 15,
+  trailTriggerPercent: 10,
+  trailStepPercent: 5,
+  level1LockPercent: 2,
+  maxOpenPositions: 50,
+  allowedTimeframes: ['5m'],
+  fadeSignals: true,  // FADE direction
+  gpLongLower: 23.6,
+  gpLongUpper: 38.2,
+  gpShortLower: 61.8,
+  gpShortUpper: 76.4,
+}, 'gp-5m-fade');
+
+// Array of GP shadow bots for easy iteration
+const gpShadowBots = [
+  { id: 'gp-4h-normal', bot: gp4hNormal, desc: 'GP 4H Normal (backtest: +$10.6k)' },
+  { id: 'gp-4h-fade', bot: gp4hFade, desc: 'GP 4H Fade (control)' },
+  { id: 'gp-5m-normal', bot: gp5mNormal, desc: 'GP 5m Normal (control)' },
+  { id: 'gp-5m-fade', bot: gp5mFade, desc: 'GP 5m Fade (test)' },
 ];
 
 // ============================================================================
@@ -771,6 +870,12 @@ function resetAllBots(): void {
   combinedStrategyBot.reset();
   console.log(`  ✓ Reset ${combinedStrategyBot.getBotId()}`);
 
+  // GP shadow bots (Golden Pocket RSI Zone strategy)
+  for (const { id, bot } of gpShadowBots) {
+    bot.reset();
+    console.log(`  ✓ Reset ${id}`);
+  }
+
   // MEXC simulation bots
   for (const [botId, bot] of mexcSimBots) {
     bot.reset();
@@ -928,6 +1033,11 @@ async function handleNewSetup(setup: BackburnerSetup) {
 
   // Combined strategy bot - processes both 4H (for bias) and 5m (for entry) signals
   combinedStrategyBot.processSetup(setup);
+
+  // GP shadow bots - ALWAYS try to open (they filter by RSI zone internally)
+  for (const { bot } of gpShadowBots) {
+    bot.openPosition(setup);
+  }
 
   // Get active timeframes for this symbol to check for confluence
   const allSetups = screener.getAllSetups();
@@ -1125,6 +1235,11 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
 
   // Update combined strategy bot positions
   combinedStrategyBot.updatePosition(setup);
+
+  // Update GP shadow bot positions
+  for (const { bot } of gpShadowBots) {
+    bot.updatePosition(setup);
+  }
 
   // FILTER: Check if setup passes timeframe/BTC trend filter before opening NEW positions
   const passesFilter = shouldTradeSetup(setup, currentBtcBias);
@@ -1470,6 +1585,11 @@ function handleSetupRemoved(setup: BackburnerSetup) {
 
   // Handle combined strategy bot
   combinedStrategyBot.handleSetupRemoved(setup);
+
+  // Handle GP shadow bots
+  for (const { bot } of gpShadowBots) {
+    bot.handleSetupRemoved(setup);
+  }
 
   // Handle MEXC simulation bots
   for (const [botId, bot] of mexcSimBots) {
@@ -1869,6 +1989,10 @@ app.post('/api/reset', express.json(), (req, res) => {
     }
     // Reset combined strategy bot
     combinedStrategyBot.reset();
+    // Reset GP shadow bots
+    for (const { bot } of gpShadowBots) {
+      bot.reset();
+    }
     res.json({
       success: true,
       bot: 'all',
@@ -1884,6 +2008,7 @@ app.post('/api/reset', express.json(), (req, res) => {
         ...Object.fromEntries(Array.from(mexcSimBots.entries()).map(([k, b]) => [k, b.getBalance()])),
         ...Object.fromEntries(shadowBots.map(s => [s.id, s.bot.getBalance()])),
         ...Object.fromEntries(timeframeShadowBots.map(s => [s.id, s.bot.getBalance()])),
+        ...Object.fromEntries(gpShadowBots.map(s => [s.id, s.bot.getBalance()])),
         [combinedStrategyBot.getBotId()]: combinedStrategyBot.getBalance(),
       },
     });
@@ -6237,6 +6362,11 @@ async function main() {
     isCombinedStrategy: true,
   });
 
+  // Log GP shadow bot configurations
+  for (const { id, bot, desc } of gpShadowBots) {
+    dataPersistence.logBotConfig(id, desc, { ...bot.getConfig(), isGpShadow: true });
+  }
+
   // BTC Bias V1 bots REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
   // Log BTC Bias V2 bot configurations
   for (const [key, bot] of btcBiasBotsV2) {
@@ -6357,6 +6487,29 @@ async function main() {
       bots[combinedStrategyBot.getBotId()] = {
         botId: combinedStrategyBot.getBotId(),
         botType: 'combined_strategy',
+        balance: stats.currentBalance,
+        unrealizedPnL: positions.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0),
+        openPositionCount: positions.length,
+        openPositions: positions.map(p => ({
+          symbol: p.symbol,
+          direction: p.direction,
+          entryPrice: p.entryPrice,
+          currentPrice: p.currentPrice || p.entryPrice,
+          unrealizedPnL: p.unrealizedPnL || 0,
+          unrealizedROI: p.unrealizedPnLPercent || 0,
+        })),
+        closedTradesToday: stats.closedTrades,
+        pnlToday: stats.totalPnL,
+      };
+    }
+
+    // GP shadow bots (Golden Pocket RSI Zone strategy)
+    for (const { id, bot } of gpShadowBots) {
+      const stats = bot.getStats();
+      const positions = bot.getOpenPositions();
+      bots[id] = {
+        botId: id,
+        botType: 'gp_shadow',
         balance: stats.currentBalance,
         unrealizedPnL: positions.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0),
         openPositionCount: positions.length,
@@ -6606,6 +6759,11 @@ async function main() {
 
       // Update combined strategy bot positions with real-time prices
       await combinedStrategyBot.updateAllPositionPrices(getPrice);
+
+      // Update GP shadow bot positions with real-time prices
+      for (const { bot } of gpShadowBots) {
+        await bot.updateAllPositionPrices(getPrice);
+      }
 
       // Track and broadcast trend override closures
       const overrideBefore = trendOverrideBot.getOpenPositions();

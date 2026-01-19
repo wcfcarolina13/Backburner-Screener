@@ -17,6 +17,7 @@
     "summary:today": "tsx scripts/daily-summary.ts",
     "backtest": "tsx src/backtest-cli.ts",
     "backtest-combined": "tsx src/backtest-combined.ts",
+    "backtest-combined-candles": "tsx src/backtest-combined-candles.ts",
     "debug-signals": "tsx src/debug-signals.ts",
     "backtest-combined-db": "tsx src/backtest-combined-db.ts",
     "prefetch": "tsx src/prefetch-candles.ts",
