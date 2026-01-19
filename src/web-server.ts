@@ -443,7 +443,7 @@ const gpConservativeBot = new GoldenPocketBot({
   initialBalance: 2000,
   positionSizePercent: 3,
   leverage: 5,
-  maxOpenPositions: 5,
+  maxOpenPositions: 100,  // V2: No limit
 }, 'gp-conservative');
 
 // GP Bot 2: Standard (5% pos, 10x leverage) - Reduced from 10%/10x
@@ -451,7 +451,7 @@ const gpStandardBot = new GoldenPocketBot({
   initialBalance: 2000,
   positionSizePercent: 5,
   leverage: 10,
-  maxOpenPositions: 5,
+  maxOpenPositions: 100,  // V2: No limit
 }, 'gp-standard');
 
 // GP Bot 3: Aggressive (5% pos, 15x leverage) - Reduced from 10%/20x
@@ -459,7 +459,7 @@ const gpAggressiveBot = new GoldenPocketBot({
   initialBalance: 2000,
   positionSizePercent: 5,
   leverage: 15,
-  maxOpenPositions: 5,
+  maxOpenPositions: 100,  // V2: No limit
 }, 'gp-aggressive');
 
 // GP Bot 4: YOLO (10% pos, 20x leverage) - Reduced from 20%/20x
@@ -467,7 +467,7 @@ const gpYoloBot = new GoldenPocketBot({
   initialBalance: 2000,
   positionSizePercent: 10,
   leverage: 20,
-  maxOpenPositions: 3,
+  maxOpenPositions: 100,  // V2: No limit
 }, 'gp-yolo');
 
 // Collect all GP bots for easy iteration
@@ -485,28 +485,28 @@ const gpV2ConservativeBot = new GoldenPocketBotV2({
   initialBalance: 2000,
   positionSizePercent: 3,
   leverage: 5,
-  maxOpenPositions: 5,
+  maxOpenPositions: 100,  // V2: No limit
 }, 'gp2-conservative');
 
 const gpV2StandardBot = new GoldenPocketBotV2({
   initialBalance: 2000,
   positionSizePercent: 5,
   leverage: 10,
-  maxOpenPositions: 5,
+  maxOpenPositions: 100,  // V2: No limit
 }, 'gp2-standard');
 
 const gpV2AggressiveBot = new GoldenPocketBotV2({
   initialBalance: 2000,
   positionSizePercent: 5,
   leverage: 15,
-  maxOpenPositions: 5,
+  maxOpenPositions: 100,  // V2: No limit
 }, 'gp2-aggressive');
 
 const gpV2YoloBot = new GoldenPocketBotV2({
   initialBalance: 2000,
   positionSizePercent: 10,
   leverage: 20,
-  maxOpenPositions: 3,
+  maxOpenPositions: 100,  // V2: No limit
 }, 'gp2-yolo');
 
 // Collect all GP V2 bots
@@ -822,13 +822,18 @@ async function handleNewSetup(setup: BackburnerSetup) {
     }
   }
 
-  // Try all Golden Pocket bots (only if setup passes filter)
-  // GP bots have their own setup type with fibLevels from the GP detector
+  // Try all Golden Pocket bots
+  // V2 CHANGE: GP bots now IGNORE the HTF/RSI filters - they trade any triggered/deep_extreme
+  // The GP strategy has its own entry criteria (fib levels, RSI extreme zones)
   const isGPSetup = 'fibLevels' in setup && 'tp1Price' in setup && 'stopPrice' in setup;
   const isGPV2Setup = isGPSetup && 'isV2' in setup;
 
-  if (passesFilter && isGPSetup && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
-    console.log(`[GP-BOT] GP setup received: ${setup.symbol} ${setup.direction} ${setup.state} - attempting trades`);
+  // GP bots only need: valid timeframe + actionable state (triggered/deep_extreme)
+  const gpTimeframeOk = ALLOWED_TIMEFRAMES.includes(setup.timeframe);
+  const gpStateOk = setup.state === 'triggered' || setup.state === 'deep_extreme';
+
+  if (isGPSetup && gpTimeframeOk && gpStateOk) {
+    console.log(`[GP-BOT] GP setup received: ${setup.symbol} ${setup.direction} ${setup.state} - attempting trades (HTF/RSI filters bypassed)`);
 
     // V1 GP bots (strict thresholds) - only process V1 setups
     if (!isGPV2Setup) {
@@ -855,8 +860,8 @@ async function handleNewSetup(setup: BackburnerSetup) {
         }
       }
     }
-  } else if (isGPSetup && !passesFilter) {
-    console.log(`[GP-BOT] Skipped ${setup.symbol} ${setup.timeframe} ${setup.direction} - failed filter (BTC: ${currentBtcBias})`);
+  } else if (isGPSetup && !gpTimeframeOk) {
+    console.log(`[GP-BOT] Skipped ${setup.symbol} ${setup.timeframe} - timeframe not allowed`);
   }
 
   // Focus Mode: Track positions from target bot
@@ -4268,8 +4273,8 @@ function getHtmlPage(): string {
       html += '<th style="text-align: left; padding: 8px; color: #8b949e;">Dir</th>';
       html += '<th style="text-align: left; padding: 8px; color: #8b949e;">TF</th>';
       html += '<th style="text-align: left; padding: 8px; color: #8b949e;">State</th>';
+      html += '<th style="text-align: center; padding: 8px; color: #8b949e;" title="Would bots trade this? Checks: HTF aligned, RSI crossed">Trade?</th>';
       html += '<th style="text-align: left; padding: 8px; color: #8b949e;">Div</th>';
-      html += '<th style="text-align: left; padding: 8px; color: #8b949e;">X-Sig</th>';
       html += '<th style="text-align: right; padding: 8px; color: #8b949e;">Retrace%</th>';
       html += '<th style="text-align: right; padding: 8px; color: #8b949e;">Entry Zone</th>';
       html += '<th style="text-align: right; padding: 8px; color: #8b949e;">TP1</th>';
@@ -4297,6 +4302,15 @@ function getHtmlPage(): string {
         html += '<td style="padding: 8px; color: ' + dirColor + ';">' + dirIcon + ' ' + s.direction.toUpperCase() + '</td>';
         html += '<td style="padding: 8px;">' + s.timeframe + '</td>';
         html += '<td style="padding: 8px; color: ' + stateColor + ';">' + s.state + '</td>';
+        // Trade? column - V2: simplified, just needs actionable state (HTF/RSI filters removed)
+        const isActionableState = s.state === 'triggered' || s.state === 'deep_extreme';
+        let tradeHtml = '';
+        if (isActionableState) {
+          tradeHtml = '<span style="color: #3fb950;" title="Bots would trade: triggered or deep_extreme state">✓ YES</span>';
+        } else {
+          tradeHtml = '<span style="color: #6e7681;" title="Bots skip: state=' + s.state + ' (need triggered/deep_extreme)">✗ ' + s.state + '</span>';
+        }
+        html += '<td style="padding: 8px; text-align: center; font-size: 10px;">' + tradeHtml + '</td>';
         // Divergence display for GP table
         let gpDivHtml = '-';
         if (s.divergence && s.divergence.type) {
@@ -4313,17 +4327,6 @@ function getHtmlPage(): string {
           }
         }
         html += '<td style="padding: 8px; font-size: 11px;">' + gpDivHtml + '</td>';
-        // Cross-strategy signal for GP table
-        const gpXSig = getCrossStrategySignal(s, true);
-        let gpXSigHtml = '-';
-        if (gpXSig === 'align') {
-          gpXSigHtml = '<span style="color: #3fb950; cursor: help;" title="BB signal aligns (same direction)">🔥✓</span>';
-        } else if (gpXSig === 'conflict') {
-          gpXSigHtml = '<span style="color: #f85149; cursor: help;" title="BB signal conflicts (opposite direction)">🔥✗</span>';
-        } else if (gpXSig === 'mixed') {
-          gpXSigHtml = '<span style="color: #d29922; cursor: help;" title="BB has both aligned and conflicting signals">🔥⚠</span>';
-        }
-        html += '<td style="padding: 8px; font-size: 11px;">' + gpXSigHtml + '</td>';
         html += '<td style="padding: 8px; text-align: right;">' + (s.retracementPercent || 0).toFixed(1) + '%</td>';
         html += '<td style="padding: 8px; text-align: right; color: #f0883e;">' + (s.fibLevels?.level618?.toFixed(6) || '-') + ' - ' + (s.fibLevels?.level65?.toFixed(6) || '-') + '</td>';
         html += '<td style="padding: 8px; text-align: right; color: #3fb950;">' + (s.tp1Price?.toFixed(6) || '-') + '</td>';

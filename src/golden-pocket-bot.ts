@@ -30,7 +30,7 @@ const DEFAULT_CONFIG: GoldenPocketBotConfig = {
   initialBalance: 2000,
   positionSizePercent: 2,       // 2% per trade (more aggressive for hype plays)
   leverage: 10,
-  maxOpenPositions: 5,          // Fewer positions, more focused
+  maxOpenPositions: 100,        // V2: Effectively unlimited - don't miss trades
   requireFutures: true,
   splitEntry: false,            // Start simple - single entry at golden pocket
   entryLevels: [0.618, 0.635, 0.65],

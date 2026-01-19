@@ -23,7 +23,7 @@ const DEFAULT_CONFIG: GoldenPocketBotV2Config = {
   initialBalance: 2000,
   positionSizePercent: 2,
   leverage: 10,
-  maxOpenPositions: 5,
+  maxOpenPositions: 100,  // V2: Effectively unlimited - don't miss trades
   requireFutures: true,
   splitEntry: false,
   entryLevels: [0.618, 0.635, 0.65],
