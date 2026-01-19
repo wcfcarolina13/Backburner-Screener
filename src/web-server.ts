@@ -4135,6 +4135,27 @@ function getHtmlPage(): string {
     // V2: Only show setups from allowed timeframes
     const GP_ALLOWED_TIMEFRAMES = ['5m'];  // Match ALLOWED_TIMEFRAMES
 
+    // V2: Deduplicate GP setups - keep best one per symbol+timeframe+direction
+    function deduplicateGPSetups(setups) {
+      const seen = new Map();
+      for (const s of setups) {
+        const key = s.symbol + '_' + s.timeframe + '_' + s.direction;
+        const existing = seen.get(key);
+        if (!existing) {
+          seen.set(key, s);
+        } else {
+          // Keep the one with more actionable state, or most recent update
+          const stateRank = { 'triggered': 4, 'deep_extreme': 3, 'reversing': 2, 'watching': 1, 'played_out': 0 };
+          const existingRank = stateRank[existing.state] || 0;
+          const newRank = stateRank[s.state] || 0;
+          if (newRank > existingRank || (newRank === existingRank && (s.lastUpdated || 0) > (existing.lastUpdated || 0))) {
+            seen.set(key, s);
+          }
+        }
+      }
+      return Array.from(seen.values());
+    }
+
     // Toggle to always show saved list items regardless of state filters
     let showSavedInFilters = false;
 
@@ -4197,15 +4218,17 @@ function getHtmlPage(): string {
       } else if (currentSetupsTab === 'history') {
         setups = allSetupsData.history;
       } else if (currentSetupsTab === 'goldenPocket') {
-        // V2 CHANGE: Apply timeframe filter FIRST, then state filters
+        // V2 CHANGE: Apply timeframe filter FIRST, dedupe, then state filters
         let tfFilteredSetups = (allSetupsData.goldenPocket || []).filter(s =>
           GP_ALLOWED_TIMEFRAMES.includes(s.timeframe)
         );
+        // Deduplicate: one row per symbol+timeframe+direction (keep best state)
+        let dedupedSetups = deduplicateGPSetups(tfFilteredSetups);
         // Apply GP state filters (with optional saved list override)
-        let filteredSetups = tfFilteredSetups.filter(s =>
+        let filteredSetups = dedupedSetups.filter(s =>
           gpStateFilters[s.state] || (showSavedInFilters && savedList.has(getSetupKey(s)))
         );
-        document.getElementById('setupsTable').innerHTML = renderGoldenPocketTable(filteredSetups, tfFilteredSetups.length);
+        document.getElementById('setupsTable').innerHTML = renderGoldenPocketTable(filteredSetups, dedupedSetups.length);
         return;
       } else if (currentSetupsTab === 'savedList') {
         // Show saved list items (both regular and GP setups)
@@ -4301,7 +4324,7 @@ function getHtmlPage(): string {
           gpXSigHtml = '<span style="color: #d29922; cursor: help;" title="BB has both aligned and conflicting signals">🔥⚠</span>';
         }
         html += '<td style="padding: 8px; font-size: 11px;">' + gpXSigHtml + '</td>';
-        html += '<td style="padding: 8px; text-align: right;">' + (s.retracementPercent * 100).toFixed(1) + '%</td>';
+        html += '<td style="padding: 8px; text-align: right;">' + (s.retracementPercent || 0).toFixed(1) + '%</td>';
         html += '<td style="padding: 8px; text-align: right; color: #f0883e;">' + (s.fibLevels?.level618?.toFixed(6) || '-') + ' - ' + (s.fibLevels?.level65?.toFixed(6) || '-') + '</td>';
         html += '<td style="padding: 8px; text-align: right; color: #3fb950;">' + (s.tp1Price?.toFixed(6) || '-') + '</td>';
         html += '<td style="padding: 8px; text-align: right; color: #f85149;">' + (s.stopPrice?.toFixed(6) || '-') + '</td>';
