@@ -4,10 +4,76 @@
 
 ## Summary
 
-- Iterations completed: 18
-- Current status: Focus Mode Fixed for All GP Bots
+- Iterations completed: 19
+- Current status: V2 Exit Strategy Overhaul Deployed
 
-## Current Task: Focus Mode Fix
+## Current Task: V2 Exit Strategy Overhaul
+
+### Iteration 19 - V2: Exit Strategy Overhaul for Positive Expected Value
+**Date**: 2026-01-19
+**Status**: ✅ Complete
+
+**Problem**: System was mathematically guaranteed to lose money
+- Win rate: 31.8% (5m timeframe)
+- Avg win: $33.41 | Avg loss: $37.35
+- R:R ratio: 0.89:1
+- Expected value: **-$14.85 per trade**
+
+**Critical Finding**: BTC Bias bots had **0% win rate**, responsible for **40% of losses** (~$7,459)
+
+**V2 Changes Implemented**:
+
+1. **REMOVED BTC Bias V2 Bots** (all 8 variants)
+   - Commented out import and creation
+   - Removed from botVisibility
+   - Empty map placeholder to prevent runtime errors
+
+2. **5m Timeframe Only**
+   - Changed `ALLOWED_TIMEFRAMES` from `['5m', '15m']` to `['5m']`
+   - 5m had best win rate (31.8%), 15m marginal, 1h terrible
+
+3. **Tightened Stop Loss** (20% → 12%)
+   - All fixed TP/SL bots: stopLossPercent: 12
+   - All trailing bots: initialStopLossPercent: 12
+   - Target: reduce avg loss from $37 to ~$22
+
+4. **Widened Take Profit** (20% → 35%)
+   - fixedTPBot: takeProfitPercent: 35
+   - fixedBreakevenBot: takeProfitPercent: 35
+   - Target: increase avg win from $33 to ~$50
+
+5. **Adjusted Trail Parameters**
+   - trailTriggerPercent: 10% → 8%
+   - trailStepPercent: 10% → 8%
+   - breakevenTriggerPercent: 10% → 8%
+
+6. **Reconfigured Shadow Bots**
+   - Old: 10%, 15%, 25%, 30% stops
+   - New: 8%, 10%, 15%, 18% stops (tighter range)
+   - Purpose: Find optimal stop level for V3
+
+**V2 Expected Math**:
+- R:R Ratio: 35/12 = 2.9:1
+- Required win rate for breakeven: 26%
+- Actual 5m win rate: 31.8%
+- Expected value: **+$0.90 to +$1.85 per trade** (depending on win rate impact)
+
+**Files Modified**:
+- `src/web-server.ts` - All bot configurations updated with V2 CHANGE comments
+
+**Files Created**:
+- `V2_CHANGELOG.md` - Full documentation of changes and rollback instructions
+- `src/v2-validation.ts` - Validation script showing math improvement
+
+**Commit**: a657585 "V2: Exit strategy overhaul for positive expected value"
+**Pushed to GitHub**: ✅ (user pushed manually)
+**Render Deploy**: In progress (auto-deploy from GitHub)
+
+**Build**: ✅ Passes successfully
+
+---
+
+## Previous Task: Focus Mode Fix
 
 ### Iteration 18 - Focus Mode Support for GP V2 Bots
 **Date**: 2026-01-15

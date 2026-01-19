@@ -2444,7 +2444,7 @@ function getHtmlPage(): string {
           <ul style="margin: 0 0 20px 0; padding-left: 20px; color: #8b949e; font-size: 13px;">
             <li><strong style="color: #3fb950;">RSI Played Out</strong>: RSI returns to neutral zone (45-55)</li>
             <li><strong style="color: #a371f7;">Trailing Stop</strong>: Price retraces after profit (locks in gains)</li>
-            <li><strong style="color: #f85149;">Stop Loss</strong>: Initial -20% SL hit before trailing activates</li>
+            <li><strong style="color: #f85149;">Stop Loss</strong>: Initial -12% SL hit before trailing activates (V2: tighter stops)</li>
           </ul>
 
           <hr style="border: none; border-top: 1px solid #30363d; margin: 20px 0;">
@@ -2530,11 +2530,11 @@ function getHtmlPage(): string {
           <div style="display: grid; gap: 12px; font-size: 12px;">
             <div style="padding: 12px; background: #0d1117; border-radius: 8px; border-left: 3px solid #238636;">
               <strong style="color: #3fb950;">🎯 Fixed 20/20</strong>
-              <p style="color: #8b949e; margin: 4px 0 0 0;">1% position, 10x leverage, 20% TP/20% SL. Conservative with fixed exits. Exits on RSI played_out or setup removal.</p>
+              <p style="color: #8b949e; margin: 4px 0 0 0;">1% position, 10x leverage, 35% TP/12% SL (V2). Conservative with fixed exits. Exits on RSI played_out or setup removal.</p>
             </div>
             <div style="padding: 12px; background: #0d1117; border-radius: 8px; border-left: 3px solid #2ea043;">
               <strong style="color: #2ea043;">🛡️ Fixed BE (Breakeven Lock)</strong>
-              <p style="color: #8b949e; margin: 4px 0 0 0;">1% position, 10x leverage, 20% TP. <strong style="color: #c9d1d9;">SL moves to breakeven at +10% ROI</strong>. Protects gains while still targeting full 20% profit.</p>
+              <p style="color: #8b949e; margin: 4px 0 0 0;">1% position, 10x leverage, 35% TP (V2). <strong style="color: #c9d1d9;">SL moves to breakeven at +8% ROI</strong>. Protects gains while targeting 35% profit.</p>
             </div>
             <div style="padding: 12px; background: #0d1117; border-radius: 8px; border-left: 3px solid #8957e5;">
               <strong style="color: #a371f7;">📉 Trail Light</strong>
@@ -3144,8 +3144,8 @@ function getHtmlPage(): string {
       </div>
     </div>
 
-    <!-- BTC Bias V2 Section (Conservative Params) -->
-    <div class="section-header" onclick="toggleSection('btcBiasBotsV2')" style="margin-top: 12px;">
+    <!-- V2 CHANGE: BTC Bias V2 Section HIDDEN - bots removed due to 0% win rate -->
+    <div class="section-header" onclick="toggleSection('btcBiasBotsV2')" style="margin-top: 12px; display: none;">
       <span class="section-title">📈 BTC Bias V2 (Conservative)</span>
       <span class="section-toggle" id="btcBiasBotsV2Toggle">▸</span>
     </div>
@@ -4123,13 +4123,17 @@ function getHtmlPage(): string {
     }
 
     // GP filter state - which states to show
+    // V2 CHANGE: Default to actionable states only (watching is not tradeable)
     let gpStateFilters = {
-      watching: true,
-      triggered: true,
-      deep_extreme: true,
-      reversing: true,
-      played_out: false  // Hide played_out by default
+      watching: false,     // V2: OFF by default - not actionable
+      triggered: true,     // Actionable - RSI just crossed threshold
+      deep_extreme: true,  // Actionable - strong signal
+      reversing: true,     // Might still catch the move
+      played_out: false    // Hide played_out by default
     };
+
+    // V2: Only show setups from allowed timeframes
+    const GP_ALLOWED_TIMEFRAMES = ['5m'];  // Match ALLOWED_TIMEFRAMES
 
     // Toggle to always show saved list items regardless of state filters
     let showSavedInFilters = false;
@@ -4193,11 +4197,15 @@ function getHtmlPage(): string {
       } else if (currentSetupsTab === 'history') {
         setups = allSetupsData.history;
       } else if (currentSetupsTab === 'goldenPocket') {
+        // V2 CHANGE: Apply timeframe filter FIRST, then state filters
+        let tfFilteredSetups = (allSetupsData.goldenPocket || []).filter(s =>
+          GP_ALLOWED_TIMEFRAMES.includes(s.timeframe)
+        );
         // Apply GP state filters (with optional saved list override)
-        let filteredSetups = (allSetupsData.goldenPocket || []).filter(s =>
+        let filteredSetups = tfFilteredSetups.filter(s =>
           gpStateFilters[s.state] || (showSavedInFilters && savedList.has(getSetupKey(s)))
         );
-        document.getElementById('setupsTable').innerHTML = renderGoldenPocketTable(filteredSetups, allSetupsData.goldenPocket?.length || 0);
+        document.getElementById('setupsTable').innerHTML = renderGoldenPocketTable(filteredSetups, tfFilteredSetups.length);
         return;
       } else if (currentSetupsTab === 'savedList') {
         // Show saved list items (both regular and GP setups)
@@ -4447,7 +4455,7 @@ function getHtmlPage(): string {
       'trailing10pct10x': { name: 'Trail Standard', params: '10% pos, 10x lev' },
       'trailing10pct20x': { name: 'Trail Aggressive', params: '10% pos, 20x lev' },
       'trailing1pct': { name: 'Trail Light', params: '1% trailing stop' },
-      'fixedTP': { name: 'Fixed TP/SL', params: '20% TP, 20% SL' },
+      'fixedTP': { name: 'Fixed TP/SL', params: '35% TP, 12% SL (V2)' },
       'confluence': { name: 'Multi-TF', params: 'Multi-timeframe confluence' },
       'trendOverride': { name: 'Trend Override', params: 'Ignores BTC bias' },
       'trendFlip': { name: 'Trend Flip', params: 'Trades reversals' },
@@ -4909,7 +4917,8 @@ function getHtmlPage(): string {
       document.getElementById('playedOutCount').textContent = state.setups.playedOut.length;
       document.getElementById('historyCount').textContent = (state.setups.history || []).length;
       document.getElementById('allCount').textContent = state.setups.all.length;
-      document.getElementById('gpCount').textContent = (state.setups.goldenPocket || []).length;
+      // V2: Show only 5m timeframe GP setups in count
+      document.getElementById('gpCount').textContent = (state.setups.goldenPocket || []).filter(s => GP_ALLOWED_TIMEFRAMES.includes(s.timeframe)).length;
       // Update saved list count (depends on current data, not just localStorage keys)
       updateSavedListCount();
 
