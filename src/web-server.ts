@@ -406,6 +406,26 @@ const timeframeShadowBots = [
   { id: 'shadow-4h-fade', bot: shadow4hFade, desc: '4H Fade (control)' },
 ];
 
+// ============================================================================
+// COMBINED STRATEGY BOT (4H Normal + 5m Fade)
+// Uses 4H to establish trend direction, 5m fade for entry timing
+// ============================================================================
+import { CombinedStrategyBot } from './combined-strategy-bot.js';
+
+const combinedStrategyBot = new CombinedStrategyBot({
+  initialBalance: 2000,
+  positionSizePercent: 5,
+  leverage: 10,
+  initialStopLossPercent: 15,
+  trailTriggerPercent: 10,
+  trailStepPercent: 5,
+  level1LockPercent: 2,
+  maxOpenPositions: 50,
+  htfBiasValidityMs: 12 * 60 * 60 * 1000,  // 12 hours
+  htfTimeframe: '4h',
+  ltfTimeframe: '5m',
+}, 'combined-4h5m');
+
 // Bot 5: Wide trailing (20% trigger, 10% L1 lock)
 // V2 CHANGE: Tighter initial stop, keep wide trail trigger for runners
 const trailWideBot = new TrailingStopEngine({
@@ -747,6 +767,10 @@ function resetAllBots(): void {
     console.log(`  ✓ Reset ${id}`);
   }
 
+  // Combined strategy bot (4H normal + 5m fade)
+  combinedStrategyBot.reset();
+  console.log(`  ✓ Reset ${combinedStrategyBot.getBotId()}`);
+
   // MEXC simulation bots
   for (const [botId, bot] of mexcSimBots) {
     bot.reset();
@@ -901,6 +925,9 @@ async function handleNewSetup(setup: BackburnerSetup) {
   for (const { bot } of timeframeShadowBots) {
     bot.openPosition(setup);
   }
+
+  // Combined strategy bot - processes both 4H (for bias) and 5m (for entry) signals
+  combinedStrategyBot.processSetup(setup);
 
   // Get active timeframes for this symbol to check for confluence
   const allSetups = screener.getAllSetups();
@@ -1095,6 +1122,9 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
   for (const { bot } of timeframeShadowBots) {
     bot.updatePosition(setup);
   }
+
+  // Update combined strategy bot positions
+  combinedStrategyBot.updatePosition(setup);
 
   // FILTER: Check if setup passes timeframe/BTC trend filter before opening NEW positions
   const passesFilter = shouldTradeSetup(setup, currentBtcBias);
@@ -1437,6 +1467,9 @@ function handleSetupRemoved(setup: BackburnerSetup) {
   for (const { bot } of timeframeShadowBots) {
     bot.handleSetupRemoved(setup);
   }
+
+  // Handle combined strategy bot
+  combinedStrategyBot.handleSetupRemoved(setup);
 
   // Handle MEXC simulation bots
   for (const [botId, bot] of mexcSimBots) {
@@ -1834,6 +1867,8 @@ app.post('/api/reset', express.json(), (req, res) => {
     for (const { bot: tfBot } of timeframeShadowBots) {
       tfBot.reset();
     }
+    // Reset combined strategy bot
+    combinedStrategyBot.reset();
     res.json({
       success: true,
       bot: 'all',
@@ -1849,6 +1884,7 @@ app.post('/api/reset', express.json(), (req, res) => {
         ...Object.fromEntries(Array.from(mexcSimBots.entries()).map(([k, b]) => [k, b.getBalance()])),
         ...Object.fromEntries(shadowBots.map(s => [s.id, s.bot.getBalance()])),
         ...Object.fromEntries(timeframeShadowBots.map(s => [s.id, s.bot.getBalance()])),
+        [combinedStrategyBot.getBotId()]: combinedStrategyBot.getBalance(),
       },
     });
   }
@@ -6195,6 +6231,12 @@ async function main() {
     dataPersistence.logBotConfig(id, desc, { ...bot.getConfig(), isTimeframeShadow: true });
   }
 
+  // Log combined strategy bot configuration
+  dataPersistence.logBotConfig(combinedStrategyBot.getBotId(), 'Combined 4H+5m Strategy', {
+    ...combinedStrategyBot.getConfig(),
+    isCombinedStrategy: true,
+  });
+
   // BTC Bias V1 bots REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
   // Log BTC Bias V2 bot configurations
   for (const [key, bot] of btcBiasBotsV2) {
@@ -6292,6 +6334,29 @@ async function main() {
       bots[id] = {
         botId: id,
         botType: 'timeframe_shadow',
+        balance: stats.currentBalance,
+        unrealizedPnL: positions.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0),
+        openPositionCount: positions.length,
+        openPositions: positions.map(p => ({
+          symbol: p.symbol,
+          direction: p.direction,
+          entryPrice: p.entryPrice,
+          currentPrice: p.currentPrice || p.entryPrice,
+          unrealizedPnL: p.unrealizedPnL || 0,
+          unrealizedROI: p.unrealizedPnLPercent || 0,
+        })),
+        closedTradesToday: stats.closedTrades,
+        pnlToday: stats.totalPnL,
+      };
+    }
+
+    // Combined strategy bot (4H normal + 5m fade)
+    {
+      const stats = combinedStrategyBot.getStats();
+      const positions = combinedStrategyBot.getOpenPositions();
+      bots[combinedStrategyBot.getBotId()] = {
+        botId: combinedStrategyBot.getBotId(),
+        botType: 'combined_strategy',
         balance: stats.currentBalance,
         unrealizedPnL: positions.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0),
         openPositionCount: positions.length,
@@ -6538,6 +6603,9 @@ async function main() {
       for (const { bot } of timeframeShadowBots) {
         await bot.updateAllPositionPrices(getPrice);
       }
+
+      // Update combined strategy bot positions with real-time prices
+      await combinedStrategyBot.updateAllPositionPrices(getPrice);
 
       // Track and broadcast trend override closures
       const overrideBefore = trendOverrideBot.getOpenPositions();
