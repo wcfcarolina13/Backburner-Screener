@@ -1332,6 +1332,7 @@ export function getFocusModeHtml(configKeyParam?: string): string {
         <button id="notif-btn" class="alert-btn" onclick="toggleNotifications()">🔕 Notifications OFF</button>
         <button id="audio-btn" class="alert-btn" onclick="toggleAudio()">🔊 Audio ON</button>
         <button class="alert-btn" onclick="playAlert('LONG')">🔊 Test Sound</button>
+        <button id="link-btn" class="alert-btn" onclick="toggleLinkDestination()">📊 Futures</button>
       </div>
     </div>
 
@@ -1546,39 +1547,43 @@ export function getFocusModeHtml(configKeyParam?: string): string {
         const saved = localStorage.getItem('focusMode_settings');
         if (saved) return JSON.parse(saved);
       } catch (e) {}
-      return { notificationsEnabled: false, audioEnabled: true };
+      return { notificationsEnabled: false, audioEnabled: true, linkDestination: 'futures' };
     }
 
     function saveFocusModeSettings() {
       try {
         localStorage.setItem('focusMode_settings', JSON.stringify({
           notificationsEnabled,
-          audioEnabled
+          audioEnabled,
+          linkDestination
         }));
       } catch (e) {}
     }
 
     // Initialize from saved settings
-    let { notificationsEnabled, audioEnabled } = loadFocusModeSettings();
+    let { notificationsEnabled, audioEnabled, linkDestination } = loadFocusModeSettings();
 
-    // Get link destination setting from shared localStorage (same as Screener)
-    function getLinkDestination() {
-      try {
-        const settings = localStorage.getItem('backburner_settings');
-        if (settings) {
-          const parsed = JSON.parse(settings);
-          return parsed.linkDestination || 'futures';
-        }
-      } catch (e) {}
-      return 'futures';  // default to futures for Focus Mode
+    // Toggle link destination between bots and futures
+    function toggleLinkDestination() {
+      linkDestination = linkDestination === 'bots' ? 'futures' : 'bots';
+      saveFocusModeSettings();
+      updateLinkButton();
+      showToast(linkDestination === 'bots' ? '🤖 Links open Trading Bots' : '📊 Links open Futures Trading');
     }
 
-    // Open MEXC trade URL based on shared settings
+    function updateLinkButton() {
+      const btn = document.getElementById('link-btn');
+      if (btn) {
+        btn.textContent = linkDestination === 'bots' ? '🤖 Bots' : '📊 Futures';
+        btn.classList.toggle('active', linkDestination === 'bots');
+      }
+    }
+
+    // Open MEXC trade URL based on Focus Mode settings
     function openMexcTrade(symbol) {
       const base = symbol.replace('USDT', '');
-      const dest = getLinkDestination();
       let url;
-      if (dest === 'bots') {
+      if (linkDestination === 'bots') {
         url = 'https://www.mexc.com/futures/trading-bots/grid/' + base + '_USDT';
       } else {
         url = 'https://www.mexc.com/futures/' + base + '_USDT';
@@ -1815,6 +1820,7 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       // Update UI to match loaded settings
       updateNotificationButton();
       updateAudioButton();
+      updateLinkButton();
 
       // Start polling every 10 seconds
       setInterval(checkForUpdates, 10000);
