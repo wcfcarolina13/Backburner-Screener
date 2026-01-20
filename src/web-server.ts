@@ -28,6 +28,7 @@ import { getCurrentRSI, calculateRSI, calculateSMA, detectDivergence } from './i
 import { DEFAULT_CONFIG } from './config.js';
 import { getDataPersistence } from './data-persistence.js';
 import { initSchema as initTursoSchema, isTursoConfigured, executeReadQuery, getDatabaseStats } from './turso-db.js';
+import { getFocusModeHtml, getFocusModeApiData } from './focus-mode-dashboard.js';
 import type { BackburnerSetup, Timeframe } from './types.js';
 import fs from 'fs';
 import path from 'path';
@@ -146,11 +147,15 @@ const botVisibility: Record<string, boolean> = {
 interface ServerSettings {
   dailyResetEnabled: boolean;
   lastResetDate: string;  // YYYY-MM-DD format
+  notificationsEnabled: boolean;
+  soundEnabled: boolean;
 }
 
 const serverSettings: ServerSettings = {
   dailyResetEnabled: false,  // Default: OFF
   lastResetDate: new Date().toISOString().split('T')[0],
+  notificationsEnabled: true,  // Default: ON
+  soundEnabled: true,  // Default: ON
 };
 
 // Load server settings from disk (uses fs/path imported via data-persistence)
@@ -759,11 +764,20 @@ const gpDetectorV2 = new GoldenPocketDetectorV2({
 });
 
 const notifier = new NotificationManager({
-  enabled: true,
-  sound: true,
+  enabled: true,  // Will be controlled by serverSettings.notificationsEnabled
+  sound: true,    // Will be controlled by serverSettings.soundEnabled
   soundName: 'Glass',
   onlyTriggered: true,
 });
+
+// Helper to check if notifications are enabled
+function isNotificationsEnabled(): boolean {
+  return serverSettings.notificationsEnabled;
+}
+
+function isSoundEnabled(): boolean {
+  return serverSettings.soundEnabled;
+}
 
 /**
  * POWERFUL desktop notification when GP bots open positions
@@ -775,6 +789,11 @@ async function notifyGPPositionOpened(
   setup: any,
   isV2: boolean
 ): Promise<void> {
+  // Check if notifications are enabled
+  if (!isNotificationsEnabled()) {
+    return;
+  }
+
   const { exec } = await import('child_process');
   const { promisify } = await import('util');
   const execAsync = promisify(exec);
@@ -1186,7 +1205,9 @@ async function handleNewSetup(setup: BackburnerSetup) {
   }
 
   // Send notification (works for both regular and GP setups)
-  await notifier.notifyNewSetup(setup);
+  if (isNotificationsEnabled()) {
+    await notifier.notifyNewSetup(setup);
+  }
 
   // Extra notification for GP triggered setups
   if (isGPSetup && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
@@ -1379,12 +1400,12 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
   }
 
   // Send notification if setup just became triggered/deep_extreme (state transition)
-  if (setup.state === 'triggered' || setup.state === 'deep_extreme') {
+  if (isNotificationsEnabled() && (setup.state === 'triggered' || setup.state === 'deep_extreme')) {
     await notifier.notifyNewSetup(setup);
   }
 
   // Send notification when setup plays out (distinct "done" sound)
-  if (setup.state === 'played_out') {
+  if (isNotificationsEnabled() && setup.state === 'played_out') {
     await notifier.notifyPlayedOut(setup);
   }
 
@@ -1906,9 +1927,21 @@ function getFullState() {
   };
 }
 
-// Serve static HTML
+// Serve static HTML - Screener (main page)
 app.get('/', (req, res) => {
   res.send(getHtmlPage());
+});
+
+// Focus Mode Dashboard (contrarian trading)
+app.get('/focus', (req, res) => {
+  const configKey = req.query.config as string;
+  res.send(getFocusModeHtml(configKey));
+});
+
+// Focus Mode API
+app.get('/api/focus-mode', (req, res) => {
+  const configKey = req.query.config as string;
+  res.json(getFocusModeApiData(configKey));
 });
 
 // API endpoints
@@ -2045,6 +2078,36 @@ app.post('/api/daily-reset', express.json(), (req, res) => {
     success: true,
     enabled: serverSettings.dailyResetEnabled,
     lastResetDate: serverSettings.lastResetDate,
+  });
+});
+
+// Notification & Sound settings API
+app.get('/api/notification-settings', (req, res) => {
+  res.json({
+    notificationsEnabled: serverSettings.notificationsEnabled,
+    soundEnabled: serverSettings.soundEnabled,
+  });
+});
+
+app.post('/api/notification-settings', express.json(), (req, res) => {
+  const { notificationsEnabled, soundEnabled } = req.body;
+
+  if (typeof notificationsEnabled === 'boolean') {
+    serverSettings.notificationsEnabled = notificationsEnabled;
+    console.log(`[SETTINGS] Notifications ${notificationsEnabled ? 'ENABLED' : 'DISABLED'}`);
+  }
+
+  if (typeof soundEnabled === 'boolean') {
+    serverSettings.soundEnabled = soundEnabled;
+    console.log(`[SETTINGS] Sound ${soundEnabled ? 'ENABLED' : 'DISABLED'}`);
+  }
+
+  saveServerSettings();
+
+  res.json({
+    success: true,
+    notificationsEnabled: serverSettings.notificationsEnabled,
+    soundEnabled: serverSettings.soundEnabled,
   });
 });
 
@@ -2565,6 +2628,34 @@ function getHtmlPage(): string {
       min-height: 100vh;
     }
     .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+
+    /* Navigation Tabs */
+    .nav-tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 20px;
+      background: #161b22;
+      border-radius: 8px;
+      padding: 4px;
+      border: 1px solid #30363d;
+    }
+    .nav-tab {
+      flex: 1;
+      padding: 12px 24px;
+      text-align: center;
+      text-decoration: none;
+      color: #8b949e;
+      font-weight: 500;
+      border-radius: 6px;
+      transition: all 0.2s;
+    }
+    .nav-tab:hover { color: #c9d1d9; background: #21262d; }
+    .nav-tab.active {
+      background: #238636;
+      color: white;
+    }
+    .nav-tab .tab-icon { margin-right: 8px; }
+
     header {
       background: linear-gradient(135deg, #1a1f2e 0%, #0d1117 100%);
       border: 1px solid #30363d;
@@ -2715,6 +2806,16 @@ function getHtmlPage(): string {
 </head>
 <body>
   <div class="container">
+    <!-- Navigation Tabs -->
+    <nav class="nav-tabs">
+      <a href="/" class="nav-tab active">
+        <span class="tab-icon">📊</span>Screener
+      </a>
+      <a href="/focus" class="nav-tab">
+        <span class="tab-icon">🎯</span>Focus Mode
+      </a>
+    </nav>
+
     <header>
       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
         <div>
@@ -3075,6 +3176,29 @@ function getHtmlPage(): string {
               </div>
             </label>
           </div>
+
+          <hr style="border: none; border-top: 1px solid #30363d; margin: 20px 0;">
+
+          <h4 style="margin: 0 0 12px 0; color: #8b949e;">🔔 Notifications & Sound</h4>
+          <p style="color: #6e7681; font-size: 12px; margin: 0 0 12px 0;">Control browser notifications and sound alerts for new signals.</p>
+
+          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="notificationsToggle" onchange="toggleNotifications(this.checked)" style="accent-color: #58a6ff; width: 18px; height: 18px;">
+              <span>Enable push notifications</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="soundToggle" onchange="toggleSound(this.checked)" style="accent-color: #58a6ff; width: 18px; height: 18px;">
+              <span>Enable sound alerts</span>
+            </label>
+          </div>
+
+          <button onclick="testNotification()" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #58a6ff; background: transparent; color: #58a6ff; font-weight: 600; cursor: pointer; margin-right: 8px;">
+            🔔 Test Notification
+          </button>
+          <button onclick="testSound()" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #58a6ff; background: transparent; color: #58a6ff; font-weight: 600; cursor: pointer;">
+            🔊 Test Sound
+          </button>
 
           <hr style="border: none; border-top: 1px solid #30363d; margin: 20px 0;">
 
@@ -3934,6 +4058,8 @@ function getHtmlPage(): string {
     eventSource.onopen = () => {
       document.getElementById('statusDot').className = 'status-dot active';
       document.getElementById('statusText').textContent = 'Connected';
+      // Load notification settings on connect
+      loadNotificationSettings();
     };
 
     eventSource.onerror = () => {
@@ -4010,6 +4136,9 @@ function getHtmlPage(): string {
       // Load daily reset settings from server
       loadDailyResetSettings();
 
+      // Load notification settings from server
+      loadNotificationSettings();
+
       document.getElementById('settingsModal').style.display = 'block';
     }
 
@@ -4085,6 +4214,115 @@ function getHtmlPage(): string {
       } catch (err) {
         console.error('[Settings] Failed to toggle daily reset:', err);
         alert('Failed to update setting: ' + err.message);
+      }
+    }
+
+    // Notification & Sound settings
+    let notificationsEnabled = true;
+    let soundEnabled = true;
+
+    async function loadNotificationSettings() {
+      try {
+        const res = await fetch('/api/notification-settings');
+        const data = await res.json();
+        notificationsEnabled = data.notificationsEnabled;
+        soundEnabled = data.soundEnabled;
+
+        // Update UI toggles
+        const notifToggle = document.getElementById('notificationsToggle');
+        const soundToggle = document.getElementById('soundToggle');
+        if (notifToggle) notifToggle.checked = notificationsEnabled;
+        if (soundToggle) soundToggle.checked = soundEnabled;
+      } catch (err) {
+        console.error('[Settings] Failed to load notification settings:', err);
+      }
+    }
+
+    async function toggleNotifications(enabled) {
+      try {
+        const res = await fetch('/api/notification-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ notificationsEnabled: enabled })
+        });
+        const data = await res.json();
+        notificationsEnabled = data.notificationsEnabled;
+        console.log('[Settings] Notifications toggled:', notificationsEnabled);
+      } catch (err) {
+        console.error('[Settings] Failed to toggle notifications:', err);
+        alert('Failed to update setting: ' + err.message);
+      }
+    }
+
+    async function toggleSound(enabled) {
+      try {
+        const res = await fetch('/api/notification-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ soundEnabled: enabled })
+        });
+        const data = await res.json();
+        soundEnabled = data.soundEnabled;
+        console.log('[Settings] Sound toggled:', soundEnabled);
+      } catch (err) {
+        console.error('[Settings] Failed to toggle sound:', err);
+        alert('Failed to update setting: ' + err.message);
+      }
+    }
+
+    function testNotification() {
+      if (!notificationsEnabled) {
+        alert('Notifications are disabled. Enable them first.');
+        return;
+      }
+      if ('Notification' in window) {
+        if (Notification.permission === 'granted') {
+          new Notification('🔔 Test Notification', {
+            body: 'Notifications are working!',
+            icon: '🔥'
+          });
+        } else if (Notification.permission !== 'denied') {
+          Notification.requestPermission().then(permission => {
+            if (permission === 'granted') {
+              new Notification('🔔 Test Notification', {
+                body: 'Notifications are now enabled!',
+                icon: '🔥'
+              });
+            }
+          });
+        } else {
+          alert('Notifications are blocked by your browser. Please allow them in your browser settings.');
+        }
+      } else {
+        alert('Your browser does not support notifications.');
+      }
+    }
+
+    function testSound() {
+      if (!soundEnabled) {
+        alert('Sound is disabled. Enable it first.');
+        return;
+      }
+      // Play a simple beep using Web Audio API
+      try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+        oscillator.frequency.linearRampToValueAtTime(600, audioContext.currentTime + 0.1);
+
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.3);
+      } catch (err) {
+        console.error('Failed to play sound:', err);
+        alert('Failed to play sound: ' + err.message);
       }
     }
 
@@ -4736,6 +4974,8 @@ function getHtmlPage(): string {
 
     // Browser notification helper
     async function showBrowserNotification(title, body, tag) {
+      // Check if notifications are enabled in settings
+      if (!notificationsEnabled) return;
       if (!('Notification' in window)) return;
       if (Notification.permission !== 'granted') {
         // Try to request permission

@@ -21,7 +21,11 @@
     "debug-signals": "tsx src/debug-signals.ts",
     "backtest-combined-db": "tsx src/backtest-combined-db.ts",
     "prefetch": "tsx src/prefetch-candles.ts",
-    "generate-signals": "tsx src/generate-signals.ts"
+    "generate-signals": "tsx src/generate-signals.ts",
+    "focus": "node dist/focus-mode-dashboard.js",
+    "focus:dev": "tsx src/focus-mode-dashboard.ts",
+    "backtest:leveraged": "node dist/backtest-leveraged-regime.js",
+    "backtest:spot": "node dist/backtest-spot-regime-realistic.js"
   },
   "keywords": [
     "trading",
