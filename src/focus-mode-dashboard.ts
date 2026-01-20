@@ -1212,8 +1212,15 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       border-radius: 6px;
       padding: 10px;
       text-align: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      border: 2px solid transparent;
     }
-    .alignment-item.active { border: 2px solid #58a6ff; }
+    .alignment-item:hover {
+      background: #30363d;
+      transform: translateY(-2px);
+    }
+    .alignment-item.active { border: 2px solid #58a6ff; pointer-events: none; }
     .alignment-config-name {
       font-size: 11px;
       color: #8b949e;
@@ -1381,7 +1388,7 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       </div>
       <div class="alignment-grid">
         ${allAlignments.map(a => `
-          <div class="alignment-item ${a.configKey === configKey ? 'active' : ''}">
+          <div class="alignment-item ${a.configKey === configKey ? 'active' : ''}" onclick="changeConfig('${a.configKey}')">
             <div class="alignment-config-name">${a.configKey}</div>
             <div class="alignment-action ${a.action}">${a.action === 'SKIP' ? '⏸️' : a.action === 'LONG' ? '🟢' : '🔴'} ${a.action}</div>
             <div class="alignment-quadrant">${a.quadrant}</div>
