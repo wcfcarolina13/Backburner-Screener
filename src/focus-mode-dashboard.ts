@@ -282,13 +282,13 @@ function getSignalGroups(signals: Signal[], quadrant: Quadrant): SignalGroups {
   if (rule.action === 'SKIP') {
     return {
       active: [],
-      archive: combineSignals(playedOutSignals).slice(0, 20),
+      archive: combineSignals(playedOutSignals), // Show all played out
     };
   }
 
   return {
-    active: combineSignals(activeSignals).slice(0, 10),
-    archive: combineSignals(playedOutSignals).slice(0, 20),
+    active: combineSignals(activeSignals), // Show ALL active signals, no limit
+    archive: combineSignals(playedOutSignals), // Show all played out
   };
 }
 
