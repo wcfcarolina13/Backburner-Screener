@@ -189,7 +189,14 @@ function getMicroRegime(signals: Signal[], config: WindowConfig): { regime: Micr
   return { regime, longPct, shortPct, count: total };
 }
 
-function getActionableSignals(signals: Signal[], quadrant: Quadrant): Signal[] {
+interface CombinedSignal extends Signal {
+  timeframes: string[];  // All timeframes that triggered
+  signalCount: number;   // Number of signals combined
+  oldestTimestamp: string;
+  newestTimestamp: string;
+}
+
+function getActionableSignals(signals: Signal[], quadrant: Quadrant): CombinedSignal[] {
   const rule = QUADRANT_RULES[quadrant];
   if (rule.action === 'SKIP') return [];
 
@@ -197,14 +204,49 @@ function getActionableSignals(signals: Signal[], quadrant: Quadrant): Signal[] {
   const now = Date.now();
   const hourAgo = now - 60 * 60 * 1000;
 
-  return signals.filter(s => {
+  const recentSignals = signals.filter(s => {
     const ts = new Date(s.timestamp).getTime();
     const isRecent = ts >= hourAgo;
     const isTriggered = (s.state === 'triggered' || s.state === 'deep_extreme') &&
                         s.eventType === 'triggered' &&
                         s.entryPrice;
     return isRecent && isTriggered;
-  }).slice(0, 10); // Top 10 most recent
+  });
+
+  // Group by symbol and direction
+  const grouped = new Map<string, Signal[]>();
+  for (const s of recentSignals) {
+    const key = `${s.symbol}_${s.direction}`;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push(s);
+  }
+
+  // Combine signals for each symbol
+  const combined: CombinedSignal[] = [];
+  for (const [_, signals] of grouped) {
+    // Sort by timestamp, newest first
+    signals.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    const newest = signals[0];
+    const oldest = signals[signals.length - 1];
+    const timeframes = [...new Set(signals.map(s => s.timeframe))].sort();
+
+    combined.push({
+      ...newest,
+      timeframes,
+      signalCount: signals.length,
+      oldestTimestamp: oldest.timestamp,
+      newestTimestamp: newest.timestamp,
+    });
+  }
+
+  // Sort by signal count (stronger signals first), then by time
+  combined.sort((a, b) => {
+    if (b.signalCount !== a.signalCount) return b.signalCount - a.signalCount;
+    return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+  });
+
+  return combined.slice(0, 10); // Top 10
 }
 
 // ============= MEXC URL Generator =============
@@ -847,6 +889,66 @@ export function getFocusModeHtml(configKeyParam?: string): string {
     .trade-quality.poor { background: #bd561d; color: white; }
     .trade-quality.bad { background: #da3633; color: white; }
 
+    /* Signal Strength Styles */
+    .signal-strength {
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: bold;
+      animation: pulse 2s infinite;
+    }
+    .signal-strength.strong {
+      background: linear-gradient(135deg, #ff6b35, #f7931e);
+      color: white;
+      box-shadow: 0 0 10px rgba(255, 107, 53, 0.5);
+    }
+    .signal-strength.multi {
+      background: linear-gradient(135deg, #7c3aed, #a855f7);
+      color: white;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.8; }
+    }
+
+    /* Multi-TF card highlight */
+    .trade-card.signal-strong {
+      border: 2px solid #ff6b35 !important;
+      box-shadow: 0 0 15px rgba(255, 107, 53, 0.3);
+    }
+    .trade-card.signal-multi {
+      border: 2px solid #a855f7 !important;
+      box-shadow: 0 0 10px rgba(168, 85, 247, 0.2);
+    }
+
+    /* Timeframes row */
+    .timeframes-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      flex-wrap: wrap;
+    }
+    .tf-label {
+      color: #8b949e;
+      font-size: 11px;
+    }
+    .tf-badge {
+      background: #30363d;
+      color: #58a6ff;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .signal-count {
+      color: #8b949e;
+      font-size: 11px;
+      margin-left: auto;
+    }
+
     /* R:R Highlight Row */
     .rr-highlight {
       background: #21262d;
@@ -1325,14 +1427,29 @@ export function getFocusModeHtml(configKeyParam?: string): string {
                           smart.riskRewardRatio >= 1 ? '⚠️ FAIR' :
                           smart.riskRewardRatio >= 0.7 ? '⚠️ POOR' : '❌ UNFAVORABLE';
 
+          // Signal strength indicator
+          const signalCount = (s as any).signalCount || 1;
+          const timeframes = (s as any).timeframes || [s.timeframe];
+          const strengthLabel = signalCount >= 3 ? '🔥🔥🔥 STRONG' :
+                                signalCount >= 2 ? '🔥🔥 MULTI-TF' : '';
+          const strengthClass = signalCount >= 3 ? 'strong' : signalCount >= 2 ? 'multi' : 'single';
+
           return `
-            <div class="trade-card ${action.toLowerCase()} rr-${rrClass}">
+            <div class="trade-card ${action.toLowerCase()} rr-${rrClass} signal-${strengthClass}">
               <div class="trade-card-header">
                 <span class="trade-symbol">${s.symbol}</span>
                 <span class="trade-action ${action.toLowerCase()}">${action}</span>
+                ${signalCount > 1 ? `<span class="signal-strength ${strengthClass}">${strengthLabel}</span>` : ''}
                 <span class="trade-quality ${rrClass}">${rrLabel}</span>
                 <span class="trade-time">${timeAgo}m ago</span>
               </div>
+              ${signalCount > 1 ? `
+              <div class="timeframes-row">
+                <span class="tf-label">Timeframes:</span>
+                ${timeframes.map((tf: string) => `<span class="tf-badge">${tf}</span>`).join('')}
+                <span class="signal-count">(${signalCount} signals)</span>
+              </div>
+              ` : ''}
 
               <div class="trade-card-body">
                 <div class="price-levels">
@@ -1381,7 +1498,7 @@ export function getFocusModeHtml(configKeyParam?: string): string {
               </div>
 
               <div class="trade-card-footer">
-                <a href="${tradeUrl}" target="_blank" class="trade-btn ${action.toLowerCase()}">
+                <a href="#" onclick="openMexcTrade('${s.symbol}'); return false;" class="trade-btn ${action.toLowerCase()}">
                   Open ${action} on MEXC →
                 </a>
               </div>
@@ -1417,6 +1534,31 @@ export function getFocusModeHtml(configKeyParam?: string): string {
     let notificationsEnabled = false;
     let audioEnabled = true;
     let audioContext = null;
+
+    // Get link destination setting from shared localStorage (same as Screener)
+    function getLinkDestination() {
+      try {
+        const settings = localStorage.getItem('backburner_appSettings');
+        if (settings) {
+          const parsed = JSON.parse(settings);
+          return parsed.linkDestination || 'futures';
+        }
+      } catch (e) {}
+      return 'futures';  // default to futures for Focus Mode
+    }
+
+    // Open MEXC trade URL based on shared settings
+    function openMexcTrade(symbol) {
+      const base = symbol.replace('USDT', '');
+      const dest = getLinkDestination();
+      let url;
+      if (dest === 'bots') {
+        url = 'https://www.mexc.com/futures/trading-bots/grid/' + base + '_USDT';
+      } else {
+        url = 'https://www.mexc.com/futures/' + base + '_USDT';
+      }
+      window.open(url, '_blank');
+    }
 
     function setLeverage(lev) {
       currentLeverage = lev;

@@ -347,3 +347,77 @@ Continue monitoring through **Jan 17-18** (3-4 more days) to capture:
 1. **Top performer:** shadow-10pct10x-sl25 with +$5.70 (100% win rate)
 2. **Underperformer:** Trail Wide with $-194.75
 3. **Average win rate across all bots:** 26.7%
+
+---
+
+## 2026-01-19
+
+**Analysis Timestamp:** 2026-01-19T06:10:51.890Z
+**Market Context:** Bearish (mostly shorts)
+**Total Trades:** 141 | **Total P&L:** $-1738.63
+
+### Performance Summary
+
+| Bot | Trades | Wins | Losses | Win Rate | Total P&L | Avg P&L |
+|-----|--------|------|--------|----------|-----------|---------|
+| Fixed TP/SL | 3 | 1 | 2 | 33% | +$37.71 | +$12.57 |
+| wide-2cb | 10 | 2 | 8 | 20% | +$35.46 | +$3.55 |
+| shadow-10pct10x-sl15 | 7 | 1 | 6 | 14% | +$13.46 | +$1.92 |
+| shadow-10pct10x-sl10 | 7 | 1 | 6 | 14% | +$8.21 | +$1.17 |
+| Trail Light (1%) | 8 | 1 | 7 | 13% | $-12.36 | $-1.54 |
+| GP-Conservative | 3 | 0 | 3 | 0% | $-27.87 | $-9.29 |
+| Trail Standard (10x) | 8 | 1 | 7 | 13% | $-44.70 | $-5.59 |
+| GP-Standard | 3 | 0 | 3 | 0% | $-85.66 | $-28.55 |
+| shadow-10pct10x-sl25 | 8 | 1 | 7 | 13% | $-93.66 | $-11.71 |
+| standard | 10 | 4 | 6 | 40% | $-111.24 | $-11.12 |
+| shadow-10pct10x-sl30 | 8 | 1 | 7 | 13% | $-112.64 | $-14.08 |
+| GP-Aggressive | 3 | 0 | 3 | 0% | $-123.86 | $-41.29 |
+| standard-05cb | 12 | 5 | 7 | 42% | $-154.37 | $-12.86 |
+| Trail Aggressive (20x) | 9 | 1 | 8 | 11% | $-165.24 | $-18.36 |
+| aggressive-2cb | 10 | 0 | 10 | 0% | $-171.82 | $-17.18 |
+| GP-YOLO | 2 | 0 | 2 | 0% | $-179.75 | $-89.87 |
+| aggressive | 13 | 0 | 13 | 0% | $-206.22 | $-15.86 |
+| Trail Wide | 17 | 3 | 14 | 18% | $-344.09 | $-20.24 |
+
+### Notable Winning Trades
+
+- **Fixed TP/SL**: ZEN +$37.71
+- **wide-2cb**: VIRTUAL +$256.76
+- **shadow-10pct10x-sl15**: GLM +$167.45
+
+### Observations
+
+1. **Top performer:** Fixed TP/SL with +$37.71 (33% win rate)
+2. **Underperformer:** Trail Wide with $-344.09
+3. **Average win rate across all bots:** 13.5%
+
+---
+
+## 2026-01-20
+
+**Analysis Timestamp:** 2026-01-20T05:58:35.149Z
+**Market Context:** Bullish (mostly longs)
+**Total Trades:** 6 | **Total P&L:** $-48.16
+
+### Performance Summary
+
+| Bot | Trades | Wins | Losses | Win Rate | Total P&L | Avg P&L |
+|-----|--------|------|--------|----------|-----------|---------|
+| aggressive | 1 | 1 | 0 | 100% | +$36.57 | +$36.57 |
+| standard-05cb | 1 | 1 | 0 | 100% | +$23.62 | +$23.62 |
+| standard | 1 | 1 | 0 | 100% | +$18.36 | +$18.36 |
+| aggressive-2cb | 1 | 0 | 1 | 0% | $-14.43 | $-14.43 |
+| Trail Wide | 1 | 0 | 1 | 0% | $-56.14 | $-56.14 |
+| wide-2cb | 1 | 0 | 1 | 0% | $-56.14 | $-56.14 |
+
+### Notable Winning Trades
+
+- **aggressive**: ZBCN +$36.57
+- **standard-05cb**: ZBCN +$23.62
+- **standard**: ZBCN +$18.36
+
+### Observations
+
+1. **Top performer:** aggressive with +$36.57 (100% win rate)
+2. **Underperformer:** wide-2cb with $-56.14
+3. **Average win rate across all bots:** 50.0%
