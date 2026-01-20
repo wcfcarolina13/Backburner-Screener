@@ -1545,7 +1545,7 @@ export function getFocusModeHtml(configKeyParam?: string): string {
     // Get link destination setting from shared localStorage (same as Screener)
     function getLinkDestination() {
       try {
-        const settings = localStorage.getItem('backburner_appSettings');
+        const settings = localStorage.getItem('backburner_settings');
         if (settings) {
           const parsed = JSON.parse(settings);
           return parsed.linkDestination || 'futures';
