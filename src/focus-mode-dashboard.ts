@@ -30,6 +30,9 @@ interface Signal {
   state: string;
   eventType: string;
   coinName?: string;
+  triggeredAt?: number;
+  playedOutAt?: number;
+  detectedAt?: number;
 }
 
 type MacroRegime = 'BULL' | 'BEAR' | 'NEU';
@@ -194,59 +197,104 @@ interface CombinedSignal extends Signal {
   signalCount: number;   // Number of signals combined
   oldestTimestamp: string;
   newestTimestamp: string;
+  triggeredAtDisplay?: string;  // Formatted triggered time
+  playedOutAtDisplay?: string;  // Formatted played out time
 }
 
-function getActionableSignals(signals: Signal[], quadrant: Quadrant): CombinedSignal[] {
+function formatTimestamp(ts: number | string | undefined): string {
+  if (!ts) return '';
+  const date = typeof ts === 'number' ? new Date(ts) : new Date(ts);
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatTimeAgo(ts: number | string | undefined): string {
+  if (!ts) return '';
+  const time = typeof ts === 'number' ? ts : new Date(ts).getTime();
+  const mins = Math.round((Date.now() - time) / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ${mins % 60}m ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+interface SignalGroups {
+  active: CombinedSignal[];
+  archive: CombinedSignal[];
+}
+
+function getSignalGroups(signals: Signal[], quadrant: Quadrant): SignalGroups {
   const rule = QUADRANT_RULES[quadrant];
-  if (rule.action === 'SKIP') return [];
 
-  // Get triggered signals from last hour
   const now = Date.now();
-  const hourAgo = now - 60 * 60 * 1000;
+  const last24h = now - 24 * 60 * 60 * 1000;
+  const lastHour = now - 60 * 60 * 1000;
 
+  // Filter to recent signals (24h for archive, 1h for active)
   const recentSignals = signals.filter(s => {
     const ts = new Date(s.timestamp).getTime();
-    const isRecent = ts >= hourAgo;
-    const isTriggered = (s.state === 'triggered' || s.state === 'deep_extreme') &&
-                        s.eventType === 'triggered' &&
-                        s.entryPrice;
-    return isRecent && isTriggered;
+    const hasEntry = s.entryPrice && (s.eventType === 'triggered' || s.state === 'triggered' || s.state === 'deep_extreme' || s.state === 'played_out');
+    return ts >= last24h && hasEntry;
   });
 
-  // Group by symbol and direction
-  const grouped = new Map<string, Signal[]>();
-  for (const s of recentSignals) {
-    const key = `${s.symbol}_${s.direction}`;
-    if (!grouped.has(key)) grouped.set(key, []);
-    grouped.get(key)!.push(s);
-  }
+  // Separate active vs played out
+  const activeSignals = recentSignals.filter(s =>
+    s.state !== 'played_out' && new Date(s.timestamp).getTime() >= lastHour
+  );
+  const playedOutSignals = recentSignals.filter(s => s.state === 'played_out');
 
-  // Combine signals for each symbol
-  const combined: CombinedSignal[] = [];
-  for (const [_, signals] of grouped) {
-    // Sort by timestamp, newest first
-    signals.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  // Helper to combine signals by symbol
+  const combineSignals = (sigs: Signal[]): CombinedSignal[] => {
+    const grouped = new Map<string, Signal[]>();
+    for (const s of sigs) {
+      const key = `${s.symbol}_${s.direction}`;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key)!.push(s);
+    }
 
-    const newest = signals[0];
-    const oldest = signals[signals.length - 1];
-    const timeframes = [...new Set(signals.map(s => s.timeframe))].sort();
+    const combined: CombinedSignal[] = [];
+    for (const [_, groupSignals] of grouped) {
+      groupSignals.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      const newest = groupSignals[0];
+      const oldest = groupSignals[groupSignals.length - 1];
+      const timeframes = [...new Set(groupSignals.map(s => s.timeframe))].sort();
 
-    combined.push({
-      ...newest,
-      timeframes,
-      signalCount: signals.length,
-      oldestTimestamp: oldest.timestamp,
-      newestTimestamp: newest.timestamp,
+      combined.push({
+        ...newest,
+        timeframes,
+        signalCount: groupSignals.length,
+        oldestTimestamp: oldest.timestamp,
+        newestTimestamp: newest.timestamp,
+        triggeredAtDisplay: formatTimestamp(newest.triggeredAt || newest.timestamp),
+        playedOutAtDisplay: newest.playedOutAt ? formatTimestamp(newest.playedOutAt) : undefined,
+      });
+    }
+
+    // Sort by signal count, then time
+    combined.sort((a, b) => {
+      if (b.signalCount !== a.signalCount) return b.signalCount - a.signalCount;
+      return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
     });
+
+    return combined;
+  };
+
+  // If SKIP regime, return empty active but show archive
+  if (rule.action === 'SKIP') {
+    return {
+      active: [],
+      archive: combineSignals(playedOutSignals).slice(0, 20),
+    };
   }
 
-  // Sort by signal count (stronger signals first), then by time
-  combined.sort((a, b) => {
-    if (b.signalCount !== a.signalCount) return b.signalCount - a.signalCount;
-    return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
-  });
+  return {
+    active: combineSignals(activeSignals).slice(0, 10),
+    archive: combineSignals(playedOutSignals).slice(0, 20),
+  };
+}
 
-  return combined.slice(0, 10); // Top 10
+// Keep for backward compatibility
+function getActionableSignals(signals: Signal[], quadrant: Quadrant): CombinedSignal[] {
+  return getSignalGroups(signals, quadrant).active;
 }
 
 // ============= MEXC URL Generator =============
@@ -621,7 +669,9 @@ export function getFocusModeHtml(configKeyParam?: string): string {
   const micro = getMicroRegime(signals, config);
   const quadrant: Quadrant = `${macro.regime}+${micro.regime}`;
   const rule = QUADRANT_RULES[quadrant];
-  const actionableSignals = getActionableSignals(signals, quadrant);
+  const signalGroups = getSignalGroups(signals, quadrant);
+  const actionableSignals = signalGroups.active;
+  const archivedSignals = signalGroups.archive;
 
   // Get alignment across all configs
   const allAlignments = getAllConfigAlignments(signals);
@@ -1087,6 +1137,99 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       color: #c9d1d9;
     }
 
+    /* Search filter */
+    .search-filter {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+    .search-input {
+      flex: 1;
+      padding: 10px 15px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #c9d1d9;
+      font-size: 14px;
+    }
+    .search-input:focus {
+      outline: none;
+      border-color: #58a6ff;
+    }
+    .search-input::placeholder {
+      color: #6e7681;
+    }
+    .search-count {
+      color: #8b949e;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    /* Archive section */
+    .archive-section {
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid #30363d;
+    }
+    .archive-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 15px;
+      cursor: pointer;
+    }
+    .archive-header h3 {
+      margin: 0;
+      color: #8b949e;
+      font-size: 16px;
+    }
+    .archive-toggle {
+      color: #6e7681;
+      font-size: 12px;
+    }
+    .archive-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 10px;
+    }
+    .archive-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 12px;
+      opacity: 0.7;
+    }
+    .archive-card:hover {
+      opacity: 1;
+    }
+    .archive-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .archive-symbol {
+      font-weight: bold;
+      color: #c9d1d9;
+    }
+    .archive-timestamps {
+      font-size: 11px;
+      color: #6e7681;
+      margin-top: 8px;
+    }
+    .archive-timestamps span {
+      display: block;
+    }
+    .played-out-badge {
+      background: #21262d;
+      color: #6e7681;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      text-decoration: line-through;
+    }
+
     .leverage-selector {
       margin: 20px 0;
       padding: 15px;
@@ -1463,8 +1606,13 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       `).join('')}
     </div>
 
+    <div class="search-filter">
+      <input type="text" id="signal-search" class="search-input" placeholder="🔍 Filter by symbol (e.g., BTC, ETH, DOGE...)" oninput="filterSignals(this.value)">
+      <span class="search-count" id="search-count">${actionableSignals.length} active</span>
+    </div>
+
     <div class="signals-header">
-      <h2>🔥 Actionable Signals (Last Hour)</h2>
+      <h2>🔥 Active Signals (Last Hour)</h2>
       ${actionableSignals.length > 0 ? `
       <div class="collapse-controls">
         <button class="collapse-btn" onclick="collapseAllCards()">▲ Collapse All</button>
@@ -1505,16 +1653,19 @@ export function getFocusModeHtml(configKeyParam?: string): string {
                                 signalCount >= 2 ? '🔥🔥 MULTI-TF' : '';
           const strengthClass = signalCount >= 3 ? 'strong' : signalCount >= 2 ? 'multi' : 'single';
 
+          // Timestamp display
+          const triggeredTime = (s as any).triggeredAtDisplay || formatTimestamp(s.triggeredAt || s.timestamp);
+
           const cardId = `card-${s.symbol}-${action}`.replace(/[^a-zA-Z0-9-]/g, '');
 
           return `
-            <div class="trade-card ${action.toLowerCase()} rr-${rrClass} signal-${strengthClass}" id="${cardId}">
+            <div class="trade-card ${action.toLowerCase()} rr-${rrClass} signal-${strengthClass}" id="${cardId}" data-symbol="${s.symbol}">
               <div class="trade-card-header" onclick="toggleCard('${cardId}')">
-                <span class="trade-symbol">${s.symbol}</span>
+                <span class="trade-symbol">${s.symbol.replace('USDT', '')}</span>
                 <span class="trade-action ${action.toLowerCase()}">${action}</span>
                 ${signalCount > 1 ? `<span class="signal-strength ${strengthClass}">${strengthLabel}</span>` : ''}
                 <span class="trade-quality ${rrClass}">${rrLabel}</span>
-                <span class="trade-time">${timeAgo}m ago</span>
+                <span class="trade-time" title="Triggered at ${triggeredTime}">${timeAgo}m ago</span>
                 <span class="collapse-icon">▼</span>
               </div>
 
@@ -1589,6 +1740,39 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       </div>
     `}
 
+    ${archivedSignals.length > 0 ? `
+    <div class="archive-section" id="archive-section">
+      <div class="archive-header" onclick="toggleArchive()">
+        <h3>📦 Played Out (Last 24h) - ${archivedSignals.length} signals</h3>
+        <span class="archive-toggle" id="archive-toggle">▼ Show</span>
+      </div>
+      <div class="archive-cards" id="archive-cards" style="display: none;">
+        ${archivedSignals.map(s => {
+          const direction = s.direction.toUpperCase();
+          const signalCount = s.signalCount || 1;
+          const timeframes = s.timeframes || [s.timeframe];
+          const strengthLabel = signalCount >= 3 ? '🔥🔥🔥' : signalCount >= 2 ? '🔥🔥' : '';
+
+          return `
+          <div class="archive-card" data-symbol="${s.symbol}">
+            <div class="archive-card-header">
+              <span class="archive-symbol">${s.symbol.replace('USDT', '')}</span>
+              <span class="trade-action ${direction.toLowerCase()}">${direction}</span>
+              ${strengthLabel ? `<span class="signal-strength">${strengthLabel}</span>` : ''}
+              <span class="played-out-badge">played out</span>
+            </div>
+            <div class="archive-timestamps">
+              <span>⏱️ Triggered: ${s.triggeredAtDisplay || formatTimeAgo(s.timestamp)}</span>
+              <span>✓ Played out: ${s.playedOutAtDisplay || 'N/A'}</span>
+              ${timeframes.length > 1 ? `<span>📊 Timeframes: ${timeframes.join(', ')}</span>` : ''}
+            </div>
+          </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+    ` : ''}
+
     <div class="refresh-note">
       Polling every 10s, full refresh every 60s | Last update: <span id="last-update">${new Date().toLocaleTimeString()}</span>
     </div>
@@ -1656,6 +1840,42 @@ export function getFocusModeHtml(configKeyParam?: string): string {
         url = 'https://www.mexc.com/futures/' + base + '_USDT';
       }
       window.open(url, '_blank');
+    }
+
+    // Search/filter signals
+    function filterSignals(query) {
+      const q = query.toUpperCase().trim();
+      const cards = document.querySelectorAll('.trade-card');
+      const archiveCards = document.querySelectorAll('.archive-card');
+      let visibleCount = 0;
+
+      cards.forEach(card => {
+        const symbol = card.id.replace('card-', '').split('-')[0].toUpperCase();
+        const matches = !q || symbol.includes(q);
+        card.style.display = matches ? '' : 'none';
+        if (matches) visibleCount++;
+      });
+
+      // Also filter archive
+      archiveCards.forEach(card => {
+        const symbol = (card.getAttribute('data-symbol') || '').toUpperCase();
+        const matches = !q || symbol.includes(q);
+        card.style.display = matches ? '' : 'none';
+      });
+
+      document.getElementById('search-count').textContent = visibleCount + ' active';
+    }
+
+    // Toggle archive section
+    let archiveExpanded = false;
+    function toggleArchive() {
+      archiveExpanded = !archiveExpanded;
+      const cards = document.getElementById('archive-cards');
+      const toggle = document.getElementById('archive-toggle');
+      if (cards && toggle) {
+        cards.style.display = archiveExpanded ? 'grid' : 'none';
+        toggle.textContent = archiveExpanded ? '▲ Hide' : '▼ Show';
+      }
     }
 
     // Card collapse functionality
