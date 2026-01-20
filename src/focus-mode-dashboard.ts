@@ -1230,6 +1230,126 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       text-decoration: line-through;
     }
 
+    /* Position Monitor Styles */
+    .position-monitor {
+      margin-top: 10px;
+      padding: 12px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+    }
+    .position-monitor.active {
+      border-color: #58a6ff;
+      background: #0d1117;
+    }
+    .monitor-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      margin-bottom: 8px;
+    }
+    .monitor-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #58a6ff;
+    }
+    .monitor-summary {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+    }
+    .monitor-badge {
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .monitor-badge.healthy { background: #238636; color: white; }
+    .monitor-badge.warning { background: #9e6a03; color: white; }
+    .monitor-badge.danger { background: #da3633; color: white; }
+
+    .monitor-content {
+      display: grid;
+      gap: 8px;
+    }
+    .monitor-content.collapsed {
+      display: none;
+    }
+
+    .health-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      background: #161b22;
+      border-radius: 6px;
+      font-size: 12px;
+    }
+    .health-label {
+      color: #8b949e;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .health-value {
+      font-weight: 600;
+    }
+    .health-value.good { color: #3fb950; }
+    .health-value.warning { color: #d29922; }
+    .health-value.bad { color: #f85149; }
+    .health-value.neutral { color: #8b949e; }
+
+    .monitor-suggestion {
+      padding: 10px;
+      background: #21262d;
+      border-radius: 6px;
+      border-left: 3px solid #58a6ff;
+      font-size: 12px;
+      color: #c9d1d9;
+    }
+    .monitor-suggestion.warning {
+      border-left-color: #d29922;
+      background: #1c1c00;
+    }
+    .monitor-suggestion.action {
+      border-left-color: #3fb950;
+      background: #0d1a0d;
+    }
+
+    .enter-trade-btn {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      background: transparent;
+      border: 1px dashed #30363d;
+      border-radius: 6px;
+      color: #8b949e;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.2s;
+    }
+    .enter-trade-btn:hover {
+      border-color: #58a6ff;
+      color: #58a6ff;
+      background: #0d1117;
+    }
+    .exit-trade-btn {
+      padding: 6px 12px;
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      color: #8b949e;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .exit-trade-btn:hover {
+      background: #da3633;
+      border-color: #da3633;
+      color: white;
+    }
+
     .leverage-selector {
       margin: 20px 0;
       padding: 15px;
@@ -1722,6 +1842,43 @@ export function getFocusModeHtml(configKeyParam?: string): string {
                 </div>
                 ` : ''}
 
+                <!-- Position Monitor Section -->
+                <div class="position-monitor" id="monitor-${cardId}" data-symbol="${s.symbol}" data-direction="${action}" data-entry="${entryPrice}" data-rsi="${s.rsi || 50}" data-triggered="${s.triggeredAt || Date.now()}">
+                  <button class="enter-trade-btn" id="enter-btn-${cardId}" onclick="enterTrade('${cardId}', '${s.symbol}', '${action}', ${entryPrice}, ${s.rsi || 50})">
+                    📊 I'm in this trade - Start Monitoring
+                  </button>
+                  <div class="monitor-active" id="monitor-active-${cardId}" style="display: none;">
+                    <div class="monitor-header" onclick="toggleMonitor('${cardId}')">
+                      <span class="monitor-title">📊 Position Monitor</span>
+                      <div class="monitor-summary">
+                        <span class="monitor-badge healthy" id="monitor-badge-${cardId}">✓ Healthy</span>
+                        <button class="exit-trade-btn" onclick="event.stopPropagation(); exitTrade('${cardId}')">Exit Monitor</button>
+                      </div>
+                    </div>
+                    <div class="monitor-content" id="monitor-content-${cardId}">
+                      <div class="health-indicator">
+                        <span class="health-label">⏱️ Time in Trade</span>
+                        <span class="health-value neutral" id="health-time-${cardId}">0m</span>
+                      </div>
+                      <div class="health-indicator">
+                        <span class="health-label">📈 RSI Status</span>
+                        <span class="health-value neutral" id="health-rsi-${cardId}">--</span>
+                      </div>
+                      <div class="health-indicator">
+                        <span class="health-label">🎯 Regime Alignment</span>
+                        <span class="health-value neutral" id="health-regime-${cardId}">--</span>
+                      </div>
+                      <div class="health-indicator">
+                        <span class="health-label">📍 Distance to Target</span>
+                        <span class="health-value neutral" id="health-target-${cardId}">--</span>
+                      </div>
+                      <div class="monitor-suggestion" id="monitor-suggestion-${cardId}">
+                        💡 Monitoring active. Health updates every 10s.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <div class="trade-card-footer">
                   <a href="#" onclick="openMexcTrade('${s.symbol}'); return false;" class="trade-btn ${action.toLowerCase()}">
                     Open ${action} on MEXC →
@@ -1876,6 +2033,201 @@ export function getFocusModeHtml(configKeyParam?: string): string {
         cards.style.display = archiveExpanded ? 'grid' : 'none';
         toggle.textContent = archiveExpanded ? '▲ Hide' : '▼ Show';
       }
+    }
+
+    // ============= Position Monitor =============
+    let activePositions = {};  // { cardId: { symbol, direction, entryPrice, entryRsi, enteredAt } }
+
+    function loadActivePositions() {
+      try {
+        const saved = localStorage.getItem('focusMode_positions');
+        if (saved) activePositions = JSON.parse(saved);
+      } catch (e) {}
+    }
+
+    function saveActivePositions() {
+      try {
+        localStorage.setItem('focusMode_positions', JSON.stringify(activePositions));
+      } catch (e) {}
+    }
+
+    function enterTrade(cardId, symbol, direction, entryPrice, entryRsi) {
+      activePositions[cardId] = {
+        symbol,
+        direction,
+        entryPrice,
+        entryRsi,
+        enteredAt: Date.now()
+      };
+      saveActivePositions();
+
+      // Update UI
+      document.getElementById('enter-btn-' + cardId).style.display = 'none';
+      document.getElementById('monitor-active-' + cardId).style.display = 'block';
+
+      // Expand the card if collapsed
+      const card = document.getElementById(cardId);
+      if (card) card.classList.remove('collapsed');
+
+      updatePositionHealth(cardId);
+      showToast('📊 Position monitor started for ' + symbol.replace('USDT', ''));
+    }
+
+    function exitTrade(cardId) {
+      delete activePositions[cardId];
+      saveActivePositions();
+
+      // Update UI
+      const enterBtn = document.getElementById('enter-btn-' + cardId);
+      const monitorActive = document.getElementById('monitor-active-' + cardId);
+      if (enterBtn) enterBtn.style.display = 'block';
+      if (monitorActive) monitorActive.style.display = 'none';
+
+      showToast('Position monitor stopped');
+    }
+
+    function toggleMonitor(cardId) {
+      const content = document.getElementById('monitor-content-' + cardId);
+      if (content) {
+        content.classList.toggle('collapsed');
+      }
+    }
+
+    function updatePositionHealth(cardId) {
+      const pos = activePositions[cardId];
+      if (!pos) return;
+
+      const monitor = document.getElementById('monitor-' + cardId);
+      if (!monitor) return;
+
+      // Calculate health indicators
+      const now = Date.now();
+      const timeInTrade = now - pos.enteredAt;
+      const timeMinutes = Math.floor(timeInTrade / 60000);
+      const timeHours = Math.floor(timeMinutes / 60);
+
+      // Time health
+      let timeStatus = 'good';
+      let timeText = timeMinutes + 'm';
+      if (timeHours >= 24) {
+        timeStatus = 'bad';
+        timeText = Math.floor(timeHours / 24) + 'd ' + (timeHours % 24) + 'h';
+      } else if (timeHours >= 12) {
+        timeStatus = 'warning';
+        timeText = timeHours + 'h ' + (timeMinutes % 60) + 'm';
+      } else if (timeHours >= 1) {
+        timeText = timeHours + 'h ' + (timeMinutes % 60) + 'm';
+      }
+
+      // RSI analysis (would need live data - simplified for now)
+      const entryRsi = pos.entryRsi || 50;
+      const isLong = pos.direction === 'LONG';
+      let rsiStatus = 'neutral';
+      let rsiText = 'Entry RSI: ' + entryRsi.toFixed(0);
+
+      if (isLong) {
+        if (entryRsi <= 30) rsiText += ' (Oversold ✓)';
+        else if (entryRsi >= 60) { rsiText += ' (Overbought ⚠️)'; rsiStatus = 'warning'; }
+      } else {
+        if (entryRsi >= 70) rsiText += ' (Overbought ✓)';
+        else if (entryRsi <= 40) { rsiText += ' (Oversold ⚠️)'; rsiStatus = 'warning'; }
+      }
+
+      // Regime alignment (from current quadrant)
+      const currentQuadrant = '${quadrant}';
+      const currentAction = '${rule.action}';
+      let regimeStatus = 'good';
+      let regimeText = currentQuadrant + ' → ' + currentAction;
+
+      if (currentAction === 'SKIP') {
+        regimeStatus = 'warning';
+        regimeText += ' (Regime changed!)';
+      } else if (currentAction !== pos.direction) {
+        regimeStatus = 'bad';
+        regimeText += ' (Opposite direction!)';
+      } else {
+        regimeText += ' (Aligned ✓)';
+      }
+
+      // Update UI elements
+      const timeEl = document.getElementById('health-time-' + cardId);
+      const rsiEl = document.getElementById('health-rsi-' + cardId);
+      const regimeEl = document.getElementById('health-regime-' + cardId);
+      const targetEl = document.getElementById('health-target-' + cardId);
+      const badgeEl = document.getElementById('monitor-badge-' + cardId);
+      const suggestionEl = document.getElementById('monitor-suggestion-' + cardId);
+
+      if (timeEl) {
+        timeEl.textContent = timeText;
+        timeEl.className = 'health-value ' + timeStatus;
+      }
+      if (rsiEl) {
+        rsiEl.textContent = rsiText;
+        rsiEl.className = 'health-value ' + rsiStatus;
+      }
+      if (regimeEl) {
+        regimeEl.textContent = regimeText;
+        regimeEl.className = 'health-value ' + regimeStatus;
+      }
+      if (targetEl) {
+        targetEl.textContent = 'Monitoring...';
+        targetEl.className = 'health-value neutral';
+      }
+
+      // Calculate overall health and suggestion
+      const warnings = [timeStatus, rsiStatus, regimeStatus].filter(s => s === 'warning').length;
+      const dangers = [timeStatus, rsiStatus, regimeStatus].filter(s => s === 'bad').length;
+
+      if (badgeEl) {
+        if (dangers > 0) {
+          badgeEl.textContent = '⚠️ ' + dangers + ' Alert' + (dangers > 1 ? 's' : '');
+          badgeEl.className = 'monitor-badge danger';
+        } else if (warnings > 0) {
+          badgeEl.textContent = '⚠️ ' + warnings + ' Warning' + (warnings > 1 ? 's' : '');
+          badgeEl.className = 'monitor-badge warning';
+        } else {
+          badgeEl.textContent = '✓ Healthy';
+          badgeEl.className = 'monitor-badge healthy';
+        }
+      }
+
+      if (suggestionEl) {
+        if (dangers > 0 || regimeStatus === 'bad') {
+          suggestionEl.textContent = '🚨 Consider exiting: Regime has changed against your position.';
+          suggestionEl.className = 'monitor-suggestion warning';
+        } else if (timeHours >= 12) {
+          suggestionEl.textContent = '⏰ Trade aging: Consider taking profits or tightening stop loss.';
+          suggestionEl.className = 'monitor-suggestion warning';
+        } else if (warnings >= 2) {
+          suggestionEl.textContent = '⚠️ Multiple warnings: Review your position and consider adjustments.';
+          suggestionEl.className = 'monitor-suggestion warning';
+        } else if (timeHours >= 4) {
+          suggestionEl.textContent = '💡 Position stable. Consider moving stop to breakeven if in profit.';
+          suggestionEl.className = 'monitor-suggestion action';
+        } else {
+          suggestionEl.textContent = '💡 Position looks healthy. Let it develop.';
+          suggestionEl.className = 'monitor-suggestion';
+        }
+      }
+    }
+
+    function updateAllPositionHealth() {
+      Object.keys(activePositions).forEach(cardId => {
+        updatePositionHealth(cardId);
+      });
+    }
+
+    function restoreActivePositions() {
+      loadActivePositions();
+      Object.keys(activePositions).forEach(cardId => {
+        const enterBtn = document.getElementById('enter-btn-' + cardId);
+        const monitorActive = document.getElementById('monitor-active-' + cardId);
+        if (enterBtn && monitorActive) {
+          enterBtn.style.display = 'none';
+          monitorActive.style.display = 'block';
+          updatePositionHealth(cardId);
+        }
+      });
     }
 
     // Card collapse functionality
@@ -2154,8 +2506,14 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       // Restore collapsed card states
       restoreCollapsedState();
 
+      // Restore active position monitors
+      restoreActivePositions();
+
       // Start polling every 10 seconds
       setInterval(checkForUpdates, 10000);
+
+      // Update position health every 10 seconds
+      setInterval(updateAllPositionHealth, 10000);
 
       // Refresh full page every 60 seconds to get new signals list
       setTimeout(() => location.reload(), 60000);
