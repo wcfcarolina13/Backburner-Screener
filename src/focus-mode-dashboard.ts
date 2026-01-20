@@ -1032,6 +1032,61 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       font-size: 16px;
     }
 
+    /* Collapsible card styles */
+    .trade-card-header {
+      cursor: pointer;
+      user-select: none;
+    }
+    .trade-card-header:hover {
+      background: #30363d;
+    }
+    .collapse-icon {
+      margin-left: auto;
+      transition: transform 0.2s ease;
+      color: #6e7681;
+      font-size: 12px;
+    }
+    .trade-card.collapsed .collapse-icon {
+      transform: rotate(-90deg);
+    }
+    .trade-card-collapsible {
+      transition: max-height 0.3s ease, opacity 0.2s ease;
+      overflow: hidden;
+    }
+    .trade-card.collapsed .trade-card-collapsible {
+      max-height: 0 !important;
+      opacity: 0;
+      padding: 0;
+    }
+
+    /* Signals header with collapse controls */
+    .signals-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 15px;
+    }
+    .signals-header h2 {
+      margin: 0;
+    }
+    .collapse-controls {
+      display: flex;
+      gap: 8px;
+    }
+    .collapse-btn {
+      padding: 6px 12px;
+      background: #21262d;
+      border: 1px solid #30363d;
+      color: #8b949e;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .collapse-btn:hover {
+      background: #30363d;
+      color: #c9d1d9;
+    }
+
     .leverage-selector {
       margin: 20px 0;
       padding: 15px;
@@ -1408,7 +1463,15 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       `).join('')}
     </div>
 
-    <h2>🔥 Actionable Signals (Last Hour)</h2>
+    <div class="signals-header">
+      <h2>🔥 Actionable Signals (Last Hour)</h2>
+      ${actionableSignals.length > 0 ? `
+      <div class="collapse-controls">
+        <button class="collapse-btn" onclick="collapseAllCards()">▲ Collapse All</button>
+        <button class="collapse-btn" onclick="expandAllCards()">▼ Expand All</button>
+      </div>
+      ` : ''}
+    </div>
     ${actionableSignals.length > 0 ? `
       <div class="trade-cards">
         ${actionableSignals.map(s => {
@@ -1442,24 +1505,20 @@ export function getFocusModeHtml(configKeyParam?: string): string {
                                 signalCount >= 2 ? '🔥🔥 MULTI-TF' : '';
           const strengthClass = signalCount >= 3 ? 'strong' : signalCount >= 2 ? 'multi' : 'single';
 
+          const cardId = `card-${s.symbol}-${action}`.replace(/[^a-zA-Z0-9-]/g, '');
+
           return `
-            <div class="trade-card ${action.toLowerCase()} rr-${rrClass} signal-${strengthClass}">
-              <div class="trade-card-header">
+            <div class="trade-card ${action.toLowerCase()} rr-${rrClass} signal-${strengthClass}" id="${cardId}">
+              <div class="trade-card-header" onclick="toggleCard('${cardId}')">
                 <span class="trade-symbol">${s.symbol}</span>
                 <span class="trade-action ${action.toLowerCase()}">${action}</span>
                 ${signalCount > 1 ? `<span class="signal-strength ${strengthClass}">${strengthLabel}</span>` : ''}
                 <span class="trade-quality ${rrClass}">${rrLabel}</span>
                 <span class="trade-time">${timeAgo}m ago</span>
+                <span class="collapse-icon">▼</span>
               </div>
-              ${signalCount > 1 ? `
-              <div class="timeframes-row">
-                <span class="tf-label">Timeframes:</span>
-                ${timeframes.map((tf: string) => `<span class="tf-badge">${tf}</span>`).join('')}
-                <span class="signal-count">(${signalCount} signals)</span>
-              </div>
-              ` : ''}
 
-              <div class="trade-card-body">
+              <div class="trade-card-collapsible">
                 <div class="price-levels">
                   <div class="level-row resistance">
                     <span class="level-label">📈 Resistance</span>
@@ -1503,12 +1562,20 @@ export function getFocusModeHtml(configKeyParam?: string): string {
                     <span class="sizing-value position">${smart.suggestedPositionPct.toFixed(0)}% of balance</span>
                   </div>
                 </div>
-              </div>
 
-              <div class="trade-card-footer">
-                <a href="#" onclick="openMexcTrade('${s.symbol}'); return false;" class="trade-btn ${action.toLowerCase()}">
-                  Open ${action} on MEXC →
-                </a>
+                ${signalCount > 1 ? `
+                <div class="timeframes-row">
+                  <span class="tf-label">Timeframes:</span>
+                  ${timeframes.map((tf: string) => `<span class="tf-badge">${tf}</span>`).join('')}
+                  <span class="signal-count">(${signalCount} signals)</span>
+                </div>
+                ` : ''}
+
+                <div class="trade-card-footer">
+                  <a href="#" onclick="openMexcTrade('${s.symbol}'); return false;" class="trade-btn ${action.toLowerCase()}">
+                    Open ${action} on MEXC →
+                  </a>
+                </div>
               </div>
             </div>
           `;
@@ -1589,6 +1656,48 @@ export function getFocusModeHtml(configKeyParam?: string): string {
         url = 'https://www.mexc.com/futures/' + base + '_USDT';
       }
       window.open(url, '_blank');
+    }
+
+    // Card collapse functionality
+    function toggleCard(cardId) {
+      const card = document.getElementById(cardId);
+      if (card) {
+        card.classList.toggle('collapsed');
+        saveCollapsedState();
+      }
+    }
+
+    function collapseAllCards() {
+      document.querySelectorAll('.trade-card').forEach(card => card.classList.add('collapsed'));
+      saveCollapsedState();
+    }
+
+    function expandAllCards() {
+      document.querySelectorAll('.trade-card').forEach(card => card.classList.remove('collapsed'));
+      saveCollapsedState();
+    }
+
+    function saveCollapsedState() {
+      const collapsed = [];
+      document.querySelectorAll('.trade-card.collapsed').forEach(card => {
+        if (card.id) collapsed.push(card.id);
+      });
+      try {
+        localStorage.setItem('focusMode_collapsedCards', JSON.stringify(collapsed));
+      } catch (e) {}
+    }
+
+    function restoreCollapsedState() {
+      try {
+        const saved = localStorage.getItem('focusMode_collapsedCards');
+        if (saved) {
+          const collapsed = JSON.parse(saved);
+          collapsed.forEach(cardId => {
+            const card = document.getElementById(cardId);
+            if (card) card.classList.add('collapsed');
+          });
+        }
+      } catch (e) {}
     }
 
     function setLeverage(lev) {
@@ -1821,6 +1930,9 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       updateNotificationButton();
       updateAudioButton();
       updateLinkButton();
+
+      // Restore collapsed card states
+      restoreCollapsedState();
 
       // Start polling every 10 seconds
       setInterval(checkForUpdates, 10000);
