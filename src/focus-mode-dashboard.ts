@@ -1329,8 +1329,8 @@ export function getFocusModeHtml(configKeyParam?: string): string {
         </select>
       </div>
       <div class="alert-controls">
-        <button id="notif-btn" class="alert-btn" onclick="enableNotifications()">🔕 Enable Notifications</button>
-        <button id="audio-btn" class="alert-btn active" onclick="toggleAudio()">🔊 Audio ON</button>
+        <button id="notif-btn" class="alert-btn" onclick="toggleNotifications()">🔕 Notifications OFF</button>
+        <button id="audio-btn" class="alert-btn" onclick="toggleAudio()">🔊 Audio ON</button>
         <button class="alert-btn" onclick="playAlert('LONG')">🔊 Test Sound</button>
       </div>
     </div>
@@ -1538,9 +1538,28 @@ export function getFocusModeHtml(configKeyParam?: string): string {
     let currentLeverage = 10;
     let lastQuadrant = '${quadrant}';
     let lastActionableCount = ${actionableSignals.length};
-    let notificationsEnabled = false;
-    let audioEnabled = true;
     let audioContext = null;
+
+    // Load Focus Mode settings from localStorage (separate from Screener)
+    function loadFocusModeSettings() {
+      try {
+        const saved = localStorage.getItem('focusMode_settings');
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+      return { notificationsEnabled: false, audioEnabled: true };
+    }
+
+    function saveFocusModeSettings() {
+      try {
+        localStorage.setItem('focusMode_settings', JSON.stringify({
+          notificationsEnabled,
+          audioEnabled
+        }));
+      } catch (e) {}
+    }
+
+    // Initialize from saved settings
+    let { notificationsEnabled, audioEnabled } = loadFocusModeSettings();
 
     // Get link destination setting from shared localStorage (same as Screener)
     function getLinkDestination() {
@@ -1618,6 +1637,7 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       if ('Notification' in window) {
         const permission = await Notification.requestPermission();
         notificationsEnabled = permission === 'granted';
+        saveFocusModeSettings();
         updateNotificationButton();
         if (notificationsEnabled) {
           showToast('🔔 Notifications enabled!');
@@ -1625,16 +1645,30 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       }
     }
 
+    // Toggle notifications on/off
+    function toggleNotifications() {
+      if (!notificationsEnabled && Notification.permission !== 'granted') {
+        // Need to request permission first
+        enableNotifications();
+        return;
+      }
+      notificationsEnabled = !notificationsEnabled;
+      saveFocusModeSettings();
+      updateNotificationButton();
+      showToast(notificationsEnabled ? '🔔 Notifications enabled' : '🔕 Notifications disabled');
+    }
+
     function updateNotificationButton() {
       const btn = document.getElementById('notif-btn');
       if (btn) {
-        btn.textContent = notificationsEnabled ? '🔔 Notifications ON' : '🔕 Enable Notifications';
+        btn.textContent = notificationsEnabled ? '🔔 Notifications ON' : '🔕 Notifications OFF';
         btn.classList.toggle('active', notificationsEnabled);
       }
     }
 
     function toggleAudio() {
       audioEnabled = !audioEnabled;
+      saveFocusModeSettings();
       const btn = document.getElementById('audio-btn');
       if (btn) {
         btn.textContent = audioEnabled ? '🔊 Audio ON' : '🔇 Audio OFF';
@@ -1771,11 +1805,16 @@ export function getFocusModeHtml(configKeyParam?: string): string {
 
     // Initialize
     document.addEventListener('DOMContentLoaded', () => {
-      // Check notification permission status
-      if ('Notification' in window && Notification.permission === 'granted') {
-        notificationsEnabled = true;
+      // Settings are already loaded from localStorage at script start
+      // But if browser permission was revoked, disable notifications
+      if (notificationsEnabled && 'Notification' in window && Notification.permission !== 'granted') {
+        notificationsEnabled = false;
+        saveFocusModeSettings();
       }
+
+      // Update UI to match loaded settings
       updateNotificationButton();
+      updateAudioButton();
 
       // Start polling every 10 seconds
       setInterval(checkForUpdates, 10000);
@@ -1783,6 +1822,14 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       // Refresh full page every 60 seconds to get new signals list
       setTimeout(() => location.reload(), 60000);
     });
+
+    function updateAudioButton() {
+      const btn = document.getElementById('audio-btn');
+      if (btn) {
+        btn.textContent = audioEnabled ? '🔊 Audio ON' : '🔇 Audio OFF';
+        btn.classList.toggle('active', audioEnabled);
+      }
+    }
 
     // Wake up audio context on first interaction
     document.addEventListener('click', () => {
