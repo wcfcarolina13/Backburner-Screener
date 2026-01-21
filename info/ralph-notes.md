@@ -186,10 +186,72 @@ src/
     └── logging.ts
 ```
 
-## Priority Order
-1. **Extract HTML from web-server.ts** (biggest impact, lowest risk)
-2. **Create routes directory** (modular API)
-3. **Abstract base bot class** (reduce duplication)
+## Refactoring Progress
+
+### Phase 1 ✅ Complete (Jan 21, 2026)
+**Extract CSS/JS to static files**
+
+| File | Before | After | Reduction |
+|------|--------|-------|-----------|
+| web-server.ts | 7883 | 5042 | -36% |
+| focus-mode-dashboard.ts | 4841 | 1211 | -75% |
+
+Static files created:
+- `src/views/css/dashboard.css` (182 lines)
+- `src/views/js/dashboard.js` (2662 lines)
+- `src/views/css/focus-mode.css` (1549 lines)
+- `src/views/js/focus-mode.js` (2088 lines)
+
+### Phase 2 ✅ Complete (Jan 21, 2026)
+**Add route modules infrastructure**
+
+New files:
+- `src/server-context.ts` (61 lines) - Shared state interface
+- `src/routes/settings.ts` (108 lines) - Settings API routes
+- `src/routes/focus-mode.ts` (71 lines) - Focus mode routes
+- `src/routes/index.ts` (7 lines) - Route exports
+
+Route modules mounted at:
+- `/api/*` - Settings routes (daily-reset, notifications, investment)
+- `/api/focus/*` - Focus mode routes
+
+Note: Original routes still exist as fallback; future cleanup will remove duplicates.
+
+### Phase 3 ✅ Complete (Jan 21, 2026)
+**Abstract base bot class**
+
+New files in `src/bots/`:
+- `base-bot.ts` (~450 lines) - Abstract base class with shared infrastructure
+- `btc-trend-bot-v2.ts` (~200 lines) - Proof of concept refactored bot
+- `index.ts` - Exports all bot classes
+
+BaseBot provides:
+- `BaseBot<TConfig, TPosition, TMarketData, TStats>` - Generic abstract class
+- `SinglePositionBot` - For bots that maintain one position (e.g., BTC bots)
+- `MultiPositionBot` - For bots that maintain multiple positions (e.g., Golden Pocket)
+
+Shared functionality (no longer duplicated):
+- Balance and margin management
+- Position size calculation
+- PnL calculation (unrealized and realized)
+- Stats tracking (win rate, profit factor, drawdown)
+- Trailing stop infrastructure with ROI-based levels
+- Breakeven lock mechanism
+- Trade logging hooks
+
+Variant-specific (abstract methods):
+- `canEnter(data)` - Whether to open a position
+- `calculateStops(entry, direction, data)` - TP/SL calculation
+- `shouldExit(position, data)` - Custom exit conditions
+- Position storage methods (key generation, store, get, remove)
+
+Migration path:
+1. Create V2 version extending BaseBot (like `btc-trend-bot-v2.ts`)
+2. Test V2 alongside original
+3. Swap out when confident
+4. Delete old implementation
+
+### Remaining Phases
 4. **Consolidate backtests** (clean up experiments)
 
 ## Files Safe to Archive
