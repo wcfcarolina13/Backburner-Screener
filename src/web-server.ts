@@ -1440,6 +1440,9 @@ async function handleNewSetup(setup: BackburnerSetup) {
           leverage: result.position.leverage,
           takeProfitPrice: result.position.takeProfit,
           stopLossPrice: result.position.stopLoss,
+          // Focus Mode specific fields for regime analysis
+          entryQuadrant: result.position.entryQuadrant,
+          entryQuality: result.position.entryQuality,
         };
         dataPersistence.logTradeOpen(botId, positionForLog as any, setup);
       }
@@ -5064,6 +5067,11 @@ async function main() {
             leverage: closedPos.leverage,
             takeProfitPrice: closedPos.takeProfit,
             stopLossPrice: closedPos.stopLoss,
+            // Focus Mode specific fields for regime analysis
+            entryQuadrant: closedPos.entryQuadrant,
+            entryQuality: closedPos.entryQuality,
+            trailActivated: closedPos.trailActivated,
+            highestPnlPercent: closedPos.highestPnlPercent,
           };
           dataPersistence.logTradeClose(botId, positionForClose as any);
         }
