@@ -46,6 +46,8 @@ import { getDataPersistence } from './data-persistence.js';
 import { initSchema as initTursoSchema, isTursoConfigured, executeReadQuery, getDatabaseStats } from './turso-db.js';
 import { getFocusModeHtml, getFocusModeApiData, calculateSmartTradeSetup } from './focus-mode-dashboard.js';
 import type { BackburnerSetup, Timeframe } from './types.js';
+import { createSettingsRouter, createFocusModeRouter } from './routes/index.js';
+import type { ServerContext } from './server-context.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -2257,6 +2259,42 @@ function getFullState() {
     },
   };
 }
+
+// Create server context for route modules
+const serverContext: ServerContext = {
+  settings: serverSettings,
+  saveSettings: saveServerSettings,
+  resetAllBots,
+  updateAllBotsInitialBalance,
+  toggleBot: (botId: string, enabled: boolean) => {
+    botVisibility[botId] = enabled;
+  },
+  botToggles: botVisibility,
+  broadcastState,
+  getFullState,
+  clients,
+  getCurrentDateString,
+  screener,
+  paperEngine: fixedTPBot, // Main paper engine reference
+  trailingEngine: trailing1pctBot,
+  trailWideBot,
+  confluenceBot,
+  btcExtremeBot,
+  btcTrendBot,
+  trendOverrideBot,
+  trendFlipBot,
+  fadeBot: fadeBots,
+  goldenPocketBots,
+  gp2Bots: goldenPocketBotsV2,
+  focusShadowBots,
+  spotRegimeBots,
+  focusModeManager: focusMode,
+  notificationManager: notifier,
+};
+
+// Mount extracted route modules
+app.use('/api', express.json(), createSettingsRouter(serverContext));
+app.use('/api/focus', express.json(), createFocusModeRouter(serverContext));
 
 // Serve static HTML - Screener (main page)
 app.get('/', (req, res) => {
