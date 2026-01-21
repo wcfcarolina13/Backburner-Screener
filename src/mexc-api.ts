@@ -281,6 +281,25 @@ export interface FuturesTickerInfo {
   amount24: number;        // 24h volume in quote currency (USDT)
 }
 
+// Extended market data for multi-indicator bias system
+export interface FuturesMarketData {
+  symbol: string;
+  lastPrice: number;
+  indexPrice: number;      // Spot index price
+  fairPrice: number;       // Mark price for liquidations
+  fundingRate: number;     // Current funding rate (e.g., 0.0001 = 0.01%)
+  nextFundingTime: number; // Timestamp of next funding
+  openInterest: number;    // Total open contracts (holdVol)
+  volume24h: number;       // 24h volume in contracts
+  turnover24h: number;     // 24h turnover in USDT
+  bid1: number;            // Best bid price
+  ask1: number;            // Best ask price
+  high24h: number;         // 24h high
+  low24h: number;          // 24h low
+  priceChange24h: number;  // 24h price change %
+  timestamp: number;
+}
+
 // Get all futures contracts from MEXC
 export async function getFuturesContracts(): Promise<FuturesSymbolInfo[]> {
   const url = `${MEXC_FUTURES_API}/api/v1/contract/detail`;
@@ -319,6 +338,77 @@ export async function getFuturesTickers(): Promise<FuturesTickerInfo[]> {
     volume24: t.volume24 as number,
     amount24: t.amount24 as number,
   }));
+}
+
+// Get extended market data for a single symbol (includes funding rate, open interest)
+export async function getFuturesMarketData(symbol: string): Promise<FuturesMarketData | null> {
+  try {
+    const url = `${MEXC_FUTURES_API}/api/v1/contract/ticker?symbol=${symbol}`;
+    const response = await fetchWithRetry(url);
+    const data = await response.json();
+
+    if (!data.success || !data.data) {
+      return null;
+    }
+
+    const t = data.data;
+    return {
+      symbol: t.symbol,
+      lastPrice: t.lastPrice || 0,
+      indexPrice: t.indexPrice || t.lastPrice || 0,
+      fairPrice: t.fairPrice || t.lastPrice || 0,
+      fundingRate: t.fundingRate || 0,
+      nextFundingTime: t.nextSettleTime || 0,
+      openInterest: t.holdVol || 0,
+      volume24h: t.volume24 || 0,
+      turnover24h: t.amount24 || 0,
+      bid1: t.bid1 || 0,
+      ask1: t.ask1 || 0,
+      high24h: t.high24 || 0,
+      low24h: t.low24 || 0,
+      priceChange24h: t.riseFallRate || 0,
+      timestamp: Date.now(),
+    };
+  } catch (error) {
+    console.error(`Error fetching market data for ${symbol}:`, error);
+    return null;
+  }
+}
+
+// Get funding rate history for a symbol
+export interface FundingRateHistory {
+  symbol: string;
+  fundingRate: number;
+  settleTime: number;
+}
+
+export async function getFundingRateHistory(
+  symbol: string,
+  pageSize = 20
+): Promise<FundingRateHistory[]> {
+  try {
+    const url = `${MEXC_FUTURES_API}/api/v1/contract/funding_rate/history?symbol=${symbol}&page_num=1&page_size=${pageSize}`;
+    const response = await fetchWithRetry(url);
+    const data = await response.json();
+
+    if (!data.success || !data.data?.resultList) {
+      return [];
+    }
+
+    return data.data.resultList.map((r: Record<string, unknown>) => ({
+      symbol: r.symbol as string,
+      fundingRate: r.fundingRate as number,
+      settleTime: r.settleTime as number,
+    }));
+  } catch (error) {
+    console.error(`Error fetching funding rate history for ${symbol}:`, error);
+    return [];
+  }
+}
+
+// Get BTC market data specifically for bias calculations
+export async function getBtcMarketData(): Promise<FuturesMarketData | null> {
+  return getFuturesMarketData('BTC_USDT');
 }
 
 // Futures kline interval mapping (different from spot)

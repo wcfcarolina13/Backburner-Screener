@@ -38,7 +38,8 @@ import { BackburnerDetector } from './backburner-detector.js';
 import { GoldenPocketBot } from './golden-pocket-bot.js';
 import { GoldenPocketBotV2 } from './golden-pocket-bot-v2.js';
 import { GoldenPocketDetectorV2 } from './golden-pocket-detector-v2.js';
-import { getKlines, getFuturesKlines, spotSymbolToFutures, getCurrentPrice, getPrice } from './mexc-api.js';
+import { getKlines, getFuturesKlines, spotSymbolToFutures, getCurrentPrice, getPrice, getBtcMarketData } from './mexc-api.js';
+import { getMarketBiasSystemB, type SystemBBiasResult } from './market-bias-system-b.js';
 import { getCurrentRSI, calculateRSI, calculateSMA, detectDivergence } from './indicators.js';
 import { DEFAULT_CONFIG } from './config.js';
 import { getDataPersistence } from './data-persistence.js';
@@ -2981,6 +2982,58 @@ app.get('/api/btc-rsi', async (req, res) => {
   }
 });
 
+// System B Bias endpoint - Multi-indicator bias (funding rate, OI, etc)
+app.get('/api/bias-system-b', async (req, res) => {
+  try {
+    const systemB = getMarketBiasSystemB();
+
+    // Get RSI data to pass to System B (it combines with other indicators)
+    const rsiData: Record<string, { rsi: number; signal: string }> = {};
+    const timeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h'];
+
+    for (const tf of timeframes) {
+      try {
+        const candles = await getKlines('BTCUSDT', tf, 50);
+        if (candles && candles.length >= 20) {
+          const rsiResults = calculateRSI(candles, 14);
+          if (rsiResults.length > 0) {
+            const currentRsi = rsiResults[rsiResults.length - 1].value;
+            const rsiValues = rsiResults.map(r => r.value);
+            const rsiSma = calculateSMA(rsiValues.slice(-9), 9);
+            const signal = currentRsi > rsiSma[rsiSma.length - 1] ? 'bullish' : 'bearish';
+            rsiData[tf] = { rsi: currentRsi, signal };
+          }
+        }
+      } catch (e) {
+        // Skip timeframe on error
+      }
+    }
+
+    const result = await systemB.calculateBias(Object.keys(rsiData).length > 0 ? rsiData : undefined);
+
+    res.json({
+      success: true,
+      systemB: {
+        bias: result.bias,
+        score: result.score,
+        confidence: result.confidence,
+        reason: result.reason,
+        indicators: result.indicators,
+        marketData: result.marketData ? {
+          price: result.marketData.lastPrice,
+          fundingRate: (result.marketData.fundingRate * 100).toFixed(4) + '%',
+          openInterest: result.marketData.openInterest,
+          volume24h: result.marketData.volume24h,
+          priceChange24h: result.marketData.priceChange24h.toFixed(2) + '%',
+        } : null,
+      },
+      timestamp: Date.now(),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
 // Database query endpoint (read-only, for external analysis)
 app.get('/api/db-stats', async (req, res) => {
   const result = await getDatabaseStats();
@@ -4354,32 +4407,96 @@ function getHtmlPage(): string {
     </div>
     </div><!-- End botCardsContent -->
 
-    <!-- BTC RSI Multi-Timeframe Chart -->
+    <!-- BTC Market Bias Systems (A/B Testing) -->
     <div class="card" style="margin-top: 20px;">
       <div class="card-header">
-        <span class="card-title">📊 BTC RSI Multi-Timeframe</span>
+        <span class="card-title">📊 BTC Market Bias</span>
         <div style="display: flex; gap: 8px; align-items: center;">
-          <span style="font-size: 11px; color: #8b949e;">RSI(14) vs SMA(9)</span>
           <button onclick="refreshBtcRsi()" id="refreshRsiBtn" style="padding: 4px 12px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #c9d1d9; font-size: 12px; cursor: pointer;">
             Refresh
           </button>
         </div>
       </div>
 
-      <!-- Market Bias Indicator -->
-      <div id="marketBiasBox" style="margin-bottom: 16px; padding: 16px; background: #0d1117; border-radius: 8px; border: 2px solid #30363d; text-align: center;">
-        <div style="display: flex; justify-content: center; align-items: center; gap: 12px; flex-wrap: wrap;">
-          <div>
-            <div style="font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px;">Market Bias</div>
-            <div id="marketBiasLabel" style="font-size: 28px; font-weight: bold; color: #8b949e; margin: 4px 0;">-</div>
+      <!-- Bias System Tabs -->
+      <div style="display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid #30363d;">
+        <button id="tabSystemA" onclick="switchBiasTab('A')" class="bias-tab active" style="padding: 10px 20px; border: none; background: transparent; color: #58a6ff; font-size: 13px; font-weight: 600; cursor: pointer; border-bottom: 2px solid #58a6ff;">
+          System A (RSI Only)
+        </button>
+        <button id="tabSystemB" onclick="switchBiasTab('B')" class="bias-tab" style="padding: 10px 20px; border: none; background: transparent; color: #8b949e; font-size: 13px; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent;">
+          System B (Multi-Indicator)
+        </button>
+      </div>
+
+      <!-- System A: RSI Multi-Timeframe (Current) -->
+      <div id="biasSystemA" style="display: block;">
+        <div id="marketBiasBox" style="margin-bottom: 16px; padding: 16px; background: #0d1117; border-radius: 8px; border: 2px solid #30363d; text-align: center;">
+          <div style="display: flex; justify-content: center; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div>
+              <div style="font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px;">Market Bias (RSI)</div>
+              <div id="marketBiasLabel" style="font-size: 28px; font-weight: bold; color: #8b949e; margin: 4px 0;">-</div>
+            </div>
+            <div style="text-align: left;">
+              <div id="marketBiasReason" style="font-size: 13px; color: #c9d1d9;">Analyzing...</div>
+              <div id="marketBiasScore" style="font-size: 11px; color: #6e7681;">Score: -</div>
+            </div>
           </div>
-          <div style="text-align: left;">
-            <div id="marketBiasReason" style="font-size: 13px; color: #c9d1d9;">Analyzing...</div>
-            <div id="marketBiasScore" style="font-size: 11px; color: #6e7681;">Score: -</div>
+          <div id="marketBiasAdvice" style="margin-top: 12px; padding: 8px 12px; background: #161b22; border-radius: 6px; font-size: 12px; color: #8b949e;">
+            Waiting for data...
           </div>
         </div>
-        <div id="marketBiasAdvice" style="margin-top: 12px; padding: 8px 12px; background: #161b22; border-radius: 6px; font-size: 12px; color: #8b949e;">
-          Waiting for data...
+      </div>
+
+      <!-- System B: Multi-Indicator (Funding Rate, OI, etc) -->
+      <div id="biasSystemB" style="display: none;">
+        <div id="marketBiasBoxB" style="margin-bottom: 16px; padding: 16px; background: #0d1117; border-radius: 8px; border: 2px solid #1f6feb; text-align: center;">
+          <div style="display: flex; justify-content: center; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div>
+              <div style="font-size: 11px; color: #58a6ff; text-transform: uppercase; letter-spacing: 1px;">Market Bias (Multi-Indicator)</div>
+              <div id="marketBiasLabelB" style="font-size: 28px; font-weight: bold; color: #8b949e; margin: 4px 0;">-</div>
+            </div>
+            <div style="text-align: left;">
+              <div id="marketBiasReasonB" style="font-size: 13px; color: #c9d1d9;">Analyzing...</div>
+              <div id="marketBiasScoreB" style="font-size: 11px; color: #6e7681;">Score: - | Confidence: -</div>
+            </div>
+          </div>
+
+          <!-- Indicator Breakdown -->
+          <div id="indicatorBreakdown" style="margin-top: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; text-align: left;">
+            <div class="indicator-box" id="indRSI" style="padding: 10px; background: #161b22; border-radius: 6px; border: 1px solid #30363d;">
+              <div style="font-size: 10px; color: #8b949e; text-transform: uppercase;">RSI Multi-TF</div>
+              <div style="font-size: 14px; font-weight: bold; color: #8b949e; margin: 2px 0;">-</div>
+              <div style="font-size: 10px; color: #6e7681;">-</div>
+            </div>
+            <div class="indicator-box" id="indFunding" style="padding: 10px; background: #161b22; border-radius: 6px; border: 1px solid #30363d;">
+              <div style="font-size: 10px; color: #8b949e; text-transform: uppercase;">Funding Rate</div>
+              <div style="font-size: 14px; font-weight: bold; color: #8b949e; margin: 2px 0;">-</div>
+              <div style="font-size: 10px; color: #6e7681;">-</div>
+            </div>
+            <div class="indicator-box" id="indOI" style="padding: 10px; background: #161b22; border-radius: 6px; border: 1px solid #30363d;">
+              <div style="font-size: 10px; color: #8b949e; text-transform: uppercase;">Open Interest</div>
+              <div style="font-size: 14px; font-weight: bold; color: #8b949e; margin: 2px 0;">-</div>
+              <div style="font-size: 10px; color: #6e7681;">-</div>
+            </div>
+            <div class="indicator-box" id="indPremium" style="padding: 10px; background: #161b22; border-radius: 6px; border: 1px solid #30363d;">
+              <div style="font-size: 10px; color: #8b949e; text-transform: uppercase;">Premium/Discount</div>
+              <div style="font-size: 14px; font-weight: bold; color: #8b949e; margin: 2px 0;">-</div>
+              <div style="font-size: 10px; color: #6e7681;">-</div>
+            </div>
+            <div class="indicator-box" id="indMomentum" style="padding: 10px; background: #161b22; border-radius: 6px; border: 1px solid #30363d;">
+              <div style="font-size: 10px; color: #8b949e; text-transform: uppercase;">Momentum</div>
+              <div style="font-size: 14px; font-weight: bold; color: #8b949e; margin: 2px 0;">-</div>
+              <div style="font-size: 10px; color: #6e7681;">-</div>
+            </div>
+          </div>
+
+          <!-- Market Data Summary -->
+          <div id="marketDataSummary" style="margin-top: 12px; padding: 8px 12px; background: #161b22; border-radius: 6px; font-size: 11px; color: #8b949e; display: flex; justify-content: center; gap: 16px; flex-wrap: wrap;">
+            <span>Price: <span id="mdPrice">-</span></span>
+            <span>Funding: <span id="mdFunding">-</span></span>
+            <span>OI: <span id="mdOI">-</span></span>
+            <span>24h: <span id="mdChange">-</span></span>
+          </div>
         </div>
       </div>
 
@@ -6766,6 +6883,117 @@ function getHtmlPage(): string {
       '1m': '#a371f7',
     };
 
+    // Current bias system tab ('A' or 'B')
+    let currentBiasTab = 'A';
+
+    function switchBiasTab(tab) {
+      currentBiasTab = tab;
+      const tabA = document.getElementById('tabSystemA');
+      const tabB = document.getElementById('tabSystemB');
+      const panelA = document.getElementById('biasSystemA');
+      const panelB = document.getElementById('biasSystemB');
+
+      if (tab === 'A') {
+        tabA.style.color = '#58a6ff';
+        tabA.style.borderBottomColor = '#58a6ff';
+        tabB.style.color = '#8b949e';
+        tabB.style.borderBottomColor = 'transparent';
+        panelA.style.display = 'block';
+        panelB.style.display = 'none';
+      } else {
+        tabA.style.color = '#8b949e';
+        tabA.style.borderBottomColor = 'transparent';
+        tabB.style.color = '#58a6ff';
+        tabB.style.borderBottomColor = '#58a6ff';
+        panelA.style.display = 'none';
+        panelB.style.display = 'block';
+        // Fetch System B data
+        refreshSystemB();
+      }
+    }
+
+    async function refreshSystemB() {
+      try {
+        const res = await fetch('/api/bias-system-b');
+        const data = await res.json();
+        if (data.success && data.systemB) {
+          updateSystemBDisplay(data.systemB);
+        }
+      } catch (err) {
+        console.error('Failed to fetch System B bias:', err);
+      }
+    }
+
+    function updateSystemBDisplay(sb) {
+      // Update main bias display
+      const biasLabel = document.getElementById('marketBiasLabelB');
+      const biasReason = document.getElementById('marketBiasReasonB');
+      const biasScore = document.getElementById('marketBiasScoreB');
+      const biasBox = document.getElementById('marketBiasBoxB');
+
+      const biasColors = {
+        'strong_long': '#3fb950',
+        'long': '#56d364',
+        'neutral': '#8b949e',
+        'short': '#f85149',
+        'strong_short': '#da3633',
+      };
+      const biasLabels = {
+        'strong_long': '🟢 STRONG LONG',
+        'long': '📈 LONG',
+        'neutral': '⚖️ NEUTRAL',
+        'short': '📉 SHORT',
+        'strong_short': '🔴 STRONG SHORT',
+      };
+
+      biasLabel.textContent = biasLabels[sb.bias] || sb.bias.toUpperCase();
+      biasLabel.style.color = biasColors[sb.bias] || '#8b949e';
+      biasReason.textContent = sb.reason;
+      biasScore.textContent = 'Score: ' + sb.score + ' | Confidence: ' + sb.confidence + '%';
+      biasBox.style.borderColor = biasColors[sb.bias] || '#30363d';
+
+      // Update individual indicators
+      const indicatorMap = {
+        'RSI Multi-TF': 'indRSI',
+        'Funding Rate': 'indFunding',
+        'Open Interest': 'indOI',
+        'Premium/Discount': 'indPremium',
+        'Momentum': 'indMomentum',
+      };
+
+      const signalColors = {
+        'bullish': '#3fb950',
+        'bearish': '#f85149',
+        'neutral': '#8b949e',
+      };
+      const signalLabels = {
+        'bullish': '📈 Bullish',
+        'bearish': '📉 Bearish',
+        'neutral': '➖ Neutral',
+      };
+
+      for (const ind of sb.indicators || []) {
+        const boxId = indicatorMap[ind.name];
+        if (!boxId) continue;
+        const box = document.getElementById(boxId);
+        if (!box) continue;
+
+        const children = box.children;
+        children[1].textContent = signalLabels[ind.signal] || ind.signal;
+        children[1].style.color = signalColors[ind.signal] || '#8b949e';
+        children[2].textContent = ind.description || '';
+        box.style.borderColor = signalColors[ind.signal] || '#30363d';
+      }
+
+      // Update market data summary
+      if (sb.marketData) {
+        document.getElementById('mdPrice').textContent = '$' + (sb.marketData.price?.toLocaleString() || '-');
+        document.getElementById('mdFunding').textContent = sb.marketData.fundingRate || '-';
+        document.getElementById('mdOI').textContent = sb.marketData.openInterest?.toLocaleString() || '-';
+        document.getElementById('mdChange').textContent = sb.marketData.priceChange24h || '-';
+      }
+    }
+
     async function refreshBtcRsi() {
       const btn = document.getElementById('refreshRsiBtn');
       btn.textContent = '...';
@@ -6777,6 +7005,11 @@ function getHtmlPage(): string {
         updateBtcSignalSummary(data);
         updateMarketBias(data);
         updateMomentumIndicators(data);
+
+        // Also refresh System B if that tab is active
+        if (currentBiasTab === 'B') {
+          refreshSystemB();
+        }
       } catch (err) {
         console.error('Failed to fetch BTC RSI:', err);
       } finally {
