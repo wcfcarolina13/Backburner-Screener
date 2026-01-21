@@ -251,13 +251,53 @@ Migration path:
 3. Swap out when confident
 4. Delete old implementation
 
-### Remaining Phases
-4. **Consolidate backtests** (clean up experiments)
+### Phase 4 ✅ Complete (Jan 21, 2026)
+**Consolidate backtests and debug files**
 
-## Files Safe to Archive
-These appear to be one-off experiments:
-- check-rsi-debug.ts
-- debug-signals.ts
-- check-symbol.ts
-- v2-validation.ts
-- Most backtest-*.ts files (keep backtest-engine.ts)
+Organized 26 files (~13,000 lines) into structured folders:
+
+**Kept in src/ (core infrastructure):**
+- `backtest-engine.ts` - Core simulation engine
+- `backtest-cli.ts` - Command line interface
+- `backtest-combined.ts` - 4H trend + 5m fade strategy
+- `backtest-combined-db.ts` - Same, using Turso DB signals
+- `backtest-combined-candles.ts` - Same, candle-aligned
+- `backtest-fixed-be.ts` - Fixed TP/SL with breakeven
+- `forensic-backtest.ts` - Conservative validation
+
+**Moved to src/debug/:**
+- `debug-signals.ts` - Signal alignment checker
+- `check-rsi-debug.ts` - RSI calculation validator
+- `check-symbol.ts` - Symbol lookup utility
+- `v2-validation.ts` - V2 validation tests
+
+**Archived to src/archive/backtest-experiments/:**
+- `backtest-contrarian.ts` - Bearish regime only
+- `backtest-counter-trend.ts` - Mean reversion
+- `backtest-skip-bearish.ts` - Cash during bear
+- `backtest-macro-aware.ts` - 2-level regime
+- `backtest-regime-matrix.ts` - Quadrant testing
+- `backtest-spot-only.ts` - Spot vs futures comparison
+- `backtest-spot-real.ts` - Historical spot analysis
+- `backtest-spot-aligned.ts` - Spot with BTC alignment
+- `backtest-spot-turso.ts` - Spot using Turso DB
+- `backtest-spot-regime-realistic.ts` - Spot regime validation
+- `backtest-gp-4h.ts` - Golden Pocket 4H zones
+- `backtest-gp-4h-aligned.ts` - GP 4H with alignment
+- `backtest-window-comparison.ts` - Regime window tuning
+- `backtest-leverage-comparison.ts` - Leverage analysis
+- `backtest-leveraged-regime.ts` - Regime + leverage
+
+## Refactoring Complete
+
+All 4 phases complete:
+1. ✅ Extract CSS/JS to static files
+2. ✅ Add route modules infrastructure
+3. ✅ Abstract base bot class
+4. ✅ Consolidate backtests
+
+**Results:**
+- web-server.ts: 7883 → 5042 lines (-36%)
+- focus-mode-dashboard.ts: 4841 → 1211 lines (-75%)
+- Bot duplication: Centralized in BaseBot class
+- Backtest organization: 26 files organized into 3 categories
