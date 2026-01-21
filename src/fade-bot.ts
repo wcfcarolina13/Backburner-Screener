@@ -336,4 +336,6 @@ export class FadeBot {
     this.positions.clear();
     this.closedPositions = [];
   }
+
+  setInitialBalance(amount: number): void { this.config.initialBalance = amount; }
 }

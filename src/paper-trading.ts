@@ -637,4 +637,12 @@ export class PaperTradingEngine {
     this.balance = this.config.initialBalance;
     this.peakBalance = this.config.initialBalance;
   }
+
+  /**
+   * Update the initial balance configuration
+   * Used when syncing with real MEXC investment amount
+   */
+  setInitialBalance(amount: number): void {
+    this.config.initialBalance = amount;
+  }
 }

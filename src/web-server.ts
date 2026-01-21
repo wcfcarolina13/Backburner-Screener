@@ -11,6 +11,21 @@ import { BTCTrendBot } from './btc-trend-bot.js';
 import { TrendOverrideBot } from './trend-override-bot.js';
 import { TrendFlipBot } from './trend-flip-bot.js';
 import { FadeBot } from './fade-bot.js';
+import { SpotRegimeBot, createStrictFilterBot, createLooseFilterBot, createStandardFilterBot, createContrarianOnlyBot } from './spot-regime-bot.js';
+import {
+  FocusModeShadowBot,
+  createBaselineBot as createFocusBaselineBot,
+  createConflictCloseBot,
+  createExcellentOverflowBot,
+  createHybridBot,
+  createAggressiveBot as createFocusAggressiveBot,
+  createConservativeBot as createFocusConservativeBot,
+  createKellySizingBot,
+  createContrarianOnlyBot as createFocusContrarianBot,
+  type FocusModeSignal,
+  type SetupQuality,
+  type Quadrant,
+} from './focus-mode-shadow-bot.js';
 // V2 CHANGE: BTC Bias bots REMOVED - 0% win rate, responsible for 40% of losses (~$7,459)
 // import { createBtcBiasBotsV2, type BiasLevel } from './btc-bias-bot.js';
 import type { BiasLevel } from './btc-bias-bot.js';  // Keep type for BTC bias filter
@@ -28,7 +43,7 @@ import { getCurrentRSI, calculateRSI, calculateSMA, detectDivergence } from './i
 import { DEFAULT_CONFIG } from './config.js';
 import { getDataPersistence } from './data-persistence.js';
 import { initSchema as initTursoSchema, isTursoConfigured, executeReadQuery, getDatabaseStats } from './turso-db.js';
-import { getFocusModeHtml, getFocusModeApiData } from './focus-mode-dashboard.js';
+import { getFocusModeHtml, getFocusModeApiData, calculateSmartTradeSetup } from './focus-mode-dashboard.js';
 import type { BackburnerSetup, Timeframe } from './types.js';
 import fs from 'fs';
 import path from 'path';
@@ -149,6 +164,7 @@ interface ServerSettings {
   lastResetDate: string;  // YYYY-MM-DD format
   notificationsEnabled: boolean;
   soundEnabled: boolean;
+  investmentAmount: number;  // User's actual MEXC investment amount
 }
 
 const serverSettings: ServerSettings = {
@@ -156,6 +172,7 @@ const serverSettings: ServerSettings = {
   lastResetDate: new Date().toISOString().split('T')[0],
   notificationsEnabled: true,  // Default: ON
   soundEnabled: true,  // Default: ON
+  investmentAmount: 2000,  // Default: $2000
 };
 
 // Load server settings from disk (uses fs/path imported via data-persistence)
@@ -757,6 +774,54 @@ const fadeBots = new Map([
   ['fade-aggressive', fadeAggressiveBot],
 ]);
 
+// ============================================================================
+// SPOT REGIME BOTS - Contrarian quadrant-based trading (Focus Mode automation)
+// Based on backtesting: Only trades in profitable quadrants (NEU+BEAR, BEAR+BEAR)
+// NEVER trades in BEAR+BULL (bull trap - 0% win rate)
+// ============================================================================
+const spotRegimeStandard = createStandardFilterBot();
+const spotRegimeStrict = createStrictFilterBot();
+const spotRegimeLoose = createLooseFilterBot();
+const spotRegimeContrarian = createContrarianOnlyBot();
+
+// Collect all spot regime bots
+const spotRegimeBots = new Map<string, SpotRegimeBot>([
+  ['spot-standard', spotRegimeStandard],
+  ['spot-strict', spotRegimeStrict],
+  ['spot-loose', spotRegimeLoose],
+  ['spot-contrarian', spotRegimeContrarian],
+]);
+
+// ============================================================================
+// FOCUS MODE SHADOW BOTS - Simulates manual leveraged trading using Focus Mode
+// These mirror how you trade on MEXC Futures: leverage, quadrant rules, trailing stops
+// ============================================================================
+const focusShadowBots = new Map<string, FocusModeShadowBot>([
+  // BASELINE: Standard Focus Mode rules, max 5 positions
+  ['focus-baseline', createFocusBaselineBot()],
+
+  // CONFLICT_CLOSE: Closes positions when regime becomes conflicting
+  ['focus-conflict', createConflictCloseBot()],
+
+  // EXCELLENT_OVERFLOW: Allows +2 extra positions for "excellent" setups
+  ['focus-excellent', createExcellentOverflowBot()],
+
+  // HYBRID: Combines conflict-close + excellent-overflow
+  ['focus-hybrid', createHybridBot()],
+
+  // AGGRESSIVE: 1.5x leverage multiplier, tighter stops, more positions
+  ['focus-aggressive', createFocusAggressiveBot()],
+
+  // CONSERVATIVE: 0.75x leverage, wider stops, stricter entry rules
+  ['focus-conservative', createFocusConservativeBot()],
+
+  // KELLY_SIZING: Uses Kelly criterion for position sizing
+  ['focus-kelly', createKellySizingBot()],
+
+  // CONTRARIAN_ONLY: Only trades in NEU+BEAR and BEAR+BEAR quadrants
+  ['focus-contrarian-only', createFocusContrarianBot()],
+]);
+
 // GP V2 Detector (loosened thresholds)
 const gpDetectorV2 = new GoldenPocketDetectorV2({
   minImpulsePercent: 4,      // V1: 5%
@@ -777,6 +842,74 @@ function isNotificationsEnabled(): boolean {
 
 function isSoundEnabled(): boolean {
   return serverSettings.soundEnabled;
+}
+
+/**
+ * Update the initial balance for all trading bots
+ * Called when user syncs their real MEXC investment amount
+ */
+function updateAllBotsInitialBalance(amount: number): void {
+  console.log(`[INVESTMENT] Updating all bots to use $${amount} initial balance`);
+
+  // Core bots
+  fixedTPBot.setInitialBalance(amount);
+  fixedBreakevenBot.setInitialBalance(amount);
+  trailing1pctBot.setInitialBalance(amount);
+  trailing10pct10xBot.setInitialBalance(amount);
+  trailing10pct20xBot.setInitialBalance(amount);
+  trailWideBot.setInitialBalance(amount);
+  confluenceBot.setInitialBalance(amount);
+  btcExtremeBot.setInitialBalance(amount);
+  btcTrendBot.setInitialBalance(amount);
+  trendOverrideBot.setInitialBalance(amount);
+  trendFlipBot.setInitialBalance(amount);
+  combinedStrategyBot.setInitialBalance(amount);
+
+  // Shadow bots
+  for (const { bot } of shadowBots) {
+    bot.setInitialBalance(amount);
+  }
+
+  // Timeframe shadow bots
+  for (const { bot } of timeframeShadowBots) {
+    bot.setInitialBalance(amount);
+  }
+
+  // GP shadow bots
+  for (const { bot } of gpShadowBots) {
+    bot.setInitialBalance(amount);
+  }
+
+  // Golden Pocket bots
+  for (const [, bot] of goldenPocketBots) {
+    bot.setInitialBalance(amount);
+  }
+
+  // Golden Pocket V2 bots
+  for (const [, bot] of goldenPocketBotsV2) {
+    bot.setInitialBalance(amount);
+  }
+
+  // Fade bots
+  for (const [, bot] of fadeBots) {
+    bot.setInitialBalance(amount);
+  }
+
+  // MEXC simulation bots
+  for (const [, bot] of mexcSimBots) {
+    bot.setInitialBalance(amount);
+  }
+
+  // Focus Mode Shadow bots
+  for (const [, bot] of focusShadowBots) {
+    bot.setInitialBalance(amount);
+  }
+
+  // Save the setting
+  serverSettings.investmentAmount = amount;
+  saveServerSettings();
+
+  console.log(`[INVESTMENT] All bots updated to $${amount} initial balance`);
 }
 
 /**
@@ -925,11 +1058,17 @@ function resetAllBots(): void {
     console.log(`  ✓ Reset ${botId}`);
   }
 
+  // Focus Mode Shadow bots
+  for (const [botId, bot] of focusShadowBots) {
+    bot.reset();
+    console.log(`  ✓ Reset ${botId}`);
+  }
+
   // Update last reset date
   serverSettings.lastResetDate = getCurrentDateString();
   saveServerSettings();
 
-  console.log(`✅ All bots reset to $2000 starting balance`);
+  console.log(`✅ All bots reset to $${serverSettings.investmentAmount} starting balance`);
   console.log(`📊 Trade history preserved in data/trades/`);
   console.log(`${'='.repeat(60)}\n`);
 }
@@ -1162,6 +1301,138 @@ async function handleNewSetup(setup: BackburnerSetup) {
       if (position) {
         console.log(`[FADE:${botId}] OPENED ${position.direction.toUpperCase()} ${setup.symbol} (signal was ${setup.direction})`);
         broadcast('position_opened', { bot: botId, position });
+      }
+    }
+  }
+
+  // SPOT REGIME BOTS: Contrarian quadrant-based trading (Focus Mode automation)
+  // These bots use the macro/micro regime detection to only trade in profitable quadrants
+  // They process ALL signals to build regime history, but only open positions in good quadrants
+  if (setup.state === 'triggered' || setup.state === 'deep_extreme') {
+    // Convert setup to Signal format for spot regime bots
+    const regimeSignal = {
+      timestamp: setup.triggeredAt || Date.now(),
+      symbol: setup.symbol,
+      direction: setup.direction,
+      timeframe: setup.timeframe,
+      rsi: setup.currentRSI,
+      price: setup.currentPrice,
+      entryPrice: setup.entryPrice || setup.currentPrice,
+    };
+
+    for (const [botId, bot] of spotRegimeBots) {
+      const result = bot.processSignal(regimeSignal);
+      if (result.action === 'open' && result.position) {
+        console.log(`[REGIME:${botId}] OPENED LONG ${setup.symbol} in ${result.position.quadrant} quadrant`);
+        broadcast('position_opened', { bot: botId, position: result.position });
+
+        // Log to trade events using the position object format
+        const dataPersistence = getDataPersistence();
+        const positionForLog = {
+          id: result.position.positionId,
+          symbol: setup.symbol,
+          direction: 'long' as const,
+          timeframe: setup.timeframe,
+          marketType: 'spot' as const,
+          entryPrice: result.position.entryPriceWithSlippage,
+          entryTime: result.position.entryTime,
+          marginUsed: result.position.dollarValue,
+          notionalSize: result.position.dollarValue,
+          leverage: 1,
+          takeProfitPrice: 0,
+          stopLossPrice: result.position.stopLoss,
+        };
+        dataPersistence.logTradeOpen(botId, positionForLog as any, setup);
+      } else if (result.action === 'skip') {
+        // Still log skipped signals for debugging regime detection
+        // console.log(`[REGIME:${botId}] Skipped ${setup.symbol}: ${result.reason}`);
+      }
+    }
+  }
+
+  // FOCUS MODE SHADOW BOTS: Simulates manual leveraged trading using Focus Mode guidance
+  // These bots mirror how you trade on MEXC Futures with quadrant rules and trailing stops
+  if (setup.state === 'triggered' || setup.state === 'deep_extreme') {
+    // Use the SAME calculateSmartTradeSetup function that Focus Mode dashboard uses
+    // This gives us: suggestedLeverage, stopLossPrice, takeProfitPrice based on S/R levels
+    const entryPrice = setup.entryPrice || setup.currentPrice;
+    const direction = setup.direction.toUpperCase() as 'LONG' | 'SHORT';
+    const smartSetup = calculateSmartTradeSetup(entryPrice, direction, setup.symbol, 2000);
+
+    // Extract values from smart setup (same as Focus Mode card shows)
+    const suggestedLeverage = smartSetup.suggestedLeverage;
+    const stopLossPrice = smartSetup.stopLossPrice;
+    const takeProfitPrice = smartSetup.takeProfitPrice;
+    const suggestedPositionPct = smartSetup.suggestedPositionPct;
+    const suggestedPositionSize = 2000 * (suggestedPositionPct / 100); // Based on $2000 balance
+
+    // Quality assessment based on R:R ratio (from smart setup), impulse strength, and RSI
+    // R:R >= 2 is excellent, >= 1.5 is good, >= 1 is ok, < 1 is unfavorable
+    const rrBonus = smartSetup.riskRewardRatio >= 2 ? 20 :
+                    smartSetup.riskRewardRatio >= 1.5 ? 10 :
+                    smartSetup.riskRewardRatio >= 1 ? 0 : -20;
+    const impulseStrength = setup.impulsePercentMove || 0;
+    const rsiExtreme = setup.direction === 'long' ? (30 - setup.currentRSI) : (setup.currentRSI - 70);
+    let qualityScore = 50 + rrBonus + (impulseStrength * 2) + (Math.max(0, rsiExtreme));
+    qualityScore = Math.min(100, Math.max(0, qualityScore));
+
+    // Quality tier matches Focus Mode card labels (EXCELLENT, GOOD, OK, UNFAVORABLE)
+    let quality: SetupQuality = 'marginal';
+    if (qualityScore >= 80) quality = 'excellent';
+    else if (qualityScore >= 65) quality = 'good';
+    else if (qualityScore >= 50) quality = 'marginal';
+    else quality = 'skip';
+
+    // Get current regime (reuse from spot regime detection)
+    const timestamp = setup.triggeredAt || Date.now();
+    const macroRegime = 'neutral' as const;  // Will be calculated by bot's internal detector
+    const microRegime = 'neutral' as const;
+    const quadrant: Quadrant = 'NEU+NEU';  // Will be calculated by bot's internal detector
+
+    const focusSignal: FocusModeSignal = {
+      timestamp,
+      symbol: setup.symbol,
+      direction: setup.direction,
+      timeframe: setup.timeframe,
+      rsi: setup.currentRSI,
+      currentPrice: setup.currentPrice,
+      entryPrice,
+      suggestedLeverage,
+      suggestedPositionSize,
+      suggestedStopLoss: stopLossPrice,
+      suggestedTakeProfit: takeProfitPrice,
+      trailTriggerPercent: 10,
+      macroRegime,
+      microRegime,
+      quadrant,
+      quality,
+      qualityScore,
+      impulsePercent: setup.impulsePercentMove || 0,
+    };
+
+    for (const [botId, bot] of focusShadowBots) {
+      const result = bot.processSignal(focusSignal);
+      if (result.action === 'open' && result.position) {
+        console.log(`[FOCUS:${botId}] OPENED ${result.position.direction.toUpperCase()} ${setup.symbol} | Quality: ${quality} (${qualityScore.toFixed(0)}) | Lev: ${result.position.leverage}x`);
+        broadcast('position_opened', { bot: botId, position: result.position });
+
+        // Log to trade events
+        const dataPersistence = getDataPersistence();
+        const positionForLog = {
+          id: result.position.positionId,
+          symbol: setup.symbol,
+          direction: result.position.direction,
+          timeframe: setup.timeframe,
+          marketType: 'futures' as const,
+          entryPrice: result.position.entryPrice,
+          entryTime: result.position.entryTime,
+          marginUsed: result.position.marginUsed,
+          notionalSize: result.position.notionalSize,
+          leverage: result.position.leverage,
+          takeProfitPrice: result.position.takeProfit,
+          stopLossPrice: result.position.stopLoss,
+        };
+        dataPersistence.logTradeOpen(botId, positionForLog as any, setup);
       }
     }
   }
@@ -1908,6 +2179,59 @@ function getFullState() {
         },
       ])
     ),
+    // Bots 45-48: Spot Regime Bots (Contrarian quadrant-based - Focus Mode automation)
+    spotRegimeBots: Object.fromEntries(
+      Array.from(spotRegimeBots.entries()).map(([key, bot]) => [
+        key,
+        {
+          name: key === 'spot-standard' ? 'Spot Regime Standard' :
+                key === 'spot-strict' ? 'Spot Regime Strict' :
+                key === 'spot-loose' ? 'Spot Regime Loose' :
+                'Spot Regime Contrarian',
+          description: key === 'spot-standard' ? '65% thresholds, 15% SL' :
+                       key === 'spot-strict' ? '70% thresholds, 12% SL' :
+                       key === 'spot-loose' ? '60% thresholds, 18% SL' :
+                       'Bearish-only, 60% threshold',
+          regime: bot.getRegimeStats(),
+          openPositions: bot.getPositions(),
+          closedPositions: bot.getTrades().slice(-20),
+          stats: bot.getStats(),
+          visible: botVisibility[key] ?? true,
+        },
+      ])
+    ),
+    // Bots 49-56: Focus Mode Shadow Bots (Leveraged trading with quadrant rules)
+    focusShadowBots: Object.fromEntries(
+      Array.from(focusShadowBots.entries()).map(([key, bot]) => [
+        key,
+        {
+          name: key === 'focus-baseline' ? 'Focus Baseline' :
+                key === 'focus-conflict' ? 'Focus Conflict-Close' :
+                key === 'focus-excellent' ? 'Focus Excellent Overflow' :
+                key === 'focus-hybrid' ? 'Focus Hybrid' :
+                key === 'focus-aggressive' ? 'Focus Aggressive' :
+                key === 'focus-conservative' ? 'Focus Conservative' :
+                key === 'focus-kelly' ? 'Focus Kelly Sizing' :
+                'Focus Contrarian-Only',
+          description: key === 'focus-baseline' ? 'Standard rules, 5 max positions' :
+                       key === 'focus-conflict' ? 'Closes on regime conflict' :
+                       key === 'focus-excellent' ? '+2 positions for excellent setups' :
+                       key === 'focus-hybrid' ? 'Conflict-close + excellent overflow' :
+                       key === 'focus-aggressive' ? '1.5x leverage, 8 max positions' :
+                       key === 'focus-conservative' ? '0.75x leverage, strict entries' :
+                       key === 'focus-kelly' ? 'Kelly criterion sizing' :
+                       'NEU+BEAR & BEAR+BEAR only',
+          regime: bot.getCurrentRegime(),
+          balance: bot.getBalance(),
+          unrealizedPnl: bot.getUnrealizedPnl(),
+          openPositions: bot.getPositions(),
+          closedPositions: bot.getClosedPositions(20),
+          stats: bot.getStats(),
+          config: bot.getConfig(),
+          visible: botVisibility[key] ?? true,
+        },
+      ])
+    ),
     botVisibility,
     // Focus Mode state - sync with target bot positions first
     focusMode: (() => {
@@ -1935,7 +2259,8 @@ app.get('/', (req, res) => {
 // Focus Mode Dashboard (contrarian trading)
 app.get('/focus', (req, res) => {
   const configKey = req.query.config as string;
-  res.send(getFocusModeHtml(configKey));
+  const windowHours = parseInt(req.query.window as string) || 4;
+  res.send(getFocusModeHtml(configKey, windowHours));
 });
 
 // Focus Mode API
@@ -2111,6 +2436,58 @@ app.post('/api/notification-settings', express.json(), (req, res) => {
   });
 });
 
+// Investment Amount API - sync with real MEXC investment
+app.get('/api/investment-amount', (req, res) => {
+  res.json({
+    amount: serverSettings.investmentAmount,
+  });
+});
+
+app.post('/api/investment-amount', express.json(), (req, res) => {
+  const { amount, resetBots } = req.body;
+
+  if (typeof amount !== 'number' || amount <= 0) {
+    res.status(400).json({ error: 'Invalid amount - must be a positive number' });
+    return;
+  }
+
+  // Update all bots with the new initial balance
+  updateAllBotsInitialBalance(amount);
+
+  // Optionally reset all bots to start fresh with the new balance
+  if (resetBots === true) {
+    console.log('[INVESTMENT] Resetting all bots with new investment amount');
+    fixedTPBot.reset();
+    fixedBreakevenBot.reset();
+    trailing1pctBot.reset();
+    trailing10pct10xBot.reset();
+    trailing10pct20xBot.reset();
+    trailWideBot.reset();
+    confluenceBot.reset();
+    btcExtremeBot.reset();
+    btcTrendBot.reset();
+    trendOverrideBot.reset();
+    trendFlipBot.reset();
+    combinedStrategyBot.reset();
+    for (const { bot } of shadowBots) bot.reset();
+    for (const { bot } of timeframeShadowBots) bot.reset();
+    for (const { bot } of gpShadowBots) bot.reset();
+    for (const [, bot] of goldenPocketBots) bot.reset();
+    for (const [, bot] of goldenPocketBotsV2) bot.reset();
+    for (const [, bot] of fadeBots) bot.reset();
+    for (const [, bot] of mexcSimBots) bot.reset();
+    for (const [, bot] of focusShadowBots) bot.reset();
+  }
+
+  broadcastState();
+
+  res.json({
+    success: true,
+    amount: serverSettings.investmentAmount,
+    botsReset: resetBots === true,
+  });
+});
+
 // Toggle bot visibility
 app.post('/api/toggle-bot', express.json(), (req, res) => {
   const { bot, visible } = req.body;
@@ -2281,6 +2658,34 @@ app.get('/api/check/:symbol', async (req, res) => {
       results,
       activeSetups: detector.getActiveSetups(),
     });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// Price proxy endpoint for Focus Mode position monitor
+app.get('/api/prices', async (req, res) => {
+  try {
+    const symbols = (req.query.symbols as string)?.split(',') || [];
+    if (symbols.length === 0) {
+      return res.json({ prices: {} });
+    }
+
+    const prices: Record<string, number> = {};
+
+    for (const symbol of symbols) {
+      try {
+        // Use MEXC API via our existing functions (works with rate limiting)
+        const price = await getPrice(symbol, 'futures');
+        if (price && price > 0) {
+          prices[symbol] = price;
+        }
+      } catch (e) {
+        console.log(`Failed to fetch price for ${symbol}:`, e);
+      }
+    }
+
+    res.json({ prices });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
@@ -3234,6 +3639,29 @@ function getHtmlPage(): string {
           <button onclick="triggerManualReset()" style="margin-top: 12px; padding: 8px 16px; border-radius: 6px; border: 1px solid #f0883e; background: transparent; color: #f0883e; font-weight: 600; cursor: pointer;">
             🔄 Reset All Bots Now
           </button>
+
+          <hr style="border: none; border-top: 1px solid #30363d; margin: 20px 0;">
+
+          <h4 style="margin: 0 0 12px 0; color: #8b949e;">💰 Investment Amount</h4>
+          <p style="color: #6e7681; font-size: 12px; margin: 0 0 12px 0;">Sync your real MEXC investment to match ROI calculations with actual trades. This affects all tracked setups.</p>
+
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+            <span style="color: #c9d1d9;">$</span>
+            <input type="number" id="investmentAmountInput" placeholder="2000" min="1" step="100"
+              style="width: 120px; padding: 8px 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; font-size: 14px;">
+            <span style="color: #6e7681; font-size: 12px;">USD</span>
+          </div>
+
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button onclick="updateInvestmentAmount(false)" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #238636; background: transparent; color: #3fb950; font-weight: 600; cursor: pointer;">
+              💾 Save (Keep Balances)
+            </button>
+            <button onclick="updateInvestmentAmount(true)" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #f0883e; background: transparent; color: #f0883e; font-weight: 600; cursor: pointer;">
+              🔄 Save & Reset Bots
+            </button>
+          </div>
+
+          <div id="investmentStatus" style="margin-top: 12px; padding: 8px 12px; background: #0d1117; border-radius: 6px; font-size: 12px; display: none;"></div>
         </div>
       </div>
     </div>
@@ -4139,6 +4567,9 @@ function getHtmlPage(): string {
       // Load notification settings from server
       loadNotificationSettings();
 
+      // Load investment amount setting from server
+      loadInvestmentAmount();
+
       document.getElementById('settingsModal').style.display = 'block';
     }
 
@@ -4326,8 +4757,76 @@ function getHtmlPage(): string {
       }
     }
 
+    // Investment amount settings
+    let currentInvestmentAmount = 2000;
+
+    async function loadInvestmentAmount() {
+      try {
+        const res = await fetch('/api/investment-amount');
+        const data = await res.json();
+        currentInvestmentAmount = data.amount;
+
+        // Update the input field
+        const input = document.getElementById('investmentAmountInput');
+        if (input) input.value = currentInvestmentAmount;
+
+        console.log('[Settings] Investment amount loaded:', currentInvestmentAmount);
+      } catch (err) {
+        console.error('[Settings] Failed to load investment amount:', err);
+      }
+    }
+
+    async function updateInvestmentAmount(resetBots) {
+      const input = document.getElementById('investmentAmountInput');
+      const statusEl = document.getElementById('investmentStatus');
+      const amount = parseFloat(input.value);
+
+      if (!amount || amount <= 0) {
+        statusEl.style.display = 'block';
+        statusEl.style.color = '#f85149';
+        statusEl.textContent = '❌ Please enter a valid positive amount';
+        return;
+      }
+
+      const confirmMsg = resetBots
+        ? 'Update investment amount to $' + amount + ' and RESET all bots? This will close all positions and reset balances.'
+        : 'Update investment amount to $' + amount + '? Current bot balances will be preserved.';
+
+      if (!confirm(confirmMsg)) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/investment-amount', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount: amount, resetBots: resetBots })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          currentInvestmentAmount = data.amount;
+          statusEl.style.display = 'block';
+          statusEl.style.color = '#3fb950';
+          if (data.botsReset) {
+            statusEl.textContent = '✅ Investment set to $' + amount + ' - All bots reset to new balance';
+          } else {
+            statusEl.textContent = '✅ Investment set to $' + amount + ' - Future resets will use this amount';
+          }
+          console.log('[Settings] Investment amount updated:', data);
+        } else {
+          throw new Error(data.error || 'Unknown error');
+        }
+      } catch (err) {
+        console.error('[Settings] Failed to update investment amount:', err);
+        statusEl.style.display = 'block';
+        statusEl.style.color = '#f85149';
+        statusEl.textContent = '❌ Failed: ' + err.message;
+      }
+    }
+
     async function triggerManualReset() {
-      if (!confirm('Reset all bots now? This will close all open positions and reset balances to $2000. Trade history will be preserved.')) {
+      if (!confirm('Reset all bots now? This will close all open positions and reset balances to $' + currentInvestmentAmount + '. Trade history will be preserved.')) {
         return;
       }
 
@@ -4343,7 +4842,7 @@ function getHtmlPage(): string {
         const dateEl = document.getElementById('dailyResetLastDate');
         if (dateEl) dateEl.textContent = data.lastResetDate;
 
-        alert('All bots have been reset to $2000 starting balance.');
+        alert('All bots have been reset to $' + currentInvestmentAmount + ' starting balance.');
         console.log('[Settings] Manual reset triggered');
       } catch (err) {
         console.error('[Settings] Failed to trigger reset:', err);
@@ -5417,7 +5916,7 @@ function getHtmlPage(): string {
     }
 
     async function resetBots() {
-      if (!confirm('Reset all paper trading bots? This will clear all positions and history.')) return;
+      if (!confirm('Reset all paper trading bots to $' + currentInvestmentAmount + '? This will clear all positions and history.')) return;
       try {
         await fetch('/api/reset', {
           method: 'POST',
@@ -7053,6 +7552,90 @@ async function main() {
         // Broadcast any closed positions
         for (const closedPos of closed) {
           broadcast('position_closed', { bot: botId, position: closedPos });
+        }
+      }
+
+      // Update Spot Regime bot positions with current prices and track closures
+      for (const [botId, bot] of spotRegimeBots) {
+        const positions = bot.getPositions();
+        for (const pos of positions) {
+          // Get spot price for this symbol
+          const price = await getPrice(pos.symbol, 'spot');
+          if (price) {
+            const closeResult = bot.updatePrice(pos.symbol, pos.timeframe, price, Date.now());
+            if (closeResult) {
+              console.log(`[REGIME:${botId}] CLOSED ${pos.symbol}: ${closeResult.exitReason} | PnL: $${closeResult.netPnL.toFixed(2)}`);
+              broadcast('position_closed', { bot: botId, position: closeResult });
+
+              // Log close event to persistence using the position object format
+              const dataPersistence = getDataPersistence();
+              const positionForClose = {
+                positionId: closeResult.positionId,
+                symbol: closeResult.symbol,
+                direction: 'long' as const,
+                timeframe: closeResult.timeframe,
+                marketType: 'spot' as const,
+                entryPrice: closeResult.entryPriceWithSlippage,
+                entryTime: closeResult.entryTime,
+                exitPrice: closeResult.exitPriceWithSlippage,
+                exitTime: closeResult.exitTime,
+                exitReason: closeResult.exitReason,
+                realizedPnL: closeResult.netPnL,
+                realizedPnLPercent: closeResult.netPnLPercent,
+                marginUsed: 100,  // Default position size
+                notionalSize: 100,
+                leverage: 1,
+                takeProfitPrice: 0,
+                stopLossPrice: 0,
+              };
+              dataPersistence.logTradeClose(botId, positionForClose as any);
+            }
+          }
+        }
+      }
+
+      // Update Focus Mode Shadow bot positions with current prices and track closures
+      const focusPriceMap = new Map<string, number>();
+      for (const [botId, bot] of focusShadowBots) {
+        const positions = bot.getPositions();
+        // Collect all symbols that need prices
+        for (const pos of positions) {
+          if (!focusPriceMap.has(pos.symbol)) {
+            const price = await getPrice(pos.symbol, 'futures');
+            if (price) focusPriceMap.set(pos.symbol, price);
+          }
+        }
+
+        // Update all positions and get closed ones
+        const closed = bot.updatePrices(focusPriceMap, Date.now());
+
+        // Broadcast and log any closed positions
+        for (const closedPos of closed) {
+          console.log(`[FOCUS:${botId}] CLOSED ${closedPos.symbol}: ${closedPos.exitReason} | PnL: $${closedPos.realizedPnl.toFixed(2)}`);
+          broadcast('position_closed', { bot: botId, position: closedPos });
+
+          // Log close event to persistence
+          const dataPersistence = getDataPersistence();
+          const positionForClose = {
+            id: closedPos.positionId,
+            symbol: closedPos.symbol,
+            direction: closedPos.direction,
+            timeframe: closedPos.timeframe,
+            marketType: 'futures' as const,
+            entryPrice: closedPos.entryPrice,
+            entryTime: closedPos.entryTime,
+            exitPrice: closedPos.exitPrice,
+            exitTime: closedPos.exitTime,
+            exitReason: closedPos.exitReason,
+            realizedPnL: closedPos.realizedPnl,
+            realizedPnLPercent: closedPos.realizedPnlPercent,
+            marginUsed: closedPos.marginUsed,
+            notionalSize: closedPos.notionalSize,
+            leverage: closedPos.leverage,
+            takeProfitPrice: closedPos.takeProfit,
+            stopLossPrice: closedPos.stopLoss,
+          };
+          dataPersistence.logTradeClose(botId, positionForClose as any);
         }
       }
 

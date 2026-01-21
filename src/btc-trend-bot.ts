@@ -404,4 +404,6 @@ export class BTCTrendBot {
     this.lastPrice = 0;
     console.error('[BTC-TREND] Bot reset');
   }
+
+  setInitialBalance(amount: number): void { this.config.initialBalance = amount; }
 }

@@ -692,4 +692,8 @@ export class GoldenPocketBot {
     this.totalRetracementAtEntry = 0;
     console.log(`[GP:${this.botId}] Reset to initial state: $${this.balance}`);
   }
+
+  setInitialBalance(amount: number): void {
+    this.config.initialBalance = amount;
+  }
 }

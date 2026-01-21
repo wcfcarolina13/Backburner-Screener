@@ -220,27 +220,37 @@ function formatTimeAgo(ts: number | string | undefined): string {
 interface SignalGroups {
   active: CombinedSignal[];
   archive: CombinedSignal[];
+  isSkipRegime?: boolean;
 }
 
-function getSignalGroups(signals: Signal[], quadrant: Quadrant): SignalGroups {
+// Time window options in hours
+const TIME_WINDOW_OPTIONS = [1, 2, 4, 8, 12, 24];
+
+function getSignalGroups(signals: Signal[], quadrant: Quadrant, activeWindowHours: number = 4): SignalGroups {
   const rule = QUADRANT_RULES[quadrant];
 
   const now = Date.now();
   const last24h = now - 24 * 60 * 60 * 1000;
-  const lastHour = now - 60 * 60 * 1000;
+  const activeWindowMs = now - activeWindowHours * 60 * 60 * 1000;
 
-  // Filter to recent signals (24h for archive, 1h for active)
+  // Filter to recent signals (24h for archive, user-selected window for active)
   const recentSignals = signals.filter(s => {
     const ts = new Date(s.timestamp).getTime();
     const hasEntry = s.entryPrice && (s.eventType === 'triggered' || s.state === 'triggered' || s.state === 'deep_extreme' || s.state === 'played_out');
     return ts >= last24h && hasEntry;
   });
 
-  // Separate active vs played out
+  // Separate active vs played out/expired
+  // Active signals: not played out AND within selected time window
   const activeSignals = recentSignals.filter(s =>
-    s.state !== 'played_out' && new Date(s.timestamp).getTime() >= lastHour
+    s.state !== 'played_out' && new Date(s.timestamp).getTime() >= activeWindowMs
   );
-  const playedOutSignals = recentSignals.filter(s => s.state === 'played_out');
+
+  // Archive signals: either formally played_out OR older than the active window (expired)
+  // This prevents signals from "disappearing" when they age out of the active window
+  const playedOutSignals = recentSignals.filter(s =>
+    s.state === 'played_out' || new Date(s.timestamp).getTime() < activeWindowMs
+  );
 
   // Helper to combine signals by symbol
   const combineSignals = (sigs: Signal[]): CombinedSignal[] => {
@@ -278,17 +288,13 @@ function getSignalGroups(signals: Signal[], quadrant: Quadrant): SignalGroups {
     return combined;
   };
 
-  // If SKIP regime, return empty active but show archive
-  if (rule.action === 'SKIP') {
-    return {
-      active: [],
-      archive: combineSignals(playedOutSignals), // Show all played out
-    };
-  }
-
+  // Even during SKIP regime, still show active signals
+  // Users may have open positions that need monitoring
+  // The position monitor will warn about regime misalignment
   return {
-    active: combineSignals(activeSignals), // Show ALL active signals, no limit
+    active: combineSignals(activeSignals), // Show ALL active signals, even during SKIP
     archive: combineSignals(playedOutSignals), // Show all played out
+    isSkipRegime: rule.action === 'SKIP' // Flag so UI can show warning
   };
 }
 
@@ -387,7 +393,7 @@ interface SRLevel {
   timeframe: string;
 }
 
-interface SmartTradeSetup {
+export interface SmartTradeSetup {
   entryPrice: number;
   direction: 'LONG' | 'SHORT';
   stopLossPrice: number;
@@ -496,7 +502,7 @@ function getSupportResistanceLevels(symbol: string): SRLevel[] {
   return levels.sort((a, b) => a.price - b.price);
 }
 
-function calculateSmartTradeSetup(
+export function calculateSmartTradeSetup(
   entryPrice: number,
   direction: 'LONG' | 'SHORT',
   symbol: string,
@@ -660,7 +666,7 @@ function calculateTradeParams(entryPrice: number, direction: 'LONG' | 'SHORT', l
  * Generate Focus Mode dashboard HTML
  * Can be used by web-server.ts or standalone
  */
-export function getFocusModeHtml(configKeyParam?: string): string {
+export function getFocusModeHtml(configKeyParam?: string, activeWindowHours: number = 4): string {
   const configKey = configKeyParam || DEFAULT_CONFIG;
   const config = WINDOW_CONFIGS[configKey] || WINDOW_CONFIGS[DEFAULT_CONFIG];
 
@@ -669,7 +675,7 @@ export function getFocusModeHtml(configKeyParam?: string): string {
   const micro = getMicroRegime(signals, config);
   const quadrant: Quadrant = `${macro.regime}+${micro.regime}`;
   const rule = QUADRANT_RULES[quadrant];
-  const signalGroups = getSignalGroups(signals, quadrant);
+  const signalGroups = getSignalGroups(signals, quadrant, activeWindowHours);
   const actionableSignals = signalGroups.active;
   const archivedSignals = signalGroups.archive;
 
@@ -849,6 +855,31 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       margin-top: 20px;
     }
 
+    .tracking-separator {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 0;
+      color: #8b949e;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .tracking-separator::before,
+    .tracking-separator::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, #30363d, #30363d, transparent);
+    }
+    .tracking-separator span {
+      white-space: nowrap;
+      padding: 4px 12px;
+      background: #21262d;
+      border-radius: 12px;
+      border: 1px solid #30363d;
+    }
+
     .trade-card {
       background: #161b22;
       border: 1px solid #30363d;
@@ -880,9 +911,9 @@ export function getFocusModeHtml(configKeyParam?: string): string {
     .trade-action.long { background: #238636; color: white; }
     .trade-action.short { background: #da3633; color: white; }
     .trade-time {
-      margin-left: auto;
       color: #8b949e;
-      font-size: 12px;
+      font-size: 11px;
+      flex-shrink: 0;
     }
 
     .trade-card-body {
@@ -1086,15 +1117,20 @@ export function getFocusModeHtml(configKeyParam?: string): string {
     .trade-card-header {
       cursor: pointer;
       user-select: none;
+      flex-wrap: wrap;
+      row-gap: 6px;
     }
     .trade-card-header:hover {
       background: #30363d;
     }
+    .header-spacer {
+      flex: 1;
+    }
     .collapse-icon {
-      margin-left: auto;
       transition: transform 0.2s ease;
       color: #6e7681;
       font-size: 12px;
+      flex-shrink: 0;
     }
     .trade-card.collapsed .collapse-icon {
       transform: rotate(-90deg);
@@ -1108,6 +1144,245 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       opacity: 0;
       padding: 0;
     }
+
+    /* Position status in header (visible when monitoring) */
+    .header-position-status {
+      display: none;
+      width: 100%;
+      flex-basis: 100%;
+      order: 99; /* Force to end of flex container */
+      margin-top: 4px;
+      padding-top: 6px;
+      border-top: 1px solid #30363d;
+      font-size: 11px;
+    }
+    .header-position-status.active {
+      display: block;
+    }
+    .header-pnl {
+      display: inline-block;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+    .header-pnl.profit {
+      background: rgba(63, 185, 80, 0.2);
+      color: #3fb950;
+    }
+    .header-pnl.loss {
+      background: rgba(248, 81, 73, 0.2);
+      color: #f85149;
+    }
+    .header-pnl.neutral {
+      background: rgba(139, 148, 158, 0.2);
+      color: #8b949e;
+    }
+    .header-suggestion {
+      display: inline;
+      color: #8b949e;
+      font-size: 11px;
+      vertical-align: middle;
+    }
+    .header-suggestion.warning {
+      color: #d29922;
+    }
+    .header-suggestion.action {
+      color: #3fb950;
+    }
+    .header-suggestion.danger {
+      color: #f85149;
+      font-weight: 600;
+    }
+    .header-conflict-badge {
+      display: none;
+      padding: 2px 6px;
+      background: rgba(248, 81, 73, 0.3);
+      border: 1px solid #f85149;
+      color: #f85149;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      margin-left: 6px;
+      animation: conflict-pulse 1.5s ease-in-out infinite;
+    }
+    .header-conflict-badge.visible {
+      display: inline-block;
+    }
+    @keyframes conflict-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    /* Card update highlight effect */
+    @keyframes card-highlight {
+      0% { box-shadow: 0 0 0 2px #58a6ff; }
+      100% { box-shadow: none; }
+    }
+    .trade-card.highlight {
+      animation: card-highlight 2s ease-out;
+    }
+    .trade-card.collapsed.highlight {
+      animation: card-highlight 3s ease-out;
+    }
+
+    /* Update badge for collapsed cards */
+    .update-badge {
+      display: none;
+      background: #58a6ff;
+      color: #0d1117;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-left: 8px;
+      animation: pulse-badge 1.5s ease-in-out infinite;
+    }
+    .update-badge.show {
+      display: inline-block;
+    }
+    @keyframes pulse-badge {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    /* Distance from entry badge */
+    .entry-distance {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-family: monospace;
+      flex-shrink: 0;
+    }
+    .entry-distance.favorable {
+      background: rgba(63, 185, 80, 0.2);
+      color: #3fb950;
+    }
+    .entry-distance.against {
+      background: rgba(248, 81, 73, 0.2);
+      color: #f85149;
+    }
+    .entry-distance.neutral {
+      background: rgba(139, 148, 158, 0.2);
+      color: #8b949e;
+    }
+    /* Stale signal indicator (moved >20% from entry) */
+    .trade-card.stale {
+      opacity: 0.7;
+      border-style: dashed;
+    }
+    .trade-card.stale .trade-card-header::after {
+      content: ' (Extended)';
+      color: #8b949e;
+      font-size: 11px;
+      font-weight: normal;
+    }
+    /* Entry distance in expanded view */
+    .entry-current-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 0;
+      font-size: 12px;
+      color: #8b949e;
+      border-bottom: 1px solid #21262d;
+      margin-bottom: 6px;
+    }
+    .entry-current-row .current-price {
+      font-family: monospace;
+      font-weight: 600;
+    }
+    .entry-current-row .current-price.up { color: #3fb950; }
+    .entry-current-row .current-price.down { color: #f85149; }
+    .entry-current-row .distance-pct {
+      font-family: monospace;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .entry-current-row .distance-pct.favorable {
+      background: rgba(63, 185, 80, 0.15);
+      color: #3fb950;
+    }
+    .entry-current-row .distance-pct.against {
+      background: rgba(248, 81, 73, 0.15);
+      color: #f85149;
+    }
+
+    /* Trailing Stop Alerts Bar */
+    .trail-alerts-bar {
+      background: linear-gradient(135deg, #5c2d2d 0%, #3d1f1f 100%);
+      border: 1px solid #f85149;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      display: none;
+    }
+    .trail-alerts-bar.active {
+      display: block;
+      animation: pulse-alert 2s ease-in-out infinite;
+    }
+    @keyframes pulse-alert {
+      0%, 100% { border-color: #f85149; box-shadow: 0 0 5px rgba(248, 81, 73, 0.3); }
+      50% { border-color: #ff7b72; box-shadow: 0 0 15px rgba(248, 81, 73, 0.5); }
+    }
+    .trail-alerts-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: #ff7b72;
+    }
+    .trail-alerts-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .trail-alert-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: rgba(248, 81, 73, 0.2);
+      border: 1px solid #f85149;
+      border-radius: 6px;
+      color: #ff7b72;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .trail-alert-item:hover {
+      background: rgba(248, 81, 73, 0.3);
+      transform: translateY(-1px);
+    }
+    .trail-alert-item .symbol {
+      font-weight: 600;
+      color: #fff;
+    }
+    .trail-alert-item .direction {
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+    .trail-alert-item .direction.long { background: #238636; }
+    .trail-alert-item .direction.short { background: #da3633; }
+    .trail-alert-item .price {
+      font-family: monospace;
+      color: #f0883e;
+    }
+    .trail-alert-dismiss {
+      background: none;
+      border: none;
+      color: #8b949e;
+      cursor: pointer;
+      padding: 2px;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .trail-alert-dismiss:hover { color: #fff; }
 
     /* Signals header with collapse controls */
     .signals-header {
@@ -1143,9 +1418,11 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       align-items: center;
       gap: 10px;
       margin-bottom: 15px;
+      flex-wrap: wrap;
     }
     .search-input {
       flex: 1;
+      min-width: 200px;
       padding: 10px 15px;
       background: #0d1117;
       border: 1px solid #30363d;
@@ -1164,6 +1441,66 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       color: #8b949e;
       font-size: 12px;
       white-space: nowrap;
+    }
+    .time-window-select {
+      padding: 10px 12px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #c9d1d9;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .time-window-select:focus {
+      outline: none;
+      border-color: #58a6ff;
+    }
+    .time-window-label {
+      color: #8b949e;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    /* Investment amount input */
+    .investment-input-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: 10px;
+      padding-left: 10px;
+      border-left: 1px solid #30363d;
+    }
+    .investment-input {
+      width: 80px;
+      padding: 8px 10px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #c9d1d9;
+      font-size: 13px;
+      text-align: right;
+    }
+    .investment-input:focus {
+      outline: none;
+      border-color: #58a6ff;
+    }
+    .investment-save-btn {
+      padding: 8px 12px;
+      background: #238636;
+      border: none;
+      border-radius: 6px;
+      color: white;
+      font-size: 12px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .investment-save-btn:hover {
+      background: #2ea043;
+    }
+    .investment-save-btn:disabled {
+      background: #21262d;
+      color: #8b949e;
+      cursor: not-allowed;
     }
 
     /* Archive section */
@@ -1228,6 +1565,57 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       border-radius: 4px;
       font-size: 10px;
       text-decoration: line-through;
+    }
+    .expired-badge {
+      background: rgba(136, 87, 44, 0.3);
+      color: #d29922;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+    }
+    .archive-card.expired {
+      border-left: 3px solid #d29922;
+    }
+
+    /* Orphaned position cards (signal expired but position still active) */
+    .trade-card.orphaned {
+      border-left: 4px solid #d29922;
+      background: linear-gradient(135deg, #161b22 0%, #1a1f26 100%);
+    }
+    .trade-card.orphaned .trade-card-header {
+      background: linear-gradient(90deg, rgba(210, 153, 34, 0.1) 0%, transparent 50%);
+    }
+    .orphaned-badge {
+      background: rgba(210, 153, 34, 0.3);
+      color: #d29922;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 9px;
+      font-weight: 600;
+      flex-shrink: 0;
+      animation: pulse-orphan 2s ease-in-out infinite;
+    }
+    @keyframes pulse-orphan {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+    .orphaned-notice {
+      background: rgba(210, 153, 34, 0.1);
+      border: 1px solid rgba(210, 153, 34, 0.3);
+      border-radius: 6px;
+      padding: 8px 12px;
+      margin-bottom: 10px;
+      font-size: 12px;
+      color: #d29922;
+    }
+    .leverage-badge {
+      background: rgba(88, 166, 255, 0.2);
+      color: #58a6ff;
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-size: 9px;
+      font-weight: 600;
+      flex-shrink: 0;
     }
 
     /* Position Monitor Styles */
@@ -1318,6 +1706,94 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       background: #0d1a0d;
     }
 
+    /* Manual entry and trailing stop */
+    .monitor-entry-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 0;
+      border-bottom: 1px solid #21262d;
+      margin-bottom: 8px;
+    }
+    .entry-label {
+      color: #8b949e;
+      font-size: 12px;
+      min-width: 80px;
+    }
+    .entry-input {
+      flex: 1;
+      padding: 6px 10px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      color: #c9d1d9;
+      font-size: 13px;
+      font-family: monospace;
+      max-width: 120px;
+    }
+    .entry-input:focus {
+      outline: none;
+      border-color: #58a6ff;
+    }
+    .entry-btn {
+      padding: 6px 10px;
+      background: #238636;
+      border: none;
+      border-radius: 4px;
+      color: white;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .entry-btn:hover {
+      background: #2ea043;
+    }
+    .current-price {
+      font-family: monospace;
+      font-weight: 600;
+      color: #c9d1d9;
+    }
+    .trailing-stop-box {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 10px;
+      margin-top: 8px;
+    }
+    .trailing-stop-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .trailing-stop-title {
+      font-size: 12px;
+      color: #8b949e;
+    }
+    .trailing-stop-value {
+      font-family: monospace;
+      font-weight: 600;
+      font-size: 14px;
+    }
+    .trailing-stop-value.profit { color: #3fb950; }
+    .trailing-stop-value.breakeven { color: #d29922; }
+    .trailing-stop-value.loss { color: #f85149; }
+    .trailing-stop-info {
+      font-size: 11px;
+      color: #6e7681;
+      margin-top: 4px;
+    }
+    .pnl-display {
+      font-size: 16px;
+      font-weight: 600;
+      text-align: center;
+      padding: 8px;
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+    .pnl-display.profit { background: rgba(63, 185, 80, 0.15); color: #3fb950; }
+    .pnl-display.loss { background: rgba(248, 81, 73, 0.15); color: #f85149; }
+    .pnl-display.neutral { background: rgba(139, 148, 158, 0.15); color: #8b949e; }
+
     .enter-trade-btn {
       width: 100%;
       padding: 10px;
@@ -1348,6 +1824,25 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       background: #da3633;
       border-color: #da3633;
       color: white;
+    }
+    .close-all-btn {
+      padding: 6px 12px;
+      background: #21262d;
+      border: 1px solid #da3633;
+      border-radius: 4px;
+      color: #f85149;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      margin-left: 10px;
+      display: none; /* Hidden until positions exist */
+    }
+    .close-all-btn:hover {
+      background: #da3633;
+      color: white;
+    }
+    .close-all-btn.visible {
+      display: inline-block;
     }
 
     .leverage-selector {
@@ -1400,6 +1895,132 @@ export function getFocusModeHtml(configKeyParam?: string): string {
     .toast.show {
       opacity: 1;
       transform: translateY(0);
+    }
+
+    /* Modal styles */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+    }
+    .modal-content {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      width: 90%;
+      max-width: 700px;
+      max-height: 90vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 20px;
+      border-bottom: 1px solid #30363d;
+    }
+    .modal-header h3 {
+      margin: 0;
+      color: #c9d1d9;
+      font-size: 16px;
+    }
+    .modal-close {
+      background: none;
+      border: none;
+      color: #8b949e;
+      font-size: 24px;
+      cursor: pointer;
+      padding: 0;
+      line-height: 1;
+    }
+    .modal-close:hover { color: #c9d1d9; }
+    .modal-body {
+      padding: 20px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .modal-body textarea {
+      width: 100%;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #c9d1d9;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 12px;
+      resize: vertical;
+      box-sizing: border-box;
+    }
+    .modal-body textarea:focus {
+      outline: none;
+      border-color: #58a6ff;
+    }
+    .modal-preview {
+      margin-top: 15px;
+      padding: 12px;
+      background: #0d1117;
+      border-radius: 6px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .modal-preview-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #21262d;
+      font-size: 13px;
+    }
+    .modal-preview-item:last-child { border-bottom: none; }
+    .modal-preview-item .symbol { color: #58a6ff; font-weight: 600; }
+    .modal-preview-item .roi { font-family: monospace; }
+    .modal-preview-item .roi.profit { color: #3fb950; }
+    .modal-preview-item .roi.loss { color: #f85149; }
+    .modal-preview-item .status { color: #8b949e; font-size: 11px; }
+    .modal-preview-item .matched { color: #3fb950; }
+    .modal-preview-item .unmatched { color: #6e7681; }
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      padding: 16px 20px;
+      border-top: 1px solid #30363d;
+    }
+    .modal-btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      border: 1px solid #30363d;
+    }
+    .modal-btn.secondary {
+      background: transparent;
+      color: #c9d1d9;
+    }
+    .modal-btn.secondary:hover { background: #21262d; }
+    .modal-btn.primary {
+      background: #238636;
+      border-color: #238636;
+      color: white;
+    }
+    .modal-btn.primary:hover { background: #2ea043; }
+    .modal-btn.success {
+      background: #1f6feb;
+      border-color: #1f6feb;
+      color: white;
+    }
+    .modal-btn.success:hover { background: #388bfd; }
+    .modal-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
 
     @keyframes flash {
@@ -1648,9 +2269,40 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       </div>
       <div class="alert-controls">
         <button id="notif-btn" class="alert-btn" onclick="toggleNotifications()">🔕 Notifications OFF</button>
-        <button id="audio-btn" class="alert-btn" onclick="toggleAudio()">🔊 Audio ON</button>
-        <button class="alert-btn" onclick="playAlert('LONG')">🔊 Test Sound</button>
+        <button id="audio-btn" class="alert-btn active" onclick="toggleAudio()">🔊 Audio ON</button>
+        <button class="alert-btn" onclick="testSound()">🔊 Test Sound</button>
+        <button class="alert-btn" onclick="testNotification()">🔔 Test Notif</button>
         <button id="link-btn" class="alert-btn" onclick="toggleLinkDestination()">📊 Futures</button>
+        <button class="alert-btn" onclick="showBulkUpdateModal()">📋 Bulk Update</button>
+      </div>
+
+      <!-- Bulk Update Modal -->
+      <div id="bulk-update-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>📋 Bulk Update Positions from MEXC</h3>
+            <button class="modal-close" onclick="closeBulkUpdateModal()">×</button>
+          </div>
+          <div class="modal-body">
+            <p style="color: #8b949e; margin-bottom: 10px;">Paste your MEXC grid bot table data below. This will update ROI and leverage for all matching tracked positions.</p>
+            <textarea id="bulk-paste-input" placeholder="Paste MEXC grid bot table here...
+Example:
+BERAUSDT
+Short15XAI
+0D 2h 37m 54s
+0.8892 - 1.0772
+8 (Arithmetic)
+40.4756 USDT
++18.0825 USDT+44.67%
+..." rows="12"></textarea>
+            <div class="modal-preview" id="bulk-preview"></div>
+          </div>
+          <div class="modal-footer">
+            <button class="modal-btn secondary" onclick="closeBulkUpdateModal()">Cancel</button>
+            <button class="modal-btn primary" onclick="parseBulkUpdate()">Preview</button>
+            <button class="modal-btn success" onclick="applyBulkUpdate()" id="apply-bulk-btn" disabled>Apply Updates</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1728,11 +2380,49 @@ export function getFocusModeHtml(configKeyParam?: string): string {
 
     <div class="search-filter">
       <input type="text" id="signal-search" class="search-input" placeholder="🔍 Filter by symbol (e.g., BTC, ETH, DOGE...)" oninput="filterSignals(this.value)">
+      <span class="time-window-label">Show:</span>
+      <select id="time-window-select" class="time-window-select" onchange="changeTimeWindow(this.value)">
+        <option value="1" ${activeWindowHours === 1 ? 'selected' : ''}>Last 1h</option>
+        <option value="2" ${activeWindowHours === 2 ? 'selected' : ''}>Last 2h</option>
+        <option value="4" ${activeWindowHours === 4 ? 'selected' : ''}>Last 4h</option>
+        <option value="8" ${activeWindowHours === 8 ? 'selected' : ''}>Last 8h</option>
+        <option value="12" ${activeWindowHours === 12 ? 'selected' : ''}>Last 12h</option>
+        <option value="24" ${activeWindowHours === 24 ? 'selected' : ''}>Last 24h</option>
+      </select>
+      <span class="time-window-label">Sort:</span>
+      <select id="sort-select" class="time-window-select" onchange="sortSignals(this.value)">
+        <option value="time-desc">Newest first</option>
+        <option value="time-asc">Oldest first</option>
+        <option value="urgency-desc">🚨 Most urgent first</option>
+        <option value="quality-desc">Best quality first</option>
+        <option value="quality-asc">Worst quality first</option>
+        <option value="alpha-asc">A → Z</option>
+        <option value="alpha-desc">Z → A</option>
+        <option value="tracking-first">Tracking first</option>
+        <option value="tracking-last">Tracking last</option>
+      </select>
       <span class="search-count" id="search-count">${actionableSignals.length} active</span>
+      <div class="investment-input-group">
+        <span class="time-window-label">💰</span>
+        <span class="time-window-label">$</span>
+        <input type="number" id="investment-amount-input" class="investment-input" placeholder="2000" min="1" step="100" title="Your MEXC investment amount">
+        <button class="investment-save-btn" id="investment-save-btn" onclick="saveInvestmentAmount()" title="Update investment amount">Save</button>
+      </div>
+      <button class="close-all-btn" id="close-all-btn" onclick="closeAllPositions()" title="Stop tracking all positions">🛑 Close All</button>
+    </div>
+
+    <!-- Trailing Stop Alerts Bar -->
+    <div class="trail-alerts-bar" id="trail-alerts-bar">
+      <div class="trail-alerts-header">
+        🛑 TRAILING STOP ALERTS - Action Required
+      </div>
+      <div class="trail-alerts-list" id="trail-alerts-list">
+        <!-- Populated dynamically -->
+      </div>
     </div>
 
     <div class="signals-header">
-      <h2>🔥 Active Signals (Last Hour)</h2>
+      <h2>🔥 Active Signals (Last ${activeWindowHours}h)</h2>
       ${actionableSignals.length > 0 ? `
       <div class="collapse-controls">
         <button class="collapse-btn" onclick="collapseAllCards()">▲ Collapse All</button>
@@ -1776,17 +2466,26 @@ export function getFocusModeHtml(configKeyParam?: string): string {
           // Timestamp display
           const triggeredTime = (s as any).triggeredAtDisplay || formatTimestamp(s.triggeredAt || s.timestamp);
 
-          const cardId = `card-${s.symbol}-${action}`.replace(/[^a-zA-Z0-9-]/g, '');
+          const signalDirection = s.direction.toUpperCase(); // Use signal's direction, not regime action
+          const cardId = `card-${s.symbol}-${signalDirection}`.replace(/[^a-zA-Z0-9-]/g, '');
 
           return `
-            <div class="trade-card ${action.toLowerCase()} rr-${rrClass} signal-${strengthClass}" id="${cardId}" data-symbol="${s.symbol}">
+            <div class="trade-card ${action.toLowerCase()} rr-${rrClass} signal-${strengthClass}" id="${cardId}" data-symbol="${s.symbol}" data-timestamp="${new Date(s.timestamp).getTime()}" data-leverage="${smart.suggestedLeverage}" data-quality="${smart.riskRewardRatio.toFixed(2)}" data-signals="${signalCount}" data-signal-entry="${entryPrice}" data-direction="${action}">
               <div class="trade-card-header" onclick="toggleCard('${cardId}')">
                 <span class="trade-symbol">${s.symbol.replace('USDT', '')}</span>
                 <span class="trade-action ${action.toLowerCase()}">${action}</span>
                 ${signalCount > 1 ? `<span class="signal-strength ${strengthClass}">${strengthLabel}</span>` : ''}
                 <span class="trade-quality ${rrClass}">${rrLabel}</span>
+                <span class="entry-distance neutral" id="entry-distance-${cardId}" title="Distance from signal entry">📍 --</span>
                 <span class="trade-time" title="Triggered at ${triggeredTime}">${timeAgo}m ago</span>
+                <span class="update-badge" id="update-badge-${cardId}">UPDATED</span>
+                <span class="header-spacer"></span>
                 <span class="collapse-icon">▼</span>
+                <div class="header-position-status" id="header-status-${cardId}">
+                  <span class="header-pnl neutral" id="header-pnl-${cardId}">--</span>
+                  <span class="header-conflict-badge" id="header-conflict-${cardId}">⚠️ CONFLICT</span>
+                  <span class="header-suggestion" id="header-suggestion-${cardId}">Monitoring...</span>
+                </div>
               </div>
 
               <div class="trade-card-collapsible">
@@ -1803,6 +2502,12 @@ export function getFocusModeHtml(configKeyParam?: string): string {
                     <span class="level-label">📉 Support</span>
                     <span class="level-price">$${formatPrice(smart.nearestSupport)}</span>
                   </div>
+                </div>
+
+                <!-- Entry to Current Price Movement -->
+                <div class="entry-current-row" id="entry-current-${cardId}">
+                  <span class="entry-current-label">📍 Signal Entry → Current:</span>
+                  <span class="entry-current-value" id="entry-current-value-${cardId}">$${formatPrice(entryPrice)} → Loading...</span>
                 </div>
 
                 <div class="trade-setup">
@@ -1843,8 +2548,8 @@ export function getFocusModeHtml(configKeyParam?: string): string {
                 ` : ''}
 
                 <!-- Position Monitor Section -->
-                <div class="position-monitor" id="monitor-${cardId}" data-symbol="${s.symbol}" data-direction="${action}" data-entry="${entryPrice}" data-rsi="${s.rsi || 50}" data-triggered="${s.triggeredAt || Date.now()}">
-                  <button class="enter-trade-btn" id="enter-btn-${cardId}" onclick="enterTrade('${cardId}', '${s.symbol}', '${action}', ${entryPrice}, ${s.rsi || 50})">
+                <div class="position-monitor" id="monitor-${cardId}" data-symbol="${s.symbol}" data-direction="${action}" data-entry="${entryPrice}" data-target="${smart.takeProfitPrice}" data-stop="${smart.stopLossPrice}" data-rsi="${s.rsi || 50}" data-triggered="${s.triggeredAt || Date.now()}">
+                  <button class="enter-trade-btn" id="enter-btn-${cardId}" onclick="enterTrade('${cardId}', '${s.symbol}', '${action}', ${entryPrice}, ${s.rsi || 50}, ${smart.takeProfitPrice}, ${smart.stopLossPrice})">
                     📊 I'm in this trade - Start Monitoring
                   </button>
                   <div class="monitor-active" id="monitor-active-${cardId}" style="display: none;">
@@ -1856,24 +2561,49 @@ export function getFocusModeHtml(configKeyParam?: string): string {
                       </div>
                     </div>
                     <div class="monitor-content" id="monitor-content-${cardId}">
-                      <div class="health-indicator">
+                      <!-- Manual Entry Price or ROI -->
+                      <div class="monitor-entry-row">
+                        <span class="entry-label">My Entry:</span>
+                        <input type="text" class="entry-input" id="entry-input-${cardId}"
+                               value="${entryPrice}"
+                               onchange="updateManualEntry('${cardId}')"
+                               onclick="event.stopPropagation()">
+                        <button class="entry-btn" onclick="event.stopPropagation(); updateManualEntry('${cardId}')">Set</button>
+                      </div>
+                      <div class="monitor-entry-row">
+                        <span class="entry-label">Or ROI%:</span>
+                        <input type="text" class="entry-input" id="roi-input-${cardId}"
+                               placeholder="e.g. 44.5 or -12.3"
+                               onclick="event.stopPropagation()">
+                        <button class="entry-btn" onclick="event.stopPropagation(); updateFromROI('${cardId}')">Calc</button>
+                      </div>
+
+                      <!-- P&L Display -->
+                      <div class="pnl-display neutral" id="pnl-display-${cardId}">
+                        Calculating...
+                      </div>
+
+                      <!-- Trailing Stop Suggestion -->
+                      <div class="trailing-stop-box">
+                        <div class="trailing-stop-header">
+                          <span class="trailing-stop-title">🛡️ Suggested Stop Loss</span>
+                          <span class="trailing-stop-value neutral" id="trail-stop-${cardId}">--</span>
+                        </div>
+                        <div class="trailing-stop-info" id="trail-info-${cardId}">
+                          Enter trade to see trailing stop suggestions
+                        </div>
+                      </div>
+
+                      <div class="health-indicator" style="margin-top: 10px;">
                         <span class="health-label">⏱️ Time in Trade</span>
                         <span class="health-value neutral" id="health-time-${cardId}">0m</span>
-                      </div>
-                      <div class="health-indicator">
-                        <span class="health-label">📈 RSI Status</span>
-                        <span class="health-value neutral" id="health-rsi-${cardId}">--</span>
                       </div>
                       <div class="health-indicator">
                         <span class="health-label">🎯 Regime Alignment</span>
                         <span class="health-value neutral" id="health-regime-${cardId}">--</span>
                       </div>
-                      <div class="health-indicator">
-                        <span class="health-label">📍 Distance to Target</span>
-                        <span class="health-value neutral" id="health-target-${cardId}">--</span>
-                      </div>
                       <div class="monitor-suggestion" id="monitor-suggestion-${cardId}">
-                        💡 Monitoring active. Health updates every 10s.
+                        💡 Set your actual entry price above for accurate P&L tracking.
                       </div>
                     </div>
                   </div>
@@ -1900,7 +2630,7 @@ export function getFocusModeHtml(configKeyParam?: string): string {
     ${archivedSignals.length > 0 ? `
     <div class="archive-section" id="archive-section">
       <div class="archive-header" onclick="toggleArchive()">
-        <h3>📦 Played Out (Last 24h) - ${archivedSignals.length} signals</h3>
+        <h3>📦 Archive (Last 24h) - ${archivedSignals.length} signals</h3>
         <span class="archive-toggle" id="archive-toggle">▼ Show</span>
       </div>
       <div class="archive-cards" id="archive-cards" style="display: none;">
@@ -1909,18 +2639,21 @@ export function getFocusModeHtml(configKeyParam?: string): string {
           const signalCount = s.signalCount || 1;
           const timeframes = s.timeframes || [s.timeframe];
           const strengthLabel = signalCount >= 3 ? '🔥🔥🔥' : signalCount >= 2 ? '🔥🔥' : '';
+          const isPlayedOut = s.state === 'played_out';
+          const badgeText = isPlayedOut ? 'played out' : 'expired';
+          const badgeClass = isPlayedOut ? 'played-out-badge' : 'expired-badge';
 
           return `
-          <div class="archive-card" data-symbol="${s.symbol}">
+          <div class="archive-card ${isPlayedOut ? '' : 'expired'}" data-symbol="${s.symbol}">
             <div class="archive-card-header">
               <span class="archive-symbol">${s.symbol.replace('USDT', '')}</span>
               <span class="trade-action ${direction.toLowerCase()}">${direction}</span>
               ${strengthLabel ? `<span class="signal-strength">${strengthLabel}</span>` : ''}
-              <span class="played-out-badge">played out</span>
+              <span class="${badgeClass}">${badgeText}</span>
             </div>
             <div class="archive-timestamps">
               <span>⏱️ Triggered: ${s.triggeredAtDisplay || formatTimeAgo(s.timestamp)}</span>
-              <span>✓ Played out: ${s.playedOutAtDisplay || 'N/A'}</span>
+              <span>${isPlayedOut ? '✓ Played out:' : '⏰ Expired from window:'} ${s.playedOutAtDisplay || formatTimeAgo(s.timestamp)}</span>
               ${timeframes.length > 1 ? `<span>📊 Timeframes: ${timeframes.join(', ')}</span>` : ''}
             </div>
           </div>
@@ -1955,7 +2688,7 @@ export function getFocusModeHtml(configKeyParam?: string): string {
         const saved = localStorage.getItem('focusMode_settings');
         if (saved) return JSON.parse(saved);
       } catch (e) {}
-      return { notificationsEnabled: false, audioEnabled: true, linkDestination: 'futures' };
+      return { notificationsEnabled: false, audioEnabled: true, linkDestination: 'futures', activeWindowHours: 4 };
     }
 
     function saveFocusModeSettings() {
@@ -1963,13 +2696,24 @@ export function getFocusModeHtml(configKeyParam?: string): string {
         localStorage.setItem('focusMode_settings', JSON.stringify({
           notificationsEnabled,
           audioEnabled,
-          linkDestination
+          linkDestination,
+          activeWindowHours
         }));
       } catch (e) {}
     }
 
     // Initialize from saved settings
-    let { notificationsEnabled, audioEnabled, linkDestination } = loadFocusModeSettings();
+    let { notificationsEnabled, audioEnabled, linkDestination, activeWindowHours } = loadFocusModeSettings();
+    activeWindowHours = activeWindowHours || 4; // Default fallback
+
+    // Change time window and reload with new filter
+    function changeTimeWindow(hours) {
+      activeWindowHours = parseInt(hours);
+      saveFocusModeSettings();
+      // Reload page with new time window
+      const currentConfig = document.getElementById('config-select')?.value || '${configKey}';
+      window.location.href = '/focus?config=' + encodeURIComponent(currentConfig) + '&window=' + hours;
+    }
 
     // Toggle link destination between bots and futures
     function toggleLinkDestination() {
@@ -1997,6 +2741,173 @@ export function getFocusModeHtml(configKeyParam?: string): string {
         url = 'https://www.mexc.com/futures/' + base + '_USDT';
       }
       window.open(url, '_blank');
+    }
+
+    // Update manual entry price
+    function updateManualEntry(cardId) {
+      const input = document.getElementById('entry-input-' + cardId);
+      if (!input || !activePositions[cardId]) return;
+
+      const newEntry = parseFloat(input.value);
+      if (isNaN(newEntry) || newEntry <= 0) {
+        showToast('❌ Invalid entry price');
+        return;
+      }
+
+      activePositions[cardId].entryPrice = newEntry;
+      activePositions[cardId].manualEntry = true;
+
+      // Reset tracking values so trail alerts can trigger again with new entry
+      // This fixes the bug where adjusting entry would stop trail notifications
+      activePositions[cardId].prevPnlPct = undefined;
+      activePositions[cardId].prevRoiPct = undefined;
+      activePositions[cardId].prevTrailStatus = undefined;
+      activePositions[cardId].prevDangers = undefined;
+      activePositions[cardId].trailStopAlerted = false;
+      activePositions[cardId].trailStopAlertedAt = null;
+
+      saveActivePositions();
+      updatePositionHealth(cardId);
+      showToast('✅ Entry updated to $' + newEntry.toFixed(6));
+    }
+
+    // Calculate entry price from current ROI%
+    // ROI% = (P&L% * leverage), so P&L% = ROI% / leverage
+    // For LONG: P&L% = (current - entry) / entry * 100 => entry = current / (1 + P&L%/100)
+    // For SHORT: P&L% = (entry - current) / entry * 100 => entry = current / (1 - P&L%/100)
+    function updateFromROI(cardId) {
+      const roiInput = document.getElementById('roi-input-' + cardId);
+      const entryInput = document.getElementById('entry-input-' + cardId);
+      const pos = activePositions[cardId];
+
+      if (!roiInput || !entryInput || !pos) {
+        showToast('❌ Start tracking first');
+        return;
+      }
+
+      const roiPct = parseFloat(roiInput.value);
+      if (isNaN(roiPct)) {
+        showToast('❌ Enter a valid ROI% (e.g. 44.5 or -12.3)');
+        return;
+      }
+
+      if (!pos.currentPrice) {
+        showToast('❌ Waiting for price data...');
+        return;
+      }
+
+      // Get suggested leverage from card data attribute, or use existing position leverage, or default to 15
+      const card = document.getElementById(cardId);
+      const suggestedLev = (card && card.dataset.leverage) ? card.dataset.leverage : (pos.leverage || '15');
+
+      // Ask for leverage to convert ROI to spot P&L
+      const leverage = prompt('What leverage are you using?', suggestedLev.toString());
+      if (!leverage) return;
+      const lev = parseFloat(leverage);
+      if (isNaN(lev) || lev <= 0) {
+        showToast('❌ Invalid leverage');
+        return;
+      }
+
+      // Convert ROI% to spot P&L%
+      const spotPnlPct = roiPct / lev;
+      const current = pos.currentPrice;
+      const isLong = pos.direction === 'LONG';
+
+      // Calculate entry from current price and P&L%
+      let calculatedEntry;
+      if (isLong) {
+        // P&L% = (current - entry) / entry * 100
+        // entry = current / (1 + P&L%/100)
+        calculatedEntry = current / (1 + spotPnlPct / 100);
+      } else {
+        // P&L% = (entry - current) / entry * 100
+        // entry = current / (1 - P&L%/100)
+        calculatedEntry = current / (1 - spotPnlPct / 100);
+      }
+
+      // Update the entry input and save
+      entryInput.value = calculatedEntry.toFixed(6);
+      pos.entryPrice = calculatedEntry;
+      pos.manualEntry = true;
+      pos.leverage = lev; // Save leverage for display
+
+      // Reset tracking values so trail alerts can trigger again with new entry
+      // This fixes the bug where adjusting entry would stop trail notifications
+      pos.prevPnlPct = undefined;
+      pos.prevRoiPct = undefined;
+      pos.prevTrailStatus = undefined;
+      pos.prevDangers = undefined;
+      pos.trailStopAlerted = false;
+      pos.trailStopAlertedAt = null;
+
+      saveActivePositions();
+      updatePositionHealth(cardId);
+      showToast('✅ Entry calculated: $' + calculatedEntry.toFixed(6) + ' (from ' + roiPct + '% ROI at ' + lev + 'x)');
+    }
+
+    // Calculate trailing stop based on P&L
+    // Thresholds are based on ROI% (leveraged P&L) for better UX
+    function calculateTrailingStop(pos) {
+      if (!pos.entryPrice || !pos.currentPrice) {
+        return { stop: null, info: 'Waiting for price data...' };
+      }
+
+      const entry = pos.entryPrice;
+      const current = pos.currentPrice;
+      const isLong = pos.direction === 'LONG';
+      const leverage = pos.leverage || 1;
+
+      // Calculate spot P&L %
+      const spotPnlPct = isLong
+        ? ((current - entry) / entry) * 100
+        : ((entry - current) / entry) * 100;
+
+      // Calculate ROI (leveraged P&L) for threshold checks
+      const roiPct = spotPnlPct * leverage;
+
+      let suggestedStop;
+      let info;
+      let status; // profit, breakeven, loss
+
+      // Thresholds based on ROI% (leveraged returns)
+      // At 15x: 30% ROI = 2% spot, 75% ROI = 5% spot, 150% ROI = 10% spot
+      if (roiPct >= 30) {
+        // At +30% ROI: Trail at 70% of gains
+        const lockSpotPct = spotPnlPct * 0.7;
+        const lockRoiPct = roiPct * 0.7;
+        suggestedStop = isLong
+          ? entry * (1 + lockSpotPct / 100)
+          : entry * (1 - lockSpotPct / 100);
+        info = '🚀 +' + roiPct.toFixed(0) + '% ROI! Trail at 70% (lock ' + lockRoiPct.toFixed(0) + '% ROI)';
+        status = 'profit';
+      } else if (roiPct >= 15) {
+        // At +15% ROI: Trail at 50% of gains
+        const lockSpotPct = spotPnlPct * 0.5;
+        const lockRoiPct = roiPct * 0.5;
+        suggestedStop = isLong
+          ? entry * (1 + lockSpotPct / 100)
+          : entry * (1 - lockSpotPct / 100);
+        info = '📈 +' + roiPct.toFixed(0) + '% ROI. Trail at 50% (lock ' + lockRoiPct.toFixed(0) + '% ROI)';
+        status = 'profit';
+      } else if (roiPct >= 5) {
+        // At +5% ROI: Move to breakeven
+        suggestedStop = entry;
+        info = '✅ +' + roiPct.toFixed(0) + '% ROI - Move stop to breakeven';
+        status = 'breakeven';
+      } else if (roiPct >= 0) {
+        // 0-5% ROI: Keep original stop
+        suggestedStop = pos.stopPrice;
+        info = '⏳ +' + roiPct.toFixed(1) + '% ROI - Keep original stop, wait for +5% to move to BE';
+        status = 'neutral';
+      } else {
+        // Negative: Keep original stop
+        suggestedStop = pos.stopPrice;
+        info = '⚠️ ' + roiPct.toFixed(1) + '% ROI - In drawdown, keep original stop';
+        status = 'loss';
+      }
+
+      return { stop: suggestedStop, info, status, pnlPct: spotPnlPct, roiPct };
     }
 
     // Search/filter signals
@@ -2051,12 +2962,14 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       } catch (e) {}
     }
 
-    function enterTrade(cardId, symbol, direction, entryPrice, entryRsi) {
+    function enterTrade(cardId, symbol, direction, entryPrice, entryRsi, targetPrice, stopPrice) {
       activePositions[cardId] = {
         symbol,
         direction,
         entryPrice,
         entryRsi,
+        targetPrice,
+        stopPrice,
         enteredAt: Date.now()
       };
       saveActivePositions();
@@ -2065,11 +2978,14 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       document.getElementById('enter-btn-' + cardId).style.display = 'none';
       document.getElementById('monitor-active-' + cardId).style.display = 'block';
 
-      // Expand the card if collapsed
+      // Highlight the card instead of expanding
       const card = document.getElementById(cardId);
-      if (card) card.classList.remove('collapsed');
+      if (card) {
+        highlightCard(cardId);
+      }
 
       updatePositionHealth(cardId);
+      updateCloseAllButton();
       showToast('📊 Position monitor started for ' + symbol.replace('USDT', ''));
     }
 
@@ -2080,16 +2996,188 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       // Update UI
       const enterBtn = document.getElementById('enter-btn-' + cardId);
       const monitorActive = document.getElementById('monitor-active-' + cardId);
+      const headerStatus = document.getElementById('header-status-' + cardId);
       if (enterBtn) enterBtn.style.display = 'block';
       if (monitorActive) monitorActive.style.display = 'none';
+      if (headerStatus) headerStatus.classList.remove('active');
 
       showToast('Position monitor stopped');
+      updateCloseAllButton();
     }
+
+    function closeAllPositions() {
+      const positionCount = Object.keys(activePositions).length;
+      if (positionCount === 0) {
+        showToast('No positions being tracked');
+        return;
+      }
+
+      if (!confirm('Stop tracking all ' + positionCount + ' position(s)?\\n\\nThis will NOT close your actual MEXC positions - you must do that manually.')) {
+        return;
+      }
+
+      // Get all card IDs before clearing
+      const cardIds = Object.keys(activePositions);
+
+      // Clear all positions
+      activePositions = {};
+      saveActivePositions();
+
+      // Update UI for each card
+      cardIds.forEach(function(cardId) {
+        const enterBtn = document.getElementById('enter-btn-' + cardId);
+        const monitorActive = document.getElementById('monitor-active-' + cardId);
+        const headerStatus = document.getElementById('header-status-' + cardId);
+        if (enterBtn) enterBtn.style.display = 'block';
+        if (monitorActive) monitorActive.style.display = 'none';
+        if (headerStatus) headerStatus.classList.remove('active');
+      });
+
+      updateCloseAllButton();
+      showToast('🛑 Stopped tracking ' + positionCount + ' position(s). Remember to close on MEXC!');
+    }
+
+    function updateCloseAllButton() {
+      const btn = document.getElementById('close-all-btn');
+      if (btn) {
+        const hasPositions = Object.keys(activePositions).length > 0;
+        btn.classList.toggle('visible', hasPositions);
+      }
+    }
+
+    // Investment Amount Management
+    let currentInvestmentAmount = 2000;  // Default
+
+    async function loadInvestmentAmount() {
+      try {
+        const res = await fetch('/api/investment-amount');
+        const data = await res.json();
+        currentInvestmentAmount = data.amount;
+
+        // Update the input field
+        const input = document.getElementById('investment-amount-input');
+        if (input) input.value = currentInvestmentAmount;
+
+        console.log('[Focus] Investment amount loaded:', currentInvestmentAmount);
+      } catch (err) {
+        console.error('[Focus] Failed to load investment amount:', err);
+      }
+    }
+
+    async function saveInvestmentAmount() {
+      const input = document.getElementById('investment-amount-input');
+      const btn = document.getElementById('investment-save-btn');
+      const amount = parseFloat(input.value);
+
+      if (isNaN(amount) || amount <= 0) {
+        showToast('❌ Enter a valid investment amount');
+        return;
+      }
+
+      // Disable button during save
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+      }
+
+      try {
+        const res = await fetch('/api/investment-amount', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount: amount, resetBots: false })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          currentInvestmentAmount = data.amount;
+          showToast('✅ Investment amount updated to $' + amount.toLocaleString());
+        } else {
+          showToast('❌ Failed to update investment amount');
+        }
+      } catch (err) {
+        console.error('[Focus] Failed to save investment amount:', err);
+        showToast('❌ Error saving investment amount');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Save';
+        }
+      }
+    }
+
+    // Load investment amount on page load
+    loadInvestmentAmount();
 
     function toggleMonitor(cardId) {
       const content = document.getElementById('monitor-content-' + cardId);
       if (content) {
         content.classList.toggle('collapsed');
+      }
+    }
+
+    // Update distance from signal entry for all cards (not just active positions)
+    function updateAllEntryDistances(prices) {
+      document.querySelectorAll('.trade-card').forEach(function(card) {
+        const cardId = card.id;
+        const symbol = card.dataset.symbol;
+        const signalEntry = parseFloat(card.dataset.signalEntry);
+        const direction = card.dataset.direction;
+
+        if (!symbol || !signalEntry || !direction) return;
+
+        const currentPrice = prices[symbol];
+        if (!currentPrice) return;
+
+        updateEntryDistance(cardId, signalEntry, currentPrice, direction);
+      });
+    }
+
+    function updateEntryDistance(cardId, signalEntry, currentPrice, direction) {
+      const distanceBadge = document.getElementById('entry-distance-' + cardId);
+      const entryCurrentValue = document.getElementById('entry-current-value-' + cardId);
+      const card = document.getElementById(cardId);
+
+      if (!signalEntry || !currentPrice) return;
+
+      // Calculate percentage change from signal entry
+      const pctChange = ((currentPrice - signalEntry) / signalEntry) * 100;
+
+      // Determine if this is favorable or against based on direction
+      const isLong = direction === 'LONG';
+      const isFavorable = isLong ? pctChange < 0 : pctChange > 0;  // For longs, lower price is favorable entry
+      const isAgainst = isLong ? pctChange > 0 : pctChange < 0;    // For longs, higher price means missed entry
+
+      // Format the percentage
+      const sign = pctChange >= 0 ? '+' : '';
+      const pctText = sign + pctChange.toFixed(1) + '%';
+
+      // Determine class based on favorability
+      let statusClass = 'neutral';
+      if (Math.abs(pctChange) > 1) {  // Only color if moved more than 1%
+        statusClass = isFavorable ? 'favorable' : 'against';
+      }
+
+      // Update badge in header (collapsed view)
+      if (distanceBadge) {
+        distanceBadge.textContent = '📍 ' + pctText;
+        distanceBadge.className = 'entry-distance ' + statusClass;
+      }
+
+      // Update expanded view row
+      if (entryCurrentValue) {
+        const formatPrice = function(p) { return p >= 1 ? p.toFixed(4) : p.toFixed(6); };
+        const priceClass = pctChange >= 0 ? 'up' : 'down';
+        entryCurrentValue.innerHTML = '$' + formatPrice(signalEntry) +
+          ' → <span class="current-price ' + priceClass + '">$' + formatPrice(currentPrice) + '</span>' +
+          ' <span class="distance-pct ' + statusClass + '">' + pctText + '</span>';
+      }
+
+      // Add stale class if price moved more than 20% from entry
+      if (card && Math.abs(pctChange) > 20) {
+        card.classList.add('stale');
+      } else if (card) {
+        card.classList.remove('stale');
       }
     }
 
@@ -2169,14 +3257,162 @@ export function getFocusModeHtml(configKeyParam?: string): string {
         regimeEl.textContent = regimeText;
         regimeEl.className = 'health-value ' + regimeStatus;
       }
+      // Distance to target - needs current price
+      let targetStatus = 'neutral';
+      let targetText = 'Loading...';
+      let pnlPct = 0;
+
+      if (pos.targetPrice && pos.stopPrice && pos.currentPrice) {
+        const isLong = pos.direction === 'LONG';
+        const entry = pos.entryPrice;
+        const current = pos.currentPrice;
+        const target = pos.targetPrice;
+        const stop = pos.stopPrice;
+
+        // Calculate P&L %
+        pnlPct = isLong
+          ? ((current - entry) / entry) * 100
+          : ((entry - current) / entry) * 100;
+
+        // Calculate distance to target as % of total move
+        const totalMove = Math.abs(target - entry);
+        const currentMove = isLong ? (current - entry) : (entry - current);
+        const progressPct = totalMove > 0 ? (currentMove / totalMove) * 100 : 0;
+
+        // Calculate distance to stop
+        const distToStop = isLong
+          ? ((current - stop) / current) * 100
+          : ((stop - current) / current) * 100;
+
+        if (pnlPct >= 0) {
+          if (progressPct >= 75) {
+            targetStatus = 'good';
+            targetText = '🎯 ' + progressPct.toFixed(0) + '% to TP (' + (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(1) + '%)';
+          } else if (progressPct >= 50) {
+            targetStatus = 'good';
+            targetText = '📈 ' + progressPct.toFixed(0) + '% to TP (+' + pnlPct.toFixed(1) + '%)';
+          } else {
+            targetStatus = 'neutral';
+            targetText = '📊 ' + progressPct.toFixed(0) + '% to TP (+' + pnlPct.toFixed(1) + '%)';
+          }
+        } else {
+          if (distToStop < 2) {
+            targetStatus = 'bad';
+            targetText = '🚨 Near SL! (' + pnlPct.toFixed(1) + '%)';
+          } else if (pnlPct < -5) {
+            targetStatus = 'warning';
+            targetText = '📉 Underwater (' + pnlPct.toFixed(1) + '%)';
+          } else {
+            targetStatus = 'neutral';
+            targetText = '📊 In progress (' + pnlPct.toFixed(1) + '%)';
+          }
+        }
+      } else if (pos.targetPrice && pos.stopPrice) {
+        // No current price available - show targets instead
+        pos.priceFetchAttempts = (pos.priceFetchAttempts || 0) + 1;
+        if (pos.priceFetchAttempts > 3) {
+          // After 3 attempts (30 seconds), show helpful info instead
+          const formatP = (p) => p >= 1 ? p.toFixed(4) : p.toFixed(6);
+          targetText = 'TP: $' + formatP(pos.targetPrice) + ' / SL: $' + formatP(pos.stopPrice);
+        } else {
+          targetText = 'Fetching price...';
+        }
+      }
+
       if (targetEl) {
-        targetEl.textContent = 'Monitoring...';
-        targetEl.className = 'health-value neutral';
+        targetEl.textContent = targetText;
+        targetEl.className = 'health-value ' + targetStatus;
+      }
+
+      // Update trailing stop suggestion
+      const trailResult = calculateTrailingStop(pos);
+      const pnlDisplayEl = document.getElementById('pnl-display-' + cardId);
+      const trailStopEl = document.getElementById('trail-stop-' + cardId);
+      const trailInfoEl = document.getElementById('trail-info-' + cardId);
+
+      if (pnlDisplayEl) {
+        if (trailResult.pnlPct !== undefined) {
+          const spotPnl = trailResult.pnlPct;
+          const roiPnl = trailResult.roiPct || spotPnl;
+          // Show ROI prominently if leverage is known, spot P&L secondary
+          let displayText;
+          if (pos.leverage && pos.leverage > 1) {
+            displayText = 'ROI: ' + (roiPnl >= 0 ? '+' : '') + roiPnl.toFixed(1) + '% (' + pos.leverage + 'x)';
+          } else {
+            displayText = 'P&L: ' + (spotPnl >= 0 ? '+' : '') + spotPnl.toFixed(2) + '%';
+          }
+          pnlDisplayEl.textContent = displayText;
+          pnlDisplayEl.className = 'pnl-display ' + (trailResult.status === 'profit' ? 'profit' : trailResult.status === 'loss' ? 'loss' : 'neutral');
+        } else {
+          pnlDisplayEl.textContent = 'Waiting for price data...';
+          pnlDisplayEl.className = 'pnl-display neutral';
+        }
+      }
+
+      if (trailStopEl) {
+        if (trailResult.stop) {
+          const formatPrice = (p) => p >= 1 ? p.toFixed(4) : p.toFixed(6);
+          trailStopEl.textContent = '$' + formatPrice(trailResult.stop);
+          trailStopEl.className = 'trailing-stop-value ' + (trailResult.status === 'profit' ? 'profit' : trailResult.status === 'breakeven' ? 'breakeven' : 'neutral');
+        } else {
+          trailStopEl.textContent = '--';
+          trailStopEl.className = 'trailing-stop-value neutral';
+        }
+      }
+
+      if (trailInfoEl) {
+        trailInfoEl.textContent = trailResult.info || 'Enter trade to see trailing stop suggestions';
+      }
+
+      // Check if trailing stop has been hit (price crossed the suggested stop level)
+      if (trailResult.stop && pos.currentPrice && pos.entryPrice) {
+        const isLong = pos.direction === 'LONG';
+        const trailStopHit = isLong
+          ? pos.currentPrice <= trailResult.stop
+          : pos.currentPrice >= trailResult.stop;
+
+        // Only alert if we had a profitable trailing stop (not the original stop)
+        const isTrailingStop = trailResult.status === 'profit' || trailResult.status === 'breakeven';
+
+        if (trailStopHit && isTrailingStop && !pos.trailStopAlerted) {
+          // Mark as alerted so we don't spam
+          pos.trailStopAlerted = true;
+          pos.trailStopAlertedAt = Date.now();
+          saveActivePositions();
+
+          const symbol = pos.symbol.replace('USDT', '');
+          const formatPrice = (p) => p >= 1 ? p.toFixed(4) : p.toFixed(6);
+
+          // Send notification
+          sendNotification(
+            '🛑 TRAILING STOP HIT: ' + symbol,
+            'Price crossed your trailing stop at $' + formatPrice(trailResult.stop) + '. Consider closing position.',
+            pos.direction
+          );
+
+          // Play alert sound
+          playAlert(pos.direction);
+
+          // Show toast
+          showToast('🛑 ' + symbol + ' trailing stop hit! Close position manually.');
+
+          // Flash the card
+          highlightCard(cardId);
+        }
+
+        // Reset alert if price recovers above trailing stop (so it can alert again)
+        if (!trailStopHit && pos.trailStopAlerted) {
+          // Only reset if it's been more than 5 minutes since last alert
+          if (Date.now() - (pos.trailStopAlertedAt || 0) > 5 * 60 * 1000) {
+            pos.trailStopAlerted = false;
+            saveActivePositions();
+          }
+        }
       }
 
       // Calculate overall health and suggestion
-      const warnings = [timeStatus, rsiStatus, regimeStatus].filter(s => s === 'warning').length;
-      const dangers = [timeStatus, rsiStatus, regimeStatus].filter(s => s === 'bad').length;
+      const warnings = [timeStatus, rsiStatus, regimeStatus, targetStatus].filter(s => s === 'warning').length;
+      const dangers = [timeStatus, rsiStatus, regimeStatus, targetStatus].filter(s => s === 'bad').length;
 
       if (badgeEl) {
         if (dangers > 0) {
@@ -2185,49 +3421,464 @@ export function getFocusModeHtml(configKeyParam?: string): string {
         } else if (warnings > 0) {
           badgeEl.textContent = '⚠️ ' + warnings + ' Warning' + (warnings > 1 ? 's' : '');
           badgeEl.className = 'monitor-badge warning';
+        } else if (pnlPct > 0) {
+          badgeEl.textContent = '✓ In Profit (+' + pnlPct.toFixed(1) + '%)';
+          badgeEl.className = 'monitor-badge healthy';
         } else {
           badgeEl.textContent = '✓ Healthy';
           badgeEl.className = 'monitor-badge healthy';
         }
       }
 
+      // Calculate urgency score (higher = more urgent, needs attention)
+      // 100 = trailing stop hit (immediate action)
+      // 90 = near stop loss (critical)
+      // 80 = regime changed against position (critical)
+      // 60 = trade aging with warnings
+      // 50 = multiple warnings
+      // 40 = great profit (action opportunity)
+      // 30 = solid profit (action opportunity)
+      // 20 = profitable, consider breakeven
+      // 10 = healthy, let it develop
+      // 0 = not tracking
+      let urgencyScore = 0;
+
       if (suggestionEl) {
-        if (dangers > 0 || regimeStatus === 'bad') {
-          suggestionEl.textContent = '🚨 Consider exiting: Regime has changed against your position.';
+        if (targetStatus === 'bad') {
+          suggestionEl.textContent = '🚨 Price near stop loss! Consider exiting or adjusting.';
           suggestionEl.className = 'monitor-suggestion warning';
+          urgencyScore = 90;
+        } else if (regimeStatus === 'bad') {
+          // Position direction conflicts with current signal direction
+          const currentAction = '${rule.action}';
+          suggestionEl.textContent = '🚨 CONFLICT: Signal now says ' + currentAction + ' but you are ' + pos.direction + '. Consider closing.';
+          suggestionEl.className = 'monitor-suggestion warning';
+          urgencyScore = 85;
+        } else if (dangers > 0) {
+          suggestionEl.textContent = '🚨 Multiple warning signals. Review your position.';
+          suggestionEl.className = 'monitor-suggestion warning';
+          urgencyScore = 80;
+        } else if (pnlPct >= 10) {
+          suggestionEl.textContent = '🎯 Great profit! Consider taking partial profits or trailing stop.';
+          suggestionEl.className = 'monitor-suggestion action';
+          urgencyScore = 40;
+        } else if (pnlPct >= 5) {
+          suggestionEl.textContent = '💰 In solid profit. Consider moving stop to breakeven.';
+          suggestionEl.className = 'monitor-suggestion action';
+          urgencyScore = 30;
         } else if (timeHours >= 12) {
           suggestionEl.textContent = '⏰ Trade aging: Consider taking profits or tightening stop loss.';
           suggestionEl.className = 'monitor-suggestion warning';
+          urgencyScore = 60;
         } else if (warnings >= 2) {
           suggestionEl.textContent = '⚠️ Multiple warnings: Review your position and consider adjustments.';
           suggestionEl.className = 'monitor-suggestion warning';
-        } else if (timeHours >= 4) {
-          suggestionEl.textContent = '💡 Position stable. Consider moving stop to breakeven if in profit.';
+          urgencyScore = 50;
+        } else if (pnlPct > 0 && timeHours >= 4) {
+          suggestionEl.textContent = '💡 Position profitable. Consider moving stop to breakeven.';
           suggestionEl.className = 'monitor-suggestion action';
+          urgencyScore = 20;
         } else {
           suggestionEl.textContent = '💡 Position looks healthy. Let it develop.';
           suggestionEl.className = 'monitor-suggestion';
+          urgencyScore = 10;
         }
+      }
+
+      // Trailing stop hit is highest urgency
+      if (pos.trailStopAlerted) {
+        urgencyScore = 100;
+      }
+
+      // Store urgency score on position for sorting
+      pos.urgencyScore = urgencyScore;
+
+      // Update header status (visible when collapsed)
+      const headerStatusEl = document.getElementById('header-status-' + cardId);
+      const headerPnlEl = document.getElementById('header-pnl-' + cardId);
+      const headerSuggestionEl = document.getElementById('header-suggestion-' + cardId);
+
+      if (headerStatusEl) {
+        headerStatusEl.classList.add('active');
+      }
+
+      if (headerPnlEl) {
+        if (pos.currentPrice) {
+          const pnlText = (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(1) + '%';
+          headerPnlEl.textContent = pnlText;
+          headerPnlEl.className = 'header-pnl ' + (pnlPct > 0 ? 'profit' : pnlPct < 0 ? 'loss' : 'neutral');
+        } else {
+          headerPnlEl.textContent = '📊 Monitoring';
+          headerPnlEl.className = 'header-pnl neutral';
+        }
+      }
+
+      // Show/hide conflict badge when position direction opposes current signal
+      const headerConflictEl = document.getElementById('header-conflict-' + cardId);
+      if (headerConflictEl) {
+        const hasConflict = regimeStatus === 'bad';
+        headerConflictEl.classList.toggle('visible', hasConflict);
+      }
+
+      if (headerSuggestionEl && suggestionEl) {
+        // Mirror the suggestion text (without leading emoji for compactness)
+        // Use indexOf to find first space, avoids regex issues with emoji surrogate pairs
+        const fullText = suggestionEl.textContent || '';
+        const spaceIdx = fullText.indexOf(' ');
+        const suggestionText = spaceIdx > 0 ? fullText.substring(spaceIdx + 1) : fullText;
+        headerSuggestionEl.textContent = suggestionText;
+        // Use danger class for conflicts (highest priority visual)
+        const isConflict = regimeStatus === 'bad';
+        headerSuggestionEl.className = 'header-suggestion' +
+          (isConflict ? ' danger' : '') +
+          (suggestionEl.className.includes('warning') && !isConflict ? ' warning' : '') +
+          (suggestionEl.className.includes('action') ? ' action' : '');
+      }
+
+      // Show update badge on collapsed cards when status changes significantly
+      const card = document.getElementById(cardId);
+      if (card && card.classList.contains('collapsed')) {
+        const prevPnl = pos.prevPnlPct || 0;
+        const prevDangers = pos.prevDangers || 0;
+        const prevTrailStatus = pos.prevTrailStatus || 'neutral';
+        const roiPct = trailResult.roiPct || 0;
+        const prevRoi = pos.prevRoiPct || 0;
+
+        // Check for trailing stop status changes (most important for manual trailing)
+        if (trailResult.status === 'profit' && prevTrailStatus !== 'profit') {
+          // Just entered trailing territory - time to move stop!
+          highlightCard(cardId);
+          showUpdateBadge(cardId, '🛡️ TRAIL STOP');
+          playAlert(pos.direction);
+        } else if (trailResult.status === 'breakeven' && prevTrailStatus !== 'breakeven' && prevTrailStatus !== 'profit') {
+          // Just hit breakeven threshold
+          highlightCard(cardId);
+          showUpdateBadge(cardId, '🛡️ MOVE TO BE');
+        } else if (roiPct >= 30 && prevRoi < 30) {
+          // Crossed 30% ROI - trail at 70%
+          highlightCard(cardId);
+          showUpdateBadge(cardId, '🚀 +30% TRAIL');
+        } else if (roiPct >= 15 && prevRoi < 15) {
+          // Crossed 15% ROI - trail at 50%
+          highlightCard(cardId);
+          showUpdateBadge(cardId, '📈 +15% TRAIL');
+        } else if ((prevPnl <= 0 && pnlPct > 0) || (prevPnl >= 0 && pnlPct < 0)) {
+          // Crossing profit/loss threshold
+          highlightCard(cardId);
+          showUpdateBadge(cardId, pnlPct > 0 ? 'PROFIT' : 'LOSS');
+        } else if (dangers > prevDangers) {
+          highlightCard(cardId);
+          showUpdateBadge(cardId, '⚠️ ALERT');
+        }
+
+        // Store for next comparison
+        pos.prevPnlPct = pnlPct;
+        pos.prevRoiPct = roiPct;
+        pos.prevDangers = dangers;
+        pos.prevTrailStatus = trailResult.status;
       }
     }
 
-    function updateAllPositionHealth() {
+    // Fetch current prices for all symbols (active positions + all cards for distance display)
+    async function fetchCurrentPrices() {
+      // Get symbols from active positions
+      const positionSymbols = Object.values(activePositions).map(p => p.symbol);
+
+      // Also get symbols from all visible cards (for distance from entry display)
+      const cardSymbols = [];
+      document.querySelectorAll('.trade-card').forEach(function(card) {
+        if (card.dataset.symbol) cardSymbols.push(card.dataset.symbol);
+      });
+
+      const symbols = [...new Set([...positionSymbols, ...cardSymbols])];
+      if (symbols.length === 0) return {};
+
+      try {
+        // Use our server-side proxy to avoid CORS issues
+        const response = await fetch('/api/prices?symbols=' + symbols.join(','));
+        const data = await response.json();
+
+        if (data.prices) {
+          // Update active positions with current prices
+          Object.keys(activePositions).forEach(cardId => {
+            const symbol = activePositions[cardId].symbol;
+            if (data.prices[symbol]) {
+              activePositions[cardId].currentPrice = data.prices[symbol];
+            }
+          });
+          return data.prices;
+        }
+        return {};
+      } catch (e) {
+        console.log('[Focus] Price fetch error:', e);
+        return {};
+      }
+    }
+
+    async function updateAllPositionHealth() {
+      const prices = await fetchCurrentPrices();
+
+      // Update position health for active trades
       Object.keys(activePositions).forEach(cardId => {
         updatePositionHealth(cardId);
       });
+
+      // Update distance from entry for all cards (active or not)
+      updateAllEntryDistances(prices);
+
+      // Update the trailing stop alerts bar
+      updateTrailAlertsBar();
+
+      // Re-sort if using urgency sort (since urgency scores just updated)
+      if (currentSortOrder === 'urgency-desc') {
+        sortSignals('urgency-desc');
+      }
+    }
+
+    // Update the trailing stop alerts bar at top of page
+    function updateTrailAlertsBar() {
+      const bar = document.getElementById('trail-alerts-bar');
+      const list = document.getElementById('trail-alerts-list');
+      if (!bar || !list) return;
+
+      // Find all positions with active trail stop alerts
+      const alerts = [];
+      Object.keys(activePositions).forEach(cardId => {
+        const pos = activePositions[cardId];
+        if (pos.trailStopAlerted && pos.trailStopAlertedAt) {
+          // Calculate the suggested stop for display
+          const formatPrice = (p) => p >= 1 ? p.toFixed(4) : p.toFixed(6);
+          let stopPrice = pos.entryPrice; // Default to breakeven
+
+          if (pos.currentPrice && pos.entryPrice && pos.leverage) {
+            const isLong = pos.direction === 'LONG';
+            const spotPnl = isLong
+              ? ((pos.currentPrice - pos.entryPrice) / pos.entryPrice) * 100
+              : ((pos.entryPrice - pos.currentPrice) / pos.entryPrice) * 100;
+            const roiPct = spotPnl * pos.leverage;
+
+            if (roiPct >= 30) {
+              const lockSpotPct = spotPnl * 0.7;
+              stopPrice = isLong
+                ? pos.entryPrice * (1 + lockSpotPct / 100)
+                : pos.entryPrice * (1 - lockSpotPct / 100);
+            } else if (roiPct >= 15) {
+              const lockSpotPct = spotPnl * 0.5;
+              stopPrice = isLong
+                ? pos.entryPrice * (1 + lockSpotPct / 100)
+                : pos.entryPrice * (1 - lockSpotPct / 100);
+            }
+          }
+
+          alerts.push({
+            cardId: cardId,
+            symbol: pos.symbol,
+            direction: pos.direction,
+            stopPrice: stopPrice,
+            alertedAt: pos.trailStopAlertedAt
+          });
+        }
+      });
+
+      if (alerts.length === 0) {
+        bar.classList.remove('active');
+        list.innerHTML = '';
+        return;
+      }
+
+      // Sort by most recent alert
+      alerts.sort((a, b) => b.alertedAt - a.alertedAt);
+
+      // Show the bar
+      bar.classList.add('active');
+
+      // Build alert items
+      const formatPrice = (p) => p >= 1 ? p.toFixed(4) : p.toFixed(6);
+      list.innerHTML = alerts.map(a => {
+        const symbolShort = a.symbol.replace('USDT', '');
+        return '<div class="trail-alert-item" onclick="scrollToCard(\\'' + a.cardId + '\\')">' +
+          '<span class="symbol">' + symbolShort + '</span>' +
+          '<span class="direction ' + a.direction.toLowerCase() + '">' + a.direction + '</span>' +
+          '<span class="price">SL @ $' + formatPrice(a.stopPrice) + '</span>' +
+          '<button class="trail-alert-dismiss" onclick="event.stopPropagation(); dismissTrailAlert(\\'' + a.cardId + '\\')" title="Dismiss">×</button>' +
+          '</div>';
+      }).join('');
+    }
+
+    // Scroll to a card and expand it
+    function scrollToCard(cardId) {
+      const card = document.getElementById(cardId);
+      if (card) {
+        // Expand the card if collapsed
+        card.classList.remove('collapsed');
+        clearUpdateBadge(cardId);
+
+        // Scroll into view
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+        // Flash highlight
+        highlightCard(cardId);
+      }
+    }
+
+    // Dismiss a trail alert (user acknowledged it)
+    function dismissTrailAlert(cardId) {
+      const pos = activePositions[cardId];
+      if (pos) {
+        pos.trailStopAlerted = false;
+        pos.trailStopAlertedAt = null;
+        saveActivePositions();
+        updateTrailAlertsBar();
+        showToast('✓ Alert dismissed for ' + pos.symbol.replace('USDT', ''));
+      }
+    }
+
+    // Create a minimal position card for orphaned positions (signal expired but position still active)
+    function createOrphanedPositionCard(cardId, pos) {
+      const formatPrice = (p) => p >= 1 ? p.toFixed(4) : p.toFixed(6);
+      const symbol = pos.symbol;
+      const direction = pos.direction;
+      const entryPrice = pos.entryPrice || 0;
+      const leverage = pos.leverage || 1;
+
+      return \`
+        <div class="trade-card \${direction.toLowerCase()} orphaned collapsed" id="\${cardId}" data-symbol="\${symbol}" data-direction="\${direction}" data-signal-entry="\${entryPrice}" data-leverage="\${leverage}">
+          <div class="trade-card-header" onclick="toggleCard('\${cardId}')">
+            <span class="trade-symbol">\${symbol.replace('USDT', '')}</span>
+            <span class="trade-action \${direction.toLowerCase()}">\${direction}</span>
+            <span class="orphaned-badge">ACTIVE</span>
+            <span class="leverage-badge">\${leverage}x</span>
+            <span class="entry-distance neutral" id="entry-distance-\${cardId}" title="Distance from entry">📍 --</span>
+            <span class="header-spacer"></span>
+            <span class="collapse-icon">▼</span>
+            <div class="header-position-status active" id="header-status-\${cardId}">
+              <span class="header-pnl neutral" id="header-pnl-\${cardId}">--</span>
+              <span class="header-conflict-badge" id="header-conflict-\${cardId}">⚠️ CONFLICT</span>
+              <span class="header-suggestion" id="header-suggestion-\${cardId}">Monitoring...</span>
+            </div>
+          </div>
+
+          <div class="trade-card-collapsible">
+            <div class="orphaned-notice">
+              ⚠️ Signal expired from active window, but position is still being monitored.
+            </div>
+
+            <!-- Position Monitor Section (always active for orphaned cards) -->
+            <div class="position-monitor" id="monitor-\${cardId}" data-symbol="\${symbol}" data-direction="\${direction}" data-entry="\${entryPrice}">
+              <div class="monitor-active" id="monitor-active-\${cardId}" style="display: block;">
+                <div class="monitor-header" onclick="toggleMonitor('\${cardId}')">
+                  <span class="monitor-title">📊 Position Monitor</span>
+                  <div class="monitor-summary">
+                    <span class="monitor-badge healthy" id="monitor-badge-\${cardId}">✓ Monitoring</span>
+                    <button class="exit-trade-btn" onclick="event.stopPropagation(); exitTrade('\${cardId}')">Exit Monitor</button>
+                  </div>
+                </div>
+                <div class="monitor-content" id="monitor-content-\${cardId}">
+                  <!-- Manual Entry Price or ROI -->
+                  <div class="monitor-entry-row">
+                    <span class="entry-label">My Entry:</span>
+                    <input type="text" class="entry-input" id="entry-input-\${cardId}"
+                           value="\${entryPrice}"
+                           onchange="updateManualEntry('\${cardId}')"
+                           onclick="event.stopPropagation()">
+                    <button class="entry-btn" onclick="event.stopPropagation(); updateManualEntry('\${cardId}')">Set</button>
+                  </div>
+                  <div class="monitor-entry-row">
+                    <span class="entry-label">Or ROI%:</span>
+                    <input type="text" class="entry-input" id="roi-input-\${cardId}"
+                           placeholder="e.g. 44.5 or -12.3"
+                           onclick="event.stopPropagation()">
+                    <button class="entry-btn" onclick="event.stopPropagation(); updateFromROI('\${cardId}')">Calc</button>
+                  </div>
+
+                  <!-- P&L Display -->
+                  <div class="pnl-display neutral" id="pnl-display-\${cardId}">
+                    Calculating...
+                  </div>
+
+                  <!-- Trailing Stop Suggestion -->
+                  <div class="trailing-stop-box">
+                    <div class="trailing-stop-header">
+                      <span class="trailing-stop-title">🛡️ Suggested Stop Loss</span>
+                      <span class="trailing-stop-value neutral" id="trail-stop-\${cardId}">--</span>
+                    </div>
+                    <div class="trailing-stop-info" id="trail-info-\${cardId}">
+                      Waiting for price data...
+                    </div>
+                  </div>
+
+                  <div class="health-indicator" style="margin-top: 10px;">
+                    <span class="health-label">⏱️ Time in Trade</span>
+                    <span class="health-value neutral" id="health-time-\${cardId}">--</span>
+                  </div>
+                  <div class="monitor-suggestion" id="monitor-suggestion-\${cardId}">
+                    💡 Position monitoring active for expired signal.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="trade-card-footer">
+              <a href="#" onclick="openMexcTrade('\${symbol}'); return false;" class="trade-btn \${direction.toLowerCase()}">
+                Open \${direction} on MEXC →
+              </a>
+            </div>
+          </div>
+        </div>
+      \`;
     }
 
     function restoreActivePositions() {
       loadActivePositions();
+      console.log('[Focus] Restoring positions:', Object.keys(activePositions));
+
+      // First, check for orphaned positions (positions without active cards)
+      const orphanedPositions = [];
       Object.keys(activePositions).forEach(cardId => {
+        const pos = activePositions[cardId];
+        const existingCard = document.getElementById(cardId);
+        if (!existingCard) {
+          console.log('[Focus] Orphaned position found:', cardId, pos.symbol);
+          orphanedPositions.push({ cardId, pos });
+        }
+      });
+
+      // Inject orphaned position cards into the active section
+      if (orphanedPositions.length > 0) {
+        const container = document.querySelector('.trade-cards');
+        if (container) {
+          orphanedPositions.forEach(({ cardId, pos }) => {
+            const cardHtml = createOrphanedPositionCard(cardId, pos);
+            container.insertAdjacentHTML('afterbegin', cardHtml);
+            console.log('[Focus] Created orphaned card for', pos.symbol);
+          });
+        }
+      }
+
+      // Now restore all positions (including newly created orphaned cards)
+      Object.keys(activePositions).forEach(cardId => {
+        const pos = activePositions[cardId];
         const enterBtn = document.getElementById('enter-btn-' + cardId);
         const monitorActive = document.getElementById('monitor-active-' + cardId);
         if (enterBtn && monitorActive) {
           enterBtn.style.display = 'none';
           monitorActive.style.display = 'block';
-          updatePositionHealth(cardId);
+        }
+        // Always restore saved entry price if position exists (regardless of manualEntry flag)
+        if (pos.entryPrice) {
+          const entryInput = document.getElementById('entry-input-' + cardId);
+          if (entryInput) {
+            console.log('[Focus] Restoring entry for', cardId, ':', pos.entryPrice);
+            entryInput.value = pos.entryPrice.toString();
+          } else {
+            console.log('[Focus] Entry input not found for', cardId);
+          }
         }
       });
+      // Fetch prices and update health after restoring
+      updateAllPositionHealth();
+      // Show/hide close all button based on active positions
+      updateCloseAllButton();
     }
 
     // Card collapse functionality
@@ -2236,6 +3887,10 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       if (card) {
         card.classList.toggle('collapsed');
         saveCollapsedState();
+        // Clear update badge when expanding
+        if (!card.classList.contains('collapsed')) {
+          clearUpdateBadge(cardId);
+        }
       }
     }
 
@@ -2245,8 +3900,45 @@ export function getFocusModeHtml(configKeyParam?: string): string {
     }
 
     function expandAllCards() {
-      document.querySelectorAll('.trade-card').forEach(card => card.classList.remove('collapsed'));
+      document.querySelectorAll('.trade-card').forEach(card => {
+        card.classList.remove('collapsed');
+        clearUpdateBadge(card.id);
+      });
       saveCollapsedState();
+    }
+
+    // Card highlight and update badge
+    function highlightCard(cardId) {
+      const card = document.getElementById(cardId);
+      if (card) {
+        card.classList.remove('highlight');
+        // Force reflow to restart animation
+        void card.offsetWidth;
+        card.classList.add('highlight');
+
+        // Show update badge if card is collapsed
+        if (card.classList.contains('collapsed')) {
+          showUpdateBadge(cardId);
+        }
+
+        // Remove highlight class after animation
+        setTimeout(() => card.classList.remove('highlight'), 3000);
+      }
+    }
+
+    function showUpdateBadge(cardId, text = 'UPDATED') {
+      const badge = document.getElementById('update-badge-' + cardId);
+      if (badge) {
+        badge.textContent = text;
+        badge.classList.add('show');
+      }
+    }
+
+    function clearUpdateBadge(cardId) {
+      const badge = document.getElementById('update-badge-' + cardId);
+      if (badge) {
+        badge.classList.remove('show');
+      }
     }
 
     function saveCollapsedState() {
@@ -2268,6 +3960,137 @@ export function getFocusModeHtml(configKeyParam?: string): string {
             const card = document.getElementById(cardId);
             if (card) card.classList.add('collapsed');
           });
+        }
+      } catch (e) {}
+    }
+
+    // Sorting functionality
+    let currentSortOrder = 'time-desc';
+
+    function sortSignals(sortOrder) {
+      currentSortOrder = sortOrder;
+      saveSortPreference(sortOrder);
+
+      const container = document.querySelector('.trade-cards');
+      if (!container) return;
+
+      const cards = Array.from(container.querySelectorAll('.trade-card'));
+      if (cards.length === 0) return;
+
+      cards.sort((a, b) => {
+        const symbolA = a.dataset.symbol || '';
+        const symbolB = b.dataset.symbol || '';
+        const timeA = parseInt(a.dataset.timestamp || '0');
+        const timeB = parseInt(b.dataset.timestamp || '0');
+        const posA = activePositions[a.id];
+        const posB = activePositions[b.id];
+        const trackingA = posA ? 1 : 0;
+        const trackingB = posB ? 1 : 0;
+        // Quality = R:R ratio + signal count bonus
+        const qualityA = parseFloat(a.dataset.quality || '0') + (parseInt(a.dataset.signals || '1') - 1) * 0.5;
+        const qualityB = parseFloat(b.dataset.quality || '0') + (parseInt(b.dataset.signals || '1') - 1) * 0.5;
+        // Urgency score (0 for untracked, 10-100 for tracked based on status)
+        const urgencyA = posA ? (posA.urgencyScore || 0) : 0;
+        const urgencyB = posB ? (posB.urgencyScore || 0) : 0;
+
+        switch (sortOrder) {
+          case 'alpha-asc':
+            return symbolA.localeCompare(symbolB);
+          case 'alpha-desc':
+            return symbolB.localeCompare(symbolA);
+          case 'time-asc':
+            return timeA - timeB;
+          case 'time-desc':
+            return timeB - timeA;
+          case 'urgency-desc':
+            // Most urgent first, then by tracking status, then by time
+            if (urgencyA !== urgencyB) return urgencyB - urgencyA;
+            if (trackingA !== trackingB) return trackingB - trackingA;
+            return timeB - timeA;
+          case 'quality-desc':
+            if (qualityA !== qualityB) return qualityB - qualityA;
+            return timeB - timeA; // Secondary sort by time
+          case 'quality-asc':
+            if (qualityA !== qualityB) return qualityA - qualityB;
+            return timeB - timeA; // Secondary sort by time
+          case 'tracking-first':
+            if (trackingA !== trackingB) return trackingB - trackingA;
+            return timeB - timeA; // Secondary sort by time
+          case 'tracking-last':
+            if (trackingA !== trackingB) return trackingA - trackingB;
+            return timeB - timeA; // Secondary sort by time
+          default:
+            return timeB - timeA;
+        }
+      });
+
+      // Re-append cards in sorted order
+      cards.forEach(card => container.appendChild(card));
+
+      // Add separator between tracked and untracked when using relevant sort
+      updateTrackingSeparator(sortOrder, container, cards);
+    }
+
+    function updateTrackingSeparator(sortOrder, container, cards) {
+      // Remove existing separator
+      const existingSep = container.querySelector('.tracking-separator');
+      if (existingSep) existingSep.remove();
+
+      // Only show separator for tracking-based or urgency sorts
+      if (!['tracking-first', 'tracking-last', 'urgency-desc'].includes(sortOrder)) {
+        return;
+      }
+
+      // Find the boundary between tracked and untracked
+      let separatorIndex = -1;
+      for (let i = 0; i < cards.length; i++) {
+        const isTracked = !!activePositions[cards[i].id];
+        const nextIsTracked = i + 1 < cards.length ? !!activePositions[cards[i + 1].id] : null;
+
+        // For tracking-first and urgency-desc: tracked cards come first
+        // Separator goes after last tracked card
+        if ((sortOrder === 'tracking-first' || sortOrder === 'urgency-desc') && isTracked && nextIsTracked === false) {
+          separatorIndex = i;
+          break;
+        }
+        // For tracking-last: untracked cards come first
+        // Separator goes after last untracked card
+        if (sortOrder === 'tracking-last' && !isTracked && nextIsTracked === true) {
+          separatorIndex = i;
+          break;
+        }
+      }
+
+      // Insert separator if boundary found
+      if (separatorIndex >= 0 && separatorIndex < cards.length - 1) {
+        const trackedCount = Object.keys(activePositions).filter(id => document.getElementById(id)).length;
+        const untrackedCount = cards.length - trackedCount;
+
+        const separator = document.createElement('div');
+        separator.className = 'tracking-separator';
+        separator.innerHTML = sortOrder === 'tracking-last'
+          ? '<span>📊 Tracking (' + trackedCount + ' positions)</span>'
+          : '<span>📋 Not Tracking (' + untrackedCount + ' signals)</span>';
+
+        // Insert after the card at separatorIndex
+        cards[separatorIndex].after(separator);
+      }
+    }
+
+    function saveSortPreference(sortOrder) {
+      try {
+        localStorage.setItem('focusMode_sortOrder', sortOrder);
+      } catch (e) {}
+    }
+
+    function restoreSortPreference() {
+      try {
+        const saved = localStorage.getItem('focusMode_sortOrder');
+        if (saved) {
+          currentSortOrder = saved;
+          const sortSelect = document.getElementById('sort-select');
+          if (sortSelect) sortSelect.value = saved;
+          sortSignals(saved);
         }
       } catch (e) {}
     }
@@ -2363,13 +4186,35 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       showToast(audioEnabled ? '🔊 Audio alerts enabled' : '🔇 Audio alerts muted');
     }
 
+    // Test sound button - also wakes up audio context
+    function testSound() {
+      console.log('[Focus] Test sound clicked, audioEnabled:', audioEnabled);
+      // Force enable for test
+      const wasEnabled = audioEnabled;
+      audioEnabled = true;
+      playAlert('LONG');
+      audioEnabled = wasEnabled;
+      showToast('🔊 Test sound played');
+    }
+
     // Play alert sound using Web Audio API
     function playAlert(type) {
-      if (!audioEnabled) return;
+      console.log('[Focus] playAlert called, type:', type, 'audioEnabled:', audioEnabled);
+      if (!audioEnabled) {
+        console.log('[Focus] Audio disabled, skipping sound');
+        return;
+      }
 
       try {
         if (!audioContext) {
+          console.log('[Focus] Creating new AudioContext');
           audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+
+        // Resume audio context if suspended (browser autoplay policy)
+        if (audioContext.state === 'suspended') {
+          console.log('[Focus] Resuming suspended AudioContext');
+          audioContext.resume();
         }
 
         const oscillator = audioContext.createOscillator();
@@ -2398,8 +4243,9 @@ export function getFocusModeHtml(configKeyParam?: string): string {
 
         oscillator.start(audioContext.currentTime);
         oscillator.stop(audioContext.currentTime + 0.5);
+        console.log('[Focus] Sound played successfully');
       } catch (e) {
-        console.log('Audio not available:', e);
+        console.log('[Focus] Audio error:', e);
       }
     }
 
@@ -2416,24 +4262,379 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       }, 3000);
     }
 
+    // Bulk Update Modal functions
+    let parsedBulkData = [];
+
+    function showBulkUpdateModal() {
+      document.getElementById('bulk-update-modal').style.display = 'flex';
+      document.getElementById('bulk-paste-input').value = '';
+      document.getElementById('bulk-preview').innerHTML = '';
+      document.getElementById('apply-bulk-btn').disabled = true;
+      parsedBulkData = [];
+    }
+
+    function closeBulkUpdateModal() {
+      document.getElementById('bulk-update-modal').style.display = 'none';
+    }
+
+    function parseBulkUpdate() {
+      const input = document.getElementById('bulk-paste-input').value;
+      if (!input.trim()) {
+        showToast('❌ Please paste MEXC data first');
+        return;
+      }
+
+      // Parse the MEXC grid bot table format
+      parsedBulkData = parseMexcGridData(input);
+
+      if (parsedBulkData.length === 0) {
+        showToast('❌ Could not parse any positions from the data');
+        return;
+      }
+
+      // Show preview
+      const preview = document.getElementById('bulk-preview');
+      let html = '';
+      let matchedCount = 0;
+
+      parsedBulkData.forEach(item => {
+        const cardId = 'card-' + item.symbol + '-' + item.direction;
+        const isTracked = !!activePositions[cardId];
+        const cardExists = !!document.getElementById(cardId);
+        matchedCount++; // All positions will be processed now
+
+        const roiClass = item.roi >= 0 ? 'profit' : 'loss';
+        let statusClass, statusText;
+        if (isTracked) {
+          statusClass = 'matched';
+          statusText = '✓ Will update';
+        } else if (cardExists) {
+          statusClass = 'matched';
+          statusText = '+ Will start (card visible)';
+        } else {
+          statusClass = 'matched';
+          statusText = '+ Will start (no card)';
+        }
+
+        html += '<div class="modal-preview-item">' +
+          '<span class="symbol">' + item.symbol.replace('USDT', '') + '</span>' +
+          '<span>' + item.direction + ' ' + item.leverage + 'x</span>' +
+          '<span class="roi ' + roiClass + '">' + (item.roi >= 0 ? '+' : '') + item.roi.toFixed(2) + '%</span>' +
+          '<span class="status ' + statusClass + '">' + statusText + '</span>' +
+          '</div>';
+      });
+
+      preview.innerHTML = html || '<div style="color: #8b949e;">No data parsed</div>';
+      document.getElementById('apply-bulk-btn').disabled = matchedCount === 0;
+      showToast('📋 Found ' + parsedBulkData.length + ' positions, ' + matchedCount + ' tracked');
+    }
+
+    function parseMexcGridData(text) {
+      const results = [];
+      console.log('[Bulk] Input length: ' + text.length);
+
+      // Strategy: Find all XXX USDT symbols, then search nearby for direction/leverage/ROI
+      // This handles messy pastes where data may be on same line or split weirdly
+
+      // First, find all potential symbols (word ending in USDT)
+      const upperText = text.toUpperCase();
+      const symbolRegex = /([A-Z][A-Z0-9]{1,12})USDT/g;
+      const foundSymbols = [];
+      let m;
+      while ((m = symbolRegex.exec(upperText)) !== null) {
+        const sym = m[1] + 'USDT';
+        // Skip header words
+        if (sym !== 'INVESTMENTAMOUNTUSDT' && sym !== 'TRADINGPAIRUSDT' && sym !== 'TOTALPNLUSDT') {
+          foundSymbols.push({ symbol: sym, pos: m.index });
+        }
+      }
+      console.log('[Bulk] Found ' + foundSymbols.length + ' symbols: ' + foundSymbols.map(function(s){return s.symbol;}).join(', '));
+
+      // For each symbol, look at the text chunk between this symbol and the next
+      for (let i = 0; i < foundSymbols.length; i++) {
+        const sym = foundSymbols[i];
+        const nextPos = (i + 1 < foundSymbols.length) ? foundSymbols[i + 1].pos : text.length;
+        const chunk = text.substring(sym.pos, nextPos);
+
+        // Find direction + leverage: Short15X, Long10X, etc
+        const dirMatch = chunk.match(/(Short|Long)[^0-9]*([0-9]+)[^A-Za-z]*X/i);
+        if (!dirMatch) {
+          console.log('[Bulk] ' + sym.symbol + ': no direction found');
+          continue;
+        }
+        const direction = dirMatch[1].toUpperCase();
+        const leverage = parseInt(dirMatch[2], 10);
+
+        // Find ROI: look for USDT followed by +/-XX.XX%
+        // Pattern like "+18.0825 USDT+44.67%" - we want the percentage after USDT
+        let roi = null;
+
+        // Try pattern: number + USDT + percentage (the PNL line)
+        const pnlPattern = chunk.match(/[+-]?[0-9.]+\s*USDT\s*([+-][0-9.]+)\s*%/);
+        if (pnlPattern) {
+          roi = parseFloat(pnlPattern[1]);
+        }
+
+        // Fallback: look for percentage that's not a TP/SL Ratio
+        if (roi === null) {
+          // Find all percentages in chunk
+          const allPcts = [];
+          const pctRegex = /([+-]?[0-9.]+)\s*%/g;
+          let pm;
+          while ((pm = pctRegex.exec(chunk)) !== null) {
+            const val = parseFloat(pm[1]);
+            const context = chunk.substring(Math.max(0, pm.index - 30), pm.index).toLowerCase();
+            // Skip if this is a TP/SL ratio
+            if (context.indexOf('ratio') < 0 && context.indexOf('tp ') < 0 && context.indexOf('sl ') < 0) {
+              allPcts.push(val);
+            }
+          }
+          // The ROI is usually a small percentage (not the big TP ratios like 181%)
+          // Pick the one that looks most like an ROI (between -50 and +100 typically)
+          for (let p of allPcts) {
+            if (p >= -100 && p <= 100) {
+              roi = p;
+              break;
+            }
+          }
+        }
+
+        if (roi !== null) {
+          console.log('[Bulk] Parsed: ' + sym.symbol + ' ' + direction + ' ' + leverage + 'x = ' + roi + '%');
+          results.push({ symbol: sym.symbol, direction: direction, leverage: leverage, roi: roi });
+        } else {
+          console.log('[Bulk] ' + sym.symbol + ': no ROI found');
+        }
+      }
+
+      console.log('[Bulk] Total: ' + results.length + ' positions');
+      return results;
+    }
+
+    function applyBulkUpdate() {
+      if (parsedBulkData.length === 0) {
+        showToast('❌ No data to apply');
+        return;
+      }
+
+      let updated = 0;
+      let started = 0;
+
+      parsedBulkData.forEach(item => {
+        const cardId = 'card-' + item.symbol + '-' + item.direction;
+        const pos = activePositions[cardId];
+        const card = document.getElementById(cardId);
+
+        if (pos) {
+          // Already tracking - only update leverage, preserve existing entry price
+          pos.leverage = item.leverage;
+
+          // Only calculate entry if position has no entry price yet
+          if (!pos.entryPrice || pos.entryPrice === 0) {
+            if (pos.currentPrice) {
+              const spotPnlPct = item.roi / item.leverage;
+              const isLong = item.direction === 'LONG';
+
+              let calculatedEntry;
+              if (isLong) {
+                calculatedEntry = pos.currentPrice / (1 + spotPnlPct / 100);
+              } else {
+                calculatedEntry = pos.currentPrice / (1 - spotPnlPct / 100);
+              }
+
+              pos.entryPrice = calculatedEntry;
+              pos.manualEntry = true;
+
+              const entryInput = document.getElementById('entry-input-' + cardId);
+              if (entryInput) {
+                entryInput.value = calculatedEntry.toFixed(6);
+              }
+            } else {
+              // No current price yet, store pending ROI
+              pos.pendingRoi = item.roi;
+            }
+          }
+
+          updated++;
+        } else {
+          // Not tracking yet - create new position regardless of whether card is visible
+          // This allows bulk import to work even if signals are in different time windows or played out
+          activePositions[cardId] = {
+            symbol: item.symbol,
+            direction: item.direction,
+            entryPrice: 0, // Will be calculated from ROI once we have price
+            entryRsi: 50, // Default
+            targetPrice: 0,
+            stopPrice: 0,
+            enteredAt: Date.now(),
+            leverage: item.leverage,
+            manualEntry: true,
+            pendingRoi: item.roi // Store ROI to calculate entry when price arrives
+          };
+
+          // Update UI if card exists
+          if (card) {
+            const enterBtn = document.getElementById('enter-btn-' + cardId);
+            const monitorActive = document.getElementById('monitor-active-' + cardId);
+            if (enterBtn && monitorActive) {
+              enterBtn.style.display = 'none';
+              monitorActive.style.display = 'block';
+            }
+            highlightCard(cardId);
+          }
+
+          started++;
+        }
+      });
+
+      saveActivePositions();
+
+      // Fetch prices and update - this will also calculate entries for new positions
+      fetchCurrentPrices().then(function() {
+        // Now calculate entry prices for positions that have pendingRoi and no entry yet
+        Object.keys(activePositions).forEach(function(cardId) {
+          const pos = activePositions[cardId];
+          // Only calculate if pendingRoi exists AND no entry price set yet
+          if (pos.pendingRoi !== undefined && pos.currentPrice && (!pos.entryPrice || pos.entryPrice === 0)) {
+            const spotPnlPct = pos.pendingRoi / (pos.leverage || 1);
+            const isLong = pos.direction === 'LONG';
+
+            let calculatedEntry;
+            if (isLong) {
+              calculatedEntry = pos.currentPrice / (1 + spotPnlPct / 100);
+            } else {
+              calculatedEntry = pos.currentPrice / (1 - spotPnlPct / 100);
+            }
+
+            pos.entryPrice = calculatedEntry;
+            delete pos.pendingRoi;
+
+            // Update entry input if visible
+            const entryInput = document.getElementById('entry-input-' + cardId);
+            if (entryInput) {
+              entryInput.value = calculatedEntry.toFixed(6);
+            }
+          } else if (pos.pendingRoi !== undefined && pos.entryPrice && pos.entryPrice > 0) {
+            // Already has entry, just clear the pending ROI
+            delete pos.pendingRoi;
+          }
+        });
+        saveActivePositions();
+        updateAllPositionHealth();
+      });
+
+      closeBulkUpdateModal();
+
+      let msg = '';
+      if (updated > 0) msg += '✅ Updated ' + updated + ' positions';
+      if (started > 0) msg += (msg ? ', ' : '✅ ') + 'Started tracking ' + started + ' new';
+      if (!msg) msg = '⚠️ No matching positions found';
+      showToast(msg);
+    }
+
     // Send browser notification
     function sendNotification(title, body, action) {
-      if (!notificationsEnabled) return;
+      console.log('[Focus] sendNotification called, notificationsEnabled:', notificationsEnabled, 'permission:', Notification.permission);
+      if (!notificationsEnabled) {
+        console.log('[Focus] Notifications disabled, skipping');
+        return;
+      }
+
+      if (!('Notification' in window)) {
+        console.log('[Focus] Notifications not supported in this browser');
+        return;
+      }
+
+      if (Notification.permission !== 'granted') {
+        console.log('[Focus] Notification permission not granted:', Notification.permission);
+        return;
+      }
 
       try {
+        console.log('[Focus] Creating notification:', title, body);
         const notif = new Notification(title, {
           body: body,
-          icon: action === 'LONG' ? '🟢' : action === 'SHORT' ? '🔴' : '⏸️',
-          tag: 'focus-mode',
-          requireInteraction: true
+          tag: 'focus-mode-' + Date.now(), // Unique tag to allow multiple notifications
+          requireInteraction: false,
+          silent: false
         });
 
         notif.onclick = () => {
           window.focus();
           notif.close();
         };
+
+        notif.onerror = (e) => {
+          console.log('[Focus] Notification error event:', e);
+        };
+
+        console.log('[Focus] Notification created successfully');
       } catch (e) {
-        console.log('Notification error:', e);
+        console.log('[Focus] Notification error:', e);
+      }
+    }
+
+    // Test notification
+    function testNotification() {
+      console.log('[Focus] Test notification clicked');
+      console.log('[Focus] Notification support:', 'Notification' in window);
+      console.log('[Focus] Notification permission:', Notification.permission);
+      console.log('[Focus] notificationsEnabled:', notificationsEnabled);
+
+      if (!('Notification' in window)) {
+        showToast('❌ Notifications not supported');
+        return;
+      }
+
+      if (Notification.permission === 'denied') {
+        showToast('❌ Notifications blocked - check browser settings');
+        return;
+      }
+
+      if (Notification.permission !== 'granted') {
+        Notification.requestPermission().then(perm => {
+          console.log('[Focus] Permission result:', perm);
+          if (perm === 'granted') {
+            sendTestNotif();
+          } else {
+            showToast('❌ Notification permission denied');
+          }
+        });
+        return;
+      }
+
+      sendTestNotif();
+    }
+
+    function sendTestNotif() {
+      try {
+        console.log('[Focus] Creating notification...');
+        console.log('[Focus] Protocol:', window.location.protocol);
+        console.log('[Focus] Permission:', Notification.permission);
+
+        const notif = new Notification('Focus Mode Test', {
+          body: 'Notifications are working! Time: ' + new Date().toLocaleTimeString(),
+          tag: 'focus-test-' + Date.now(),
+          requireInteraction: false,
+          silent: false
+        });
+
+        notif.onshow = () => console.log('[Focus] Notification shown');
+        notif.onerror = (e) => {
+          console.log('[Focus] Notification error event:', e);
+          showToast('❌ Notification failed to display');
+        };
+        notif.onclick = () => notif.close();
+
+        showToast('✅ Notification sent (check OS notification center)');
+
+        // Also show protocol warning if not secure
+        if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+          showToast('⚠️ Non-HTTPS may block notifications');
+        }
+      } catch (e) {
+        console.log('[Focus] Test notification error:', e);
+        showToast('❌ Notification error: ' + e.message);
       }
     }
 
@@ -2441,15 +4642,24 @@ export function getFocusModeHtml(configKeyParam?: string): string {
     async function checkForUpdates() {
       try {
         const currentConfig = document.getElementById('config-select')?.value || '${configKey}';
-        const response = await fetch('/api/status?config=' + encodeURIComponent(currentConfig));
+        const response = await fetch('/api/focus-mode?config=' + encodeURIComponent(currentConfig));
         const data = await response.json();
 
         const newQuadrant = data.quadrant;
         const newAction = data.rule.action;
         const newActionableCount = data.actionableSignals.length;
 
-        // Check if regime changed to actionable
-        if (newAction !== 'SKIP' && (newQuadrant !== lastQuadrant || newActionableCount > lastActionableCount)) {
+        console.log('[Focus] checkForUpdates - lastQ:', lastQuadrant, 'newQ:', newQuadrant,
+                    'lastCount:', lastActionableCount, 'newCount:', newActionableCount, 'action:', newAction);
+
+        // Check if regime changed to actionable OR new signals appeared
+        const regimeChanged = newQuadrant !== lastQuadrant;
+        const signalsIncreased = newActionableCount > lastActionableCount;
+        const isActionable = newAction !== 'SKIP';
+
+        if (isActionable && (regimeChanged || signalsIncreased)) {
+          console.log('[Focus] ALERT TRIGGERED! regimeChanged:', regimeChanged, 'signalsIncreased:', signalsIncreased);
+
           // Play sound
           playAlert(newAction);
 
@@ -2468,14 +4678,21 @@ export function getFocusModeHtml(configKeyParam?: string): string {
           setTimeout(() => document.body.classList.remove('alert-flash'), 1000);
         }
 
-        // Check if new signals appeared in an already-actionable regime
-        if (newAction !== 'SKIP' && newActionableCount > lastActionableCount && newQuadrant === lastQuadrant) {
-          playAlert(newAction);
-          sendNotification(
-            '🔥 New Signal!',
-            \`\${data.actionableSignals[0]?.symbol || 'New'} - \${newAction}\`,
-            newAction
-          );
+        // Also alert for new signals even if count didn't change (new symbol replaced old one)
+        if (isActionable && newActionableCount > 0 && data.actionableSignals[0]) {
+          const newestSignal = data.actionableSignals[0];
+          const newestTime = new Date(newestSignal.timestamp).getTime();
+          const tenSecsAgo = Date.now() - 15000; // 15 second window
+
+          if (newestTime > tenSecsAgo && !regimeChanged && !signalsIncreased) {
+            console.log('[Focus] New signal detected (same count but fresh):', newestSignal.symbol);
+            playAlert(newAction);
+            sendNotification(
+              '🔥 New Signal!',
+              newestSignal.symbol.replace('USDT', '') + ' - ' + newAction,
+              newAction
+            );
+          }
         }
 
         lastQuadrant = newQuadrant;
@@ -2503,11 +4720,21 @@ export function getFocusModeHtml(configKeyParam?: string): string {
       updateAudioButton();
       updateLinkButton();
 
+      // Set time window dropdown to saved value (may differ from URL if first load)
+      const windowSelect = document.getElementById('time-window-select');
+      if (windowSelect && activeWindowHours) {
+        windowSelect.value = activeWindowHours.toString();
+      }
+
       // Restore collapsed card states
       restoreCollapsedState();
 
-      // Restore active position monitors
+      // Restore active position monitors BEFORE sorting
+      // (so tracking-based sorts have access to activePositions)
       restoreActivePositions();
+
+      // Restore sort preference (must run after activePositions is loaded)
+      restoreSortPreference();
 
       // Start polling every 10 seconds
       setInterval(checkForUpdates, 10000);

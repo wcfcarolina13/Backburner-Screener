@@ -557,6 +557,8 @@ export class TrendFlipBot {
     this.pendingFlips = [];
   }
 
+  setInitialBalance(amount: number): void { this.config.initialBalance = amount; }
+
   async updateOrphanedPositions(
     getCurrentPrice: (symbol: string) => Promise<number | null>,
     btcBias: string = 'neutral'

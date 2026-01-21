@@ -308,6 +308,8 @@ export class ConfluenceBot {
     this.openPositionKeys.clear();
   }
 
+  setInitialBalance(amount: number): void { this.config.initialBalance = amount; }
+
   /**
    * Get current trigger state for debugging/UI
    */

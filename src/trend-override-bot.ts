@@ -503,6 +503,8 @@ export class TrendOverrideBot {
     this.processedSetups.clear();
   }
 
+  setInitialBalance(amount: number): void { this.config.initialBalance = amount; }
+
   /**
    * Update orphaned positions (positions whose setups no longer exist)
    */

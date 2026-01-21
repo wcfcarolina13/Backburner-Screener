@@ -4,10 +4,72 @@
 
 ## Summary
 
-- Iterations completed: 19
-- Current status: V2 Exit Strategy Overhaul Deployed
+- Iterations completed: 20
+- Current status: Configurable Investment Amount Added
 
-## Current Task: V2 Exit Strategy Overhaul
+## Current Task: Investment Amount Configuration
+
+### Iteration 20 - Configurable Investment Amount
+**Date**: 2026-01-20
+**Status**: ✅ Complete
+
+**Problem**: Each tracked setup assumed a fixed $2000 balance, causing ROI calculations to be off when the user's actual MEXC investment differed.
+
+**Solution Implemented**:
+
+1. **Added `setInitialBalance()` method to all bot classes**:
+   - PaperTradingEngine
+   - TrailingStopEngine
+   - TimeframeShadowBot
+   - GoldenPocketBot, GoldenPocketBotV2
+   - GpShadowBot
+   - CombinedStrategyBot
+   - ConfluenceBot
+   - BTCExtremeBot, BTCTrendBot
+   - TrendOverrideBot, TrendFlipBot
+   - FadeBot
+   - MexcTrailingSimulation
+
+2. **Added `investmentAmount` to ServerSettings**:
+   - Persisted to `data/server-settings.json`
+   - Survives server restarts
+
+3. **Created API endpoints**:
+   - `GET /api/investment-amount` - returns current investment
+   - `POST /api/investment-amount` - updates investment and optionally resets bots
+
+4. **Added Settings UI**:
+   - New "💰 Investment Amount" section in Settings modal
+   - Input field for USD amount
+   - "Save (Keep Balances)" - updates config for future resets
+   - "Save & Reset Bots" - updates and immediately resets all bots
+
+5. **Updated reset messages**:
+   - Manual reset shows current investment amount instead of hardcoded $2000
+   - Server logs reflect configured investment amount
+
+**Files Modified**:
+- `src/paper-trading.ts` (+7 lines)
+- `src/paper-trading-trailing.ts` (+7 lines)
+- `src/timeframe-shadow-bot.ts` (+4 lines)
+- `src/golden-pocket-bot.ts` (+4 lines)
+- `src/golden-pocket-bot-v2.ts` (+4 lines)
+- `src/gp-shadow-bot.ts` (+4 lines)
+- `src/combined-strategy-bot.ts` (+4 lines)
+- `src/confluence-bot.ts` (+4 lines)
+- `src/btc-extreme-bot.ts` (+4 lines)
+- `src/btc-trend-bot.ts` (+4 lines)
+- `src/trend-override-bot.ts` (+4 lines)
+- `src/trend-flip-bot.ts` (+4 lines)
+- `src/fade-bot.ts` (+4 lines)
+- `src/mexc-trailing-simulation.ts` (+4 lines)
+- `src/web-server.ts` (~150 lines - settings, API, UI, helper functions)
+
+**Build**: ✅ Passes successfully
+
+---
+
+## Previous Task: V2 Exit Strategy Overhaul
 
 ### Iteration 19 - V2: Exit Strategy Overhaul for Positive Expected Value
 **Date**: 2026-01-19

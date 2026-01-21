@@ -536,4 +536,6 @@ export class CombinedStrategyBot {
     this.skippedSignals = 0;
     console.log(`[${this.botId}] Reset to $${this.balance}`);
   }
+
+  setInitialBalance(amount: number): void { this.config.initialBalance = amount; }
 }

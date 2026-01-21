@@ -471,6 +471,8 @@ export class GpShadowBot {
     console.log(`[${this.botId}] Reset to $${this.config.initialBalance}`);
   }
 
+  setInitialBalance(amount: number): void { this.config.initialBalance = amount; }
+
   /**
    * Get all open positions
    */

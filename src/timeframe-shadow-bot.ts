@@ -467,4 +467,8 @@ export class TimeframeShadowBot {
     this.closedPositions = [];
     console.log(`[${this.botId}] Reset to $${this.balance}`);
   }
+
+  setInitialBalance(amount: number): void {
+    this.config.initialBalance = amount;
+  }
 }

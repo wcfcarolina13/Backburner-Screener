@@ -870,6 +870,14 @@ export class TrailingStopEngine {
   }
 
   /**
+   * Update the initial balance configuration
+   * Used when syncing with real MEXC investment amount
+   */
+  setInitialBalance(amount: number): void {
+    this.config.initialBalance = amount;
+  }
+
+  /**
    * Save positions to disk for persistence across restarts
    */
   saveState(): void {

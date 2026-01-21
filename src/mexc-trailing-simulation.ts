@@ -596,6 +596,8 @@ export class MexcTrailingSimulation {
     this.balance = this.config.initialBalance;
     this.peakBalance = this.config.initialBalance;
   }
+
+  setInitialBalance(amount: number): void { this.config.initialBalance = amount; }
 }
 
 /**
