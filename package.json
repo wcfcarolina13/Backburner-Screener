@@ -25,7 +25,8 @@
     "focus": "node dist/focus-mode-dashboard.js",
     "focus:dev": "tsx src/focus-mode-dashboard.ts",
     "backtest:leveraged": "node dist/backtest-leveraged-regime.js",
-    "backtest:spot": "node dist/backtest-spot-regime-realistic.js"
+    "backtest:spot": "node dist/backtest-spot-regime-realistic.js",
+    "spot-backtest": "node dist/spot-backtest-cli.js"
   },
   "keywords": [
     "trading",
