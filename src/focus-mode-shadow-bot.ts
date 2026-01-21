@@ -164,7 +164,7 @@ export const DEFAULT_CONFIG: FocusModeShadowBotConfig = {
   conflictGracePeriodMs: 5 * 60 * 1000,  // 5 minutes
 
   minQualityScore: 50,
-  allowedQuadrants: ['NEU+BEAR', 'NEU+BULL', 'BEAR+BEAR'],
+  allowedQuadrants: ['NEU+BEAR', 'NEU+BULL', 'BEAR+BEAR', 'NEU+NEU'],  // Include NEU+NEU for when regime is unknown
 
   feePercent: 0.04,  // MEXC futures taker
   slippagePercent: 0.05,
