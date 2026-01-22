@@ -51,7 +51,7 @@ function changeTimeWindow(hours) {
   activeWindowHours = parseInt(hours);
   saveFocusModeSettings();
   // Reload page with new time window
-  const currentConfig = document.getElementById('config-select')?.value || '${configKey}';
+  const currentConfig = document.getElementById('config-select')?.value || '4h/1h';
   window.location.href = '/focus?config=' + encodeURIComponent(currentConfig) + '&window=' + hours;
 }
 
@@ -790,8 +790,9 @@ function updatePositionHealth(cardId) {
       urgencyScore = 90;
     } else if (regimeStatus === 'bad') {
       // Position direction conflicts with current signal direction
-      const currentAction = '${rule.action}';
-      suggestionEl.textContent = '🚨 CONFLICT: Signal now says ' + currentAction + ' but you are ' + pos.direction + '. Consider closing.';
+      const currentQuad = (window.FOCUS_MODE_INIT && window.FOCUS_MODE_INIT.quadrant) || 'NEU+NEU';
+      const currentAct = getQuadrantAction(currentQuad);
+      suggestionEl.textContent = '🚨 CONFLICT: Signal now says ' + currentAct + ' but you are ' + pos.direction + '. Consider closing.';
       suggestionEl.className = 'monitor-suggestion warning';
       urgencyScore = 85;
     } else if (dangers > 0) {
@@ -1981,7 +1982,7 @@ function sendTestNotif() {
 // Poll for updates
 async function checkForUpdates() {
   try {
-    const currentConfig = document.getElementById('config-select')?.value || '${configKey}';
+    const currentConfig = document.getElementById('config-select')?.value || '4h/1h';
     const response = await fetch('/api/focus-mode?config=' + encodeURIComponent(currentConfig));
     const data = await response.json();
 
