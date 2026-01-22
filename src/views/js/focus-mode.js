@@ -1019,11 +1019,11 @@ function updateTrailAlertsBar() {
   const formatPrice = (p) => p >= 1 ? p.toFixed(4) : p.toFixed(6);
   list.innerHTML = alerts.map(a => {
     const symbolShort = a.symbol.replace('USDT', '');
-    return '<div class="trail-alert-item" onclick="scrollToCard(\\'' + a.cardId + '\\')">' +
+    return '<div class="trail-alert-item" onclick="scrollToCard(\'' + a.cardId + '\')">' +
       '<span class="symbol">' + symbolShort + '</span>' +
       '<span class="direction ' + a.direction.toLowerCase() + '">' + a.direction + '</span>' +
       '<span class="price">SL @ $' + formatPrice(a.stopPrice) + '</span>' +
-      '<button class="trail-alert-dismiss" onclick="event.stopPropagation(); dismissTrailAlert(\\'' + a.cardId + '\\')" title="Dismiss">×</button>' +
+      '<button class="trail-alert-dismiss" onclick="event.stopPropagation(); dismissTrailAlert(\'' + a.cardId + '\')" title="Dismiss">×</button>' +
       '</div>';
   }).join('');
 }
@@ -1064,20 +1064,20 @@ function createOrphanedPositionCard(cardId, pos) {
   const entryPrice = pos.entryPrice || 0;
   const leverage = pos.leverage || 1;
 
-  return \`
-    <div class="trade-card \${direction.toLowerCase()} orphaned collapsed" id="\${cardId}" data-symbol="\${symbol}" data-direction="\${direction}" data-signal-entry="\${entryPrice}" data-leverage="\${leverage}">
-      <div class="trade-card-header" onclick="toggleCard('\${cardId}')">
-        <span class="trade-symbol">\${symbol.replace('USDT', '')}</span>
-        <span class="trade-action \${direction.toLowerCase()}">\${direction}</span>
+  return `
+    <div class="trade-card ${direction.toLowerCase()} orphaned collapsed" id="${cardId}" data-symbol="${symbol}" data-direction="${direction}" data-signal-entry="${entryPrice}" data-leverage="${leverage}">
+      <div class="trade-card-header" onclick="toggleCard('${cardId}')">
+        <span class="trade-symbol">${symbol.replace('USDT', '')}</span>
+        <span class="trade-action ${direction.toLowerCase()}">${direction}</span>
         <span class="orphaned-badge">ACTIVE</span>
-        <span class="leverage-badge">\${leverage}x</span>
-        <span class="entry-distance neutral" id="entry-distance-\${cardId}" title="Distance from entry">📍 --</span>
+        <span class="leverage-badge">${leverage}x</span>
+        <span class="entry-distance neutral" id="entry-distance-${cardId}" title="Distance from entry">📍 --</span>
         <span class="header-spacer"></span>
         <span class="collapse-icon">▼</span>
-        <div class="header-position-status active" id="header-status-\${cardId}">
-          <span class="header-pnl neutral" id="header-pnl-\${cardId}">--</span>
-          <span class="header-conflict-badge" id="header-conflict-\${cardId}">⚠️ CONFLICT</span>
-          <span class="header-suggestion" id="header-suggestion-\${cardId}">Monitoring...</span>
+        <div class="header-position-status active" id="header-status-${cardId}">
+          <span class="header-pnl neutral" id="header-pnl-${cardId}">--</span>
+          <span class="header-conflict-badge" id="header-conflict-${cardId}">⚠️ CONFLICT</span>
+          <span class="header-suggestion" id="header-suggestion-${cardId}">Monitoring...</span>
         </div>
       </div>
 
@@ -1087,35 +1087,35 @@ function createOrphanedPositionCard(cardId, pos) {
         </div>
 
         <!-- Position Monitor Section (always active for orphaned cards) -->
-        <div class="position-monitor" id="monitor-\${cardId}" data-symbol="\${symbol}" data-direction="\${direction}" data-entry="\${entryPrice}">
-          <div class="monitor-active" id="monitor-active-\${cardId}" style="display: block;">
-            <div class="monitor-header" onclick="toggleMonitor('\${cardId}')">
+        <div class="position-monitor" id="monitor-${cardId}" data-symbol="${symbol}" data-direction="${direction}" data-entry="${entryPrice}">
+          <div class="monitor-active" id="monitor-active-${cardId}" style="display: block;">
+            <div class="monitor-header" onclick="toggleMonitor('${cardId}')">
               <span class="monitor-title">📊 Position Monitor</span>
               <div class="monitor-summary">
-                <span class="monitor-badge healthy" id="monitor-badge-\${cardId}">✓ Monitoring</span>
-                <button class="exit-trade-btn" onclick="event.stopPropagation(); exitTrade('\${cardId}')">Exit Monitor</button>
+                <span class="monitor-badge healthy" id="monitor-badge-${cardId}">✓ Monitoring</span>
+                <button class="exit-trade-btn" onclick="event.stopPropagation(); exitTrade('${cardId}')">Exit Monitor</button>
               </div>
             </div>
-            <div class="monitor-content" id="monitor-content-\${cardId}">
+            <div class="monitor-content" id="monitor-content-${cardId}">
               <!-- Manual Entry Price or ROI -->
               <div class="monitor-entry-row">
                 <span class="entry-label">My Entry:</span>
-                <input type="text" class="entry-input" id="entry-input-\${cardId}"
-                       value="\${entryPrice}"
-                       onchange="updateManualEntry('\${cardId}')"
+                <input type="text" class="entry-input" id="entry-input-${cardId}"
+                       value="${entryPrice}"
+                       onchange="updateManualEntry('${cardId}')"
                        onclick="event.stopPropagation()">
-                <button class="entry-btn" onclick="event.stopPropagation(); updateManualEntry('\${cardId}')">Set</button>
+                <button class="entry-btn" onclick="event.stopPropagation(); updateManualEntry('${cardId}')">Set</button>
               </div>
               <div class="monitor-entry-row">
                 <span class="entry-label">Or ROI%:</span>
-                <input type="text" class="entry-input" id="roi-input-\${cardId}"
+                <input type="text" class="entry-input" id="roi-input-${cardId}"
                        placeholder="e.g. 44.5 or -12.3"
                        onclick="event.stopPropagation()">
-                <button class="entry-btn" onclick="event.stopPropagation(); updateFromROI('\${cardId}')">Calc</button>
+                <button class="entry-btn" onclick="event.stopPropagation(); updateFromROI('${cardId}')">Calc</button>
               </div>
 
               <!-- P&L Display -->
-              <div class="pnl-display neutral" id="pnl-display-\${cardId}">
+              <div class="pnl-display neutral" id="pnl-display-${cardId}">
                 Calculating...
               </div>
 
@@ -1123,18 +1123,18 @@ function createOrphanedPositionCard(cardId, pos) {
               <div class="trailing-stop-box">
                 <div class="trailing-stop-header">
                   <span class="trailing-stop-title">🛡️ Suggested Stop Loss</span>
-                  <span class="trailing-stop-value neutral" id="trail-stop-\${cardId}">--</span>
+                  <span class="trailing-stop-value neutral" id="trail-stop-${cardId}">--</span>
                 </div>
-                <div class="trailing-stop-info" id="trail-info-\${cardId}">
+                <div class="trailing-stop-info" id="trail-info-${cardId}">
                   Waiting for price data...
                 </div>
               </div>
 
               <div class="health-indicator" style="margin-top: 10px;">
                 <span class="health-label">⏱️ Time in Trade</span>
-                <span class="health-value neutral" id="health-time-\${cardId}">--</span>
+                <span class="health-value neutral" id="health-time-${cardId}">--</span>
               </div>
-              <div class="monitor-suggestion" id="monitor-suggestion-\${cardId}">
+              <div class="monitor-suggestion" id="monitor-suggestion-${cardId}">
                 💡 Position monitoring active for expired signal.
               </div>
             </div>
@@ -1142,13 +1142,13 @@ function createOrphanedPositionCard(cardId, pos) {
         </div>
 
         <div class="trade-card-footer">
-          <a href="#" onclick="openMexcTrade('\${symbol}'); return false;" class="trade-btn \${direction.toLowerCase()}">
-            Open \${direction} on MEXC →
+          <a href="#" onclick="openMexcTrade('${symbol}'); return false;" class="trade-btn ${direction.toLowerCase()}">
+            Open ${direction} on MEXC →
           </a>
         </div>
       </div>
     </div>
-  \`;
+  `;
 }
 
 function restoreActivePositions() {
@@ -1988,11 +1988,11 @@ async function checkForUpdates() {
 
       // Send notification
       const signalText = newActionableCount > 0
-        ? \`\${newActionableCount} signal(s) available!\`
+        ? `${newActionableCount} signal(s) available!`
         : 'Regime is now actionable';
       sendNotification(
-        \`🎯 \${newAction} Signal!\`,
-        \`\${newQuadrant}: \${data.rule.description}\\n\${signalText}\`,
+        `🎯 ${newAction} Signal!`,
+        `${newQuadrant}: ${data.rule.description}\\n${signalText}`,
         newAction
       );
 

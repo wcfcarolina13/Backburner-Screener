@@ -4,10 +4,353 @@
 
 ## Summary
 
-- Iterations completed: 20
-- Current status: Configurable Investment Amount Added
+- Iterations completed: 27
+- Current status: Focus Mode Shadow Bots Wired Up
 
-## Current Task: Investment Amount Configuration
+## Current Task: Focus Mode Shadow Bots
+
+### Iteration 27 - Create and Wire Focus Mode Shadow Bots
+**Date**: 2026-01-21
+**Status**: ✅ Complete
+
+**Goal**: Create shadow bots that simulate manual leveraged trading using Focus Mode guidance - testing multiple strategy variants for future automated trading.
+
+**New File Created**: `src/focus-mode-shadow-bot.ts`
+
+**Bot Variants Created** (8 total):
+
+1. **focus-baseline**: Standard Focus Mode rules, max 5 positions
+2. **focus-conflict**: Closes positions when regime becomes conflicting (5 min grace period)
+3. **focus-excellent**: Allows +2 extra positions for "excellent" quality setups
+4. **focus-hybrid**: Combines conflict-close + excellent-overflow
+5. **focus-aggressive**: 1.5x leverage multiplier, 8 max positions, tighter stops
+6. **focus-conservative**: 0.75x leverage, wider stops, stricter entry rules, closes on conflict
+7. **focus-kelly**: Uses Kelly criterion for position sizing based on R:R and quality
+8. **focus-contrarian-only**: Only trades in NEU+BEAR and BEAR+BEAR quadrants
+
+**Key Features**:
+- Uses signal's suggested leverage (clamped 3-15x by default)
+- Dynamic position sizing based on setup quality
+- Trailing stops with Focus Mode's tiered system
+- Quality scoring (excellent/good/marginal/skip) based on impulse strength and RSI
+- Regime detection with conflict-close option
+- Realistic execution costs (fees + slippage)
+
+**Configuration Options**:
+```typescript
+interface FocusModeShadowBotConfig {
+  maxPositions: number;           // Base position limit
+  maxExcellentOverflow: number;   // Extra for excellent setups
+  leverageMultiplier: number;     // Scale suggested leverage
+  closeOnConflict: boolean;       // Close on regime conflict
+  conflictGracePeriodMs: number;  // Wait before conflict-close
+  minQualityScore: number;        // Entry filter (0-100)
+  allowedQuadrants: Quadrant[];   // Which quadrants to trade
+  useKellySizing: boolean;        // Kelly vs fixed sizing
+}
+```
+
+**Integration in web-server.ts**:
+- Signal processing calculates Focus Mode trade parameters (SL, TP, leverage, quality)
+- Price updates in main loop update all positions
+- Logged to Turso via dataPersistence
+- Added to getFullState for GUI visibility
+- Added to reset and setInitialBalance functions
+
+**Build**: ✅ Passes
+
+---
+
+## Previous Task: Wire Up Spot Regime Bots
+
+### Iteration 26 - Wire Spot Regime Bots into Web Server
+**Date**: 2026-01-21
+**Status**: ✅ Complete
+
+**Goal**: Wire up the existing `spot-regime-bot.ts` (contrarian quadrant-based trading) into web-server.ts so it actually runs and logs trades.
+
+**Changes Made**:
+
+1. **Import added** (line 14):
+   ```typescript
+   import { SpotRegimeBot, createStrictFilterBot, createLooseFilterBot, createStandardFilterBot, createContrarianOnlyBot } from './spot-regime-bot.js';
+   ```
+
+2. **Bot instances created** (after line 761):
+   - `spot-standard` - 65% thresholds, 15% stop loss
+   - `spot-strict` - 70% thresholds, 12% stop loss (fewer trades, higher conviction)
+   - `spot-loose` - 60% thresholds, 18% stop loss (more trades, lower conviction)
+   - `spot-contrarian` - Bearish-only quadrants (NEU+BEAR, BEAR+BEAR)
+
+3. **Signal processing** (after fade bots in handleNewSetup):
+   - Converts BackburnerSetup to Signal format for regime bots
+   - Processes ALL triggered/deep_extreme signals to build regime history
+   - Only opens positions in profitable quadrants
+   - Logs trades via `dataPersistence.logTradeOpen()`
+
+4. **Price updates** (in main loop after fade bots):
+   - Updates all spot regime positions with current spot prices
+   - Tracks trailing stops and stop losses
+   - Logs closes via `dataPersistence.logTradeClose()`
+   - Broadcasts position updates to GUI
+
+5. **GUI state** (in getFullState):
+   - Added `spotRegimeBots` section showing regime stats, positions, trades
+
+**Bot Configurations**:
+- **spot-standard**: Default 65% micro threshold, 15% SL, 10% trail trigger
+- **spot-strict**: 70% threshold (fewer but higher conviction), 12% SL, 8% trail
+- **spot-loose**: 60% threshold (more trades), 18% SL, 12% trail
+- **spot-contrarian**: Only trades in bearish micro regimes (NEU+BEAR, BEAR+BEAR)
+
+**Quadrant Rules**:
+- ✅ Profitable: NEU+BEAR, NEU+BULL, BEAR+BEAR
+- ⛔ Forbidden: BEAR+BULL (0% win rate - bull trap)
+- ⏭️ Skipped: All others
+
+**Build**: ✅ Passes
+
+**Note**: These bots are SPOT (long-only, 1x leverage) and implement realistic execution costs (slippage, fees, bad fills).
+
+---
+
+## Previous Task: Bot Performance Analysis
+
+### Iteration 25 - Turso Database Performance Analysis
+**Date**: 2026-01-21
+**Status**: ✅ Complete
+
+**Goal**: Analyze shadow bot and overall bot performance from Render server via Turso database.
+
+**Turso Database Info**:
+- URL: `libsql://backburner-wcfcarolina13.aws-us-east-1.turso.io`
+- Auth: Requires `TURSO_AUTH_TOKEN` environment variable
+- Query script: `scripts/query-turso.ts`
+
+**Working SQL Queries for Turso**:
+
+```sql
+-- Query 1: All bot performance summary
+SELECT
+  bot_id,
+  COUNT(*) as total_events,
+  SUM(CASE WHEN event_type = 'open' THEN 1 ELSE 0 END) as opens,
+  SUM(CASE WHEN event_type = 'close' THEN 1 ELSE 0 END) as closes,
+  SUM(CASE WHEN event_type = 'close' AND realized_pnl > 0 THEN 1 ELSE 0 END) as wins,
+  SUM(CASE WHEN event_type = 'close' AND realized_pnl <= 0 THEN 1 ELSE 0 END) as losses,
+  ROUND(SUM(CASE WHEN event_type = 'close' THEN realized_pnl ELSE 0 END), 2) as total_pnl
+FROM trade_events
+GROUP BY bot_id
+ORDER BY total_pnl DESC;
+
+-- Query 2: Daily PnL summary (last 7 days)
+SELECT date,
+  COUNT(*) as events,
+  SUM(CASE WHEN event_type = 'close' THEN realized_pnl ELSE 0 END) as daily_pnl
+FROM trade_events
+WHERE date >= date('now', '-7 days')
+GROUP BY date
+ORDER BY date DESC;
+
+-- Query 3: Shadow bot performance
+SELECT
+  bot_id,
+  COUNT(*) as closes,
+  SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) as wins,
+  SUM(CASE WHEN realized_pnl <= 0 THEN 1 ELSE 0 END) as losses,
+  ROUND(100.0 * SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) / COUNT(*), 1) as win_rate,
+  ROUND(SUM(realized_pnl), 2) as total_pnl,
+  ROUND(AVG(realized_pnl), 2) as avg_pnl
+FROM trade_events
+WHERE event_type = 'close' AND bot_id LIKE 'shadow%'
+GROUP BY bot_id
+ORDER BY total_pnl DESC;
+```
+
+**Key Findings (Jan 14-21, 2026)**:
+
+1. **ONLY GP2 (loose threshold) bots are profitable**:
+   - gp2-yolo: +$123.09 (75% win rate, 4 trades)
+   - gp2-aggressive: +$50.89 (75% win rate)
+   - gp2-standard: +$38.32 (75% win rate)
+   - gp2-conservative: +$15.45 (75% win rate)
+
+2. **Shadow Bot Results** (testing stop-loss levels):
+   - 8% SL: -$206 (40% win rate) ← Best performer
+   - 10% SL: -$330 (33% win rate)
+   - 15% SL: -$340 (33% win rate)
+   - 18% SL: -$352 (33% win rate)
+   - **Conclusion**: Tighter stops are better but all still losing
+
+3. **Catastrophic Performers**:
+   - BTC Bias 100x bots: -$5,000 to -$5,400 each (0% win rate!)
+   - Aggressive trailing: -$3,293 to -$3,580
+   - Total 7-day loss: **~$39,700**
+
+4. **Daily Performance**:
+   - Only 1 profitable day in 8 (Jan 20: +$76)
+   - Worst day: Jan 15 (-$12,349)
+
+**Important Discovery**:
+- The `spot-regime-bot.ts` (contrarian quadrant bot mimicking Focus Mode) EXISTS but is NOT wired into web-server.ts
+- Focus Mode is manual-only - no automated contrarian quadrant trading is running
+
+**Recommendations**:
+1. **DISABLE all BTC Bias bots** - 0% win rate is catastrophic
+2. **Consider disabling aggressive trailing bots** - losing badly
+3. **GP2 bots are the only winners** - consider focusing here
+4. **Wire up spot-regime-bot** if we want to auto-trade the contrarian system
+
+---
+
+## Previous Task: Investment Amount in Focus Mode
+
+### Iteration 24 - Add Investment Amount to Focus Mode Dashboard
+**Date**: 2026-01-20
+**Status**: ✅ Complete
+
+**Problem**: User couldn't find the investment amount setting in Focus Mode - it was only accessible from the main dashboard Settings modal, but Focus Mode is a separate page.
+
+**Solution**: Added investment amount input directly in the Focus Mode toolbar:
+
+1. **Investment input group in search-filter bar**:
+   - Placed between the active count and Close All button
+   - Includes $ label, number input, and Save button
+   - Separated from other controls with a left border
+
+2. **CSS styling** (`.investment-input-group`, `.investment-input`, `.investment-save-btn`):
+   - Consistent dark theme styling
+   - Green save button matches existing UI
+   - Disabled state during save operation
+
+3. **JavaScript functions**:
+   - `loadInvestmentAmount()` - fetches current value from `/api/investment-amount` on page load
+   - `saveInvestmentAmount()` - POSTs new value with loading state and toast feedback
+
+4. **API integration**:
+   - Uses existing `/api/investment-amount` endpoints from web-server.ts
+   - No backend changes needed
+
+**Files Modified**:
+- `src/focus-mode-dashboard.ts`:
+  - Added CSS for investment input (~40 lines)
+  - Added HTML input group to search-filter bar
+  - Added `loadInvestmentAmount()` and `saveInvestmentAmount()` functions (~60 lines)
+  - Auto-loads investment amount on page load
+
+**Build**: ✅ Passes successfully
+
+---
+
+## Previous Task: Conflict Detection
+
+### Iteration 23 - Add Visible Conflict Badge for Opposing Signals
+**Date**: 2026-01-20
+**Status**: ✅ Complete
+
+**Problem**: When tracking a position, if the signal flips to the opposite direction (e.g., you're LONG but signal now says SHORT), it wasn't immediately clear in the collapsed card header.
+
+**Solution**: Added prominent conflict detection in the card header:
+
+1. **"⚠️ CONFLICT" badge**:
+   - Shows in header when position direction opposes current signal
+   - Red pulsing animation to draw attention
+   - Only visible when there's an actual conflict
+
+2. **Improved suggestion text**:
+   - Now explicitly says: "CONFLICT: Signal now says SHORT but you are LONG. Consider closing."
+   - Uses danger class (red text) for conflicts
+
+3. **Header styling**:
+   - Added `.header-suggestion.danger` class with red bold text
+   - Conflict badge has pulse animation
+
+**CSS Changes**:
+- Added `.header-suggestion.danger` style
+- Added `.header-conflict-badge` with visibility toggle and pulse animation
+
+**Logic Changes**:
+- Separated conflict detection (regimeStatus === 'bad') from other dangers
+- Conflict gets higher urgency score (85) vs other warnings (80)
+- Header suggestion uses danger class for conflicts
+
+**Files Modified**:
+- `src/focus-mode-dashboard.ts`:
+  - Added conflict badge CSS (+20 lines)
+  - Added conflict badge to both card templates
+  - Added conflict badge visibility logic in updatePositionHealth()
+  - Improved suggestion text for conflicts
+  - Added danger class handling for header suggestion
+
+**Build**: ✅ Passes successfully
+
+---
+
+## Previous Task: Close All Button
+
+### Iteration 22 - Add "Close All" Button to Focus Mode
+**Date**: 2026-01-20
+**Status**: ✅ Complete
+
+**Problem**: User needed a quick way to stop tracking all positions at once (e.g., end of day, regime flip against all positions).
+
+**Solution**: Added a "🛑 Close All" button to the Focus Mode toolbar:
+
+1. **Button placement**: In the search/filter bar, next to the active count
+2. **Visibility**: Only shows when there are active positions being tracked
+3. **Confirmation**: Prompts user with count and reminder to close on MEXC manually
+4. **Action**: Clears all tracked positions, resets UI for all cards
+
+**Features**:
+- Red outlined button with hover state
+- Hidden when no positions (uses CSS class toggle)
+- Updates after each enter/exit trade
+- Clears localStorage position data
+- Shows toast with count of positions stopped
+
+**Files Modified**:
+- `src/focus-mode-dashboard.ts`:
+  - Added `.close-all-btn` CSS styles (+20 lines)
+  - Added button to search filter bar
+  - Added `closeAllPositions()` function
+  - Added `updateCloseAllButton()` helper
+  - Called helper in `enterTrade()`, `exitTrade()`, `restoreActivePositions()`
+
+**Build**: ✅ Passes successfully
+
+---
+
+## Previous Task: Trail Alert Fix
+
+### Iteration 21 - Fix Trail Alerts Breaking After Entry Adjustment
+**Date**: 2026-01-20
+**Status**: ✅ Complete
+
+**Problem**: When user adjusted position entry price in Focus Mode (to sync with real MEXC data), the trailing stop alerts would stop working. Even if the position was still above trailing thresholds, no alerts would fire.
+
+**Root Cause**: The trail alert system uses "previous" tracking values (`prevRoiPct`, `prevTrailStatus`, etc.) to detect threshold crossings. When entry was adjusted:
+1. Old `prevRoiPct` was 30% (from wrong entry)
+2. New actual ROI is 15% (from correct entry)
+3. Check `roiPct >= 30 && prevRoi < 30` fails because prevRoi=30 is NOT < 30
+4. Check `roiPct >= 15 && prevRoi < 15` fails because prevRoi=30 is NOT < 15
+5. Result: No alert fires, even though user should see trail at 50%
+
+**Solution**: Reset all tracking values when entry price is adjusted:
+- `prevPnlPct`, `prevRoiPct`, `prevTrailStatus`, `prevDangers` → undefined
+- `trailStopAlerted`, `trailStopAlertedAt` → false/null
+
+This allows the alert system to "re-discover" the current trail level and fire appropriate notifications.
+
+**Files Modified**:
+- `src/focus-mode-dashboard.ts`:
+  - `updateManualEntry()` - added tracking reset (+8 lines)
+  - `updateFromROI()` - added tracking reset (+8 lines)
+
+**Build**: ✅ Passes successfully
+
+---
+
+## Previous Task: Investment Amount Configuration
 
 ### Iteration 20 - Configurable Investment Amount
 **Date**: 2026-01-20

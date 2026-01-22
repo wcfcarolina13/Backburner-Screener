@@ -17,7 +17,7 @@
  * 4. Generating objective reports
  */
 
-import { executeReadQuery, isTursoConfigured } from './turso-db.js';
+import { executeReadQuery, isTursoConfigured, initTurso } from './turso-db.js';
 
 // ============= Types =============
 
@@ -97,22 +97,28 @@ async function loadTradesFromTurso(config: SpotBacktestConfig): Promise<Historic
     throw new Error('Turso not configured. Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN environment variables.');
   }
 
-  const cutoffMs = Date.now() - (config.daysBack * 24 * 60 * 60 * 1000);
+  // Calculate cutoff date as ISO string (timestamp column is TEXT)
+  const cutoffDate = new Date(Date.now() - (config.daysBack * 24 * 60 * 60 * 1000)).toISOString();
 
   const query = `
     SELECT
       id, bot_id, symbol, direction,
-      entry_price, exit_price, entry_time, exit_time,
-      pnl_percent, leverage, exit_reason, data_json
-    FROM trades
-    WHERE status = 'closed'
-      AND entry_time > ?
+      entry_price, exit_price, timestamp,
+      realized_pnl_percent, leverage, exit_reason, data_json
+    FROM trade_events
+    WHERE event_type = 'close'
+      AND timestamp > ?
       AND bot_id LIKE ?
       AND direction = 'long'
-    ORDER BY entry_time ASC
+    ORDER BY timestamp ASC
   `;
 
-  const result = await executeReadQuery(query, [cutoffMs, config.botFilter]);
+  const result = await executeReadQuery(query, [cutoffDate, config.botFilter]);
+
+  if (!result.success) {
+    console.error('Query failed:', result.error);
+    return [];
+  }
 
   if (!result.rows) return [];
 
@@ -128,6 +134,9 @@ async function loadTradesFromTurso(config: SpotBacktestConfig): Promise<Historic
       } catch { }
     }
 
+    // Parse timestamp (ISO string) to milliseconds
+    const timestampMs = new Date(row.timestamp).getTime();
+
     return {
       id: row.id,
       botId: row.bot_id,
@@ -135,9 +144,9 @@ async function loadTradesFromTurso(config: SpotBacktestConfig): Promise<Historic
       direction: row.direction as 'long' | 'short',
       entryPrice: row.entry_price,
       exitPrice: row.exit_price,
-      entryTime: row.entry_time,
-      exitTime: row.exit_time,
-      pnlPercent: row.pnl_percent,
+      entryTime: timestampMs,
+      exitTime: timestampMs, // Close event only has one timestamp
+      pnlPercent: row.realized_pnl_percent,
       leverage: row.leverage || 22.5,
       exitReason: row.exit_reason || 'unknown',
       quadrant,
@@ -436,6 +445,9 @@ Examples:
 }
 
 async function main(): Promise<void> {
+  // Initialize Turso connection
+  initTurso();
+
   const args = process.argv.slice(2);
 
   // Default config
@@ -448,7 +460,7 @@ async function main(): Promise<void> {
     takerFeePercent: 0.1,
     slippagePercent: 0.05,
     minQualityScore: 0,
-    botFilter: 'focus-%',
+    botFilter: 'focus-%',  // Focus Mode bots by default (best performers)
   };
 
   let compare = false;

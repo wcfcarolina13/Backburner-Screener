@@ -1,31 +1,46 @@
 const eventSource = new EventSource('/events');
 
 eventSource.onopen = () => {
+  console.log('[Dashboard] SSE connected');
   document.getElementById('statusDot').className = 'status-dot active';
   document.getElementById('statusText').textContent = 'Connected';
   // Load notification settings on connect
   loadNotificationSettings();
 };
 
-eventSource.onerror = () => {
+eventSource.onerror = (err) => {
+  console.error('[Dashboard] SSE error:', err);
   document.getElementById('statusDot').className = 'status-dot inactive';
   document.getElementById('statusText').textContent = 'Disconnected - Reconnecting...';
 };
 
 eventSource.addEventListener('state', (e) => {
-  const state = JSON.parse(e.data);
-  updateUI(state);
+  try {
+    const state = JSON.parse(e.data);
+    updateUI(state);
+  } catch (err) {
+    console.error('[Dashboard] Error parsing state:', err);
+  }
 });
 
 eventSource.addEventListener('scan_status', (e) => {
-  const { status } = JSON.parse(e.data);
-  document.getElementById('statusText').textContent = status;
+  try {
+    const { status } = JSON.parse(e.data);
+    document.getElementById('statusText').textContent = status;
+  } catch (err) {
+    console.error('[Dashboard] Error parsing scan_status:', err);
+  }
 });
 
 // Symbol check functionality
-document.getElementById('symbolSearch').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') checkSymbol();
-});
+const symbolSearchEl = document.getElementById('symbolSearch');
+if (symbolSearchEl) {
+  symbolSearchEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') checkSymbol();
+  });
+} else {
+  console.error('[Dashboard] symbolSearch element not found');
+}
 
 async function checkSymbol() {
   const input = document.getElementById('symbolSearch');
@@ -847,11 +862,11 @@ function renderGoldenPocketTable(setups, totalCount) {
   // Filter bar
   let html = '<div style="display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; align-items: center;">';
   html += '<span style="color: #8b949e; font-size: 11px; margin-right: 4px;">Filter:</span>';
-  html += '<button id="gpFilter_watching" onclick="toggleGpFilter(\\'watching\\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #8b949e; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.watching ? '1' : '0.4') + ';">watching</button>';
-  html += '<button id="gpFilter_triggered" onclick="toggleGpFilter(\\'triggered\\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #3fb950; background: #21262d; color: #3fb950; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.triggered ? '1' : '0.4') + ';">triggered</button>';
-  html += '<button id="gpFilter_deep_extreme" onclick="toggleGpFilter(\\'deep_extreme\\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #f0883e; background: #21262d; color: #f0883e; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.deep_extreme ? '1' : '0.4') + ';">deep</button>';
-  html += '<button id="gpFilter_reversing" onclick="toggleGpFilter(\\'reversing\\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #58a6ff; background: #21262d; color: #58a6ff; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.reversing ? '1' : '0.4') + ';">reversing</button>';
-  html += '<button id="gpFilter_played_out" onclick="toggleGpFilter(\\'played_out\\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #6e7681; background: #21262d; color: #6e7681; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.played_out ? '1' : '0.4') + ';">played out</button>';
+  html += '<button id="gpFilter_watching" onclick="toggleGpFilter(\'watching\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #8b949e; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.watching ? '1' : '0.4') + ';">watching</button>';
+  html += '<button id="gpFilter_triggered" onclick="toggleGpFilter(\'triggered\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #3fb950; background: #21262d; color: #3fb950; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.triggered ? '1' : '0.4') + ';">triggered</button>';
+  html += '<button id="gpFilter_deep_extreme" onclick="toggleGpFilter(\'deep_extreme\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #f0883e; background: #21262d; color: #f0883e; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.deep_extreme ? '1' : '0.4') + ';">deep</button>';
+  html += '<button id="gpFilter_reversing" onclick="toggleGpFilter(\'reversing\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #58a6ff; background: #21262d; color: #58a6ff; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.reversing ? '1' : '0.4') + ';">reversing</button>';
+  html += '<button id="gpFilter_played_out" onclick="toggleGpFilter(\'played_out\')" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #6e7681; background: #21262d; color: #6e7681; font-size: 10px; cursor: pointer; opacity: ' + (gpStateFilters.played_out ? '1' : '0.4') + ';">played out</button>';
   html += '<span style="color: #6e7681; margin: 0 6px;">|</span>';
   html += '<button id="gpShowSavedToggle" onclick="toggleShowSavedInFilters()" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #58a6ff; background: ' + (showSavedInFilters ? '#1c3a5e' : '#21262d') + '; color: #58a6ff; font-size: 10px; cursor: pointer; opacity: ' + (showSavedInFilters ? '1' : '0.4') + ';" title="Always show saved list items regardless of state filters">📋 +List</button>';
   html += '<span style="color: #6e7681; font-size: 10px; margin-left: 8px;">(' + (setups?.length || 0) + '/' + (totalCount || 0) + ')</span>';
@@ -909,7 +924,7 @@ function renderGoldenPocketTable(setups, totalCount) {
     const rrRatio = slPercent > 0 ? (tpPercent / slPercent).toFixed(1) : '-';
 
     html += '<tr style="border-bottom: 1px solid #21262d;' + (inList ? ' background: #1c2128;' : '') + '">';
-    html += '<td style="padding: 8px;"><input type="checkbox" data-setup-key="' + key + '" onclick="toggleSetupSelection(\\'' + key + '\\')" ' + (isSelected ? 'checked' : '') + ' style="cursor: pointer;">' + (inList ? '<span title="In list" style="color: #58a6ff; margin-left: 4px;">📋</span>' : '') + '</td>';
+    html += '<td style="padding: 8px;"><input type="checkbox" data-setup-key="' + key + '" onclick="toggleSetupSelection(\'' + key + '\')" ' + (isSelected ? 'checked' : '') + ' style="cursor: pointer;">' + (inList ? '<span title="In list" style="color: #58a6ff; margin-left: 4px;">📋</span>' : '') + '</td>';
     html += '<td style="padding: 8px; font-weight: 600;"><a href="' + mexcUrl + '" target="_blank" style="color: #58a6ff; text-decoration: none;" title="' + linkTitle + '">' + ticker + '</a></td>';
     html += '<td style="padding: 8px; color: ' + dirColor + ';">' + dirIcon + ' ' + s.direction.toUpperCase() + '</td>';
     html += '<td style="padding: 8px; color: ' + stateColor + ';">' + s.state + '</td>';
@@ -970,7 +985,7 @@ function renderSavedListTable(setups) {
     const isGP = 'fibLevels' in s;
 
     html += '<tr style="border-bottom: 1px solid #21262d;">';
-    html += '<td style="padding: 8px;"><input type="checkbox" data-setup-key="' + key + '" onclick="toggleSetupSelection(\\'' + key + '\\')" ' + (isSelected ? 'checked' : '') + ' style="cursor: pointer;"></td>';
+    html += '<td style="padding: 8px;"><input type="checkbox" data-setup-key="' + key + '" onclick="toggleSetupSelection(\'' + key + '\')" ' + (isSelected ? 'checked' : '') + ' style="cursor: pointer;"></td>';
     html += '<td style="padding: 8px; font-weight: 600;"><a href="' + mexcUrl + '" target="_blank" style="color: #58a6ff; text-decoration: none;" title="' + linkTitle + '">' + ticker + '</a></td>';
     html += '<td style="padding: 8px; color: ' + (isGP ? '#f0883e' : '#8b949e') + ';">' + (isGP ? '🎯 GP' : '🔥 BB') + '</td>';
     html += '<td style="padding: 8px; color: ' + dirColor + ';">' + dirIcon + ' ' + s.direction.toUpperCase() + '</td>';
@@ -1130,7 +1145,7 @@ function sortFocusBotOptions() {
     const pnlValue = sortBy === 'today' ? opt.todayPnL : sortBy === '24h' ? opt.pnl24h : sortBy === 'weekly' ? opt.weeklyPnL : opt.winRate;
     const pnlLabel = sortBy === 'winrate' ? pnlValue.toFixed(0) + '%' : (pnlValue >= 0 ? '+' : '') + '$' + pnlValue.toFixed(2);
     const rank = i + 1;
-    return \`<option value="\${opt.botId}">\${rank}. \${opt.name} (\${pnlLabel})</option>\`;
+    return `<option value="${opt.botId}">${rank}. ${opt.name} (${pnlLabel})</option>`;
   }).join('');
 
   // Restore selection if it still exists
@@ -1291,11 +1306,16 @@ function updateFocusPositions(focusState) {
   focusModeEnabled = focusState.enabled;
   updateFocusModeUI();
 
-  // Update config fields
-  document.getElementById('focusTargetBot').value = focusState.targetBot || 'trailing10pct10x';
-  document.getElementById('focusBalance').value = focusState.accountBalance || 1000;
-  document.getElementById('focusMaxPercent').value = focusState.maxPositionSizePercent || 5;
-  document.getElementById('focusLeverage').value = focusState.leverage || 10;
+  // Update config fields (with null checks for optional elements)
+  const targetBotEl = document.getElementById('focusTargetBot');
+  const balanceEl = document.getElementById('focusBalance');
+  const maxPercentEl = document.getElementById('focusMaxPercent');
+  const leverageEl = document.getElementById('focusLeverage');
+
+  if (targetBotEl) targetBotEl.value = focusState.targetBot || 'trailing10pct10x';
+  if (balanceEl) balanceEl.value = focusState.accountBalance || 1000;
+  if (maxPercentEl) maxPercentEl.value = focusState.maxPositionSizePercent || 5;
+  if (leverageEl) leverageEl.value = focusState.leverage || 10;
 
   // Update position count
   document.getElementById('focusPositionCount').textContent = focusState.positionCount + ' positions';
@@ -2047,24 +2067,24 @@ function renderSetupsTable(setups, tabType) {
       const tierColor = s.positionTier === 2 ? '#a371f7' : '#8b949e';
       const addIcon = s.canAddPosition ? '<span style="color: #3fb950; margin-left: 2px;" title="RSI still worsening - safe to add">+</span>' : '';
       const tierHtml = '<span style="color: ' + tierColor + '; font-weight: 600;" title="Position tier: ' + (s.positionTier === 2 ? 'Deep extreme (RSI < 20 or > 80)' : 'Standard (RSI < 30 or > 70)') + '>' + tierLabel + '</span>' + addIcon;
-      return \`<tr style="\${rowStyle}\${inList ? ' background: #1c2128;' : ''}">
-        <td><input type="checkbox" data-setup-key="\${key}" onclick="toggleSetupSelection('\${key}')" \${isSelected ? 'checked' : ''} style="cursor: pointer;">\${inList ? '<span title="In list" style="color: #58a6ff; margin-left: 4px;">📋</span>' : ''}</td>
-        <td><span class="badge badge-\${s.marketType}">\${s.marketType === 'futures' ? 'F' : 'S'}</span></td>
-        <td><a href="\${mexcUrl}" target="_blank" style="color: #58a6ff; text-decoration: none;" title="\${linkTitle}"><strong>\${s.symbol.replace('USDT', '')}</strong></a><br><span style="font-size: 10px; color: #6e7681;">\${s.coinName || ''}</span></td>
-        <td><span class="badge badge-\${s.direction}">\${s.direction.toUpperCase()}</span></td>
-        <td>\${s.timeframe}</td>
-        <td><span class="badge badge-\${stateClass}">\${s.state.replace('_', ' ')}</span></td>
-        <td style="font-weight: 600; color: \${rsiColor}">\${s.currentRSI.toFixed(1)}</td>
-        <td style="text-align: center;">\${htfHtml}</td>
-        <td>\${stopHtml}</td>
-        <td style="text-align: center;">\${tierHtml}</td>
-        <td style="font-size: 11px;">\${divHtml}</td>
-        <td style="font-size: 11px;">\${xSigHtml}</td>
-        <td style="font-family: monospace; font-size: 12px;">\${formatPrice(s.currentPrice)}</td>
-        <td style="color: \${impulseColor}; font-weight: 500;">\${impulseSign}\${s.impulsePercentMove?.toFixed(1) || '?'}%</td>
-        <td style="color: #8b949e; font-size: 11px;">\${formatTimeAgo(s.triggeredAt || s.detectedAt)}</td>
-        <td style="color: #6e7681; font-size: 11px;">\${lastColTime}</td>
-      </tr>\`;
+      return `<tr style="${rowStyle}${inList ? ' background: #1c2128;' : ''}">
+        <td><input type="checkbox" data-setup-key="${key}" onclick="toggleSetupSelection('${key}')" ${isSelected ? 'checked' : ''} style="cursor: pointer;">${inList ? '<span title="In list" style="color: #58a6ff; margin-left: 4px;">📋</span>' : ''}</td>
+        <td><span class="badge badge-${s.marketType}">${s.marketType === 'futures' ? 'F' : 'S'}</span></td>
+        <td><a href="${mexcUrl}" target="_blank" style="color: #58a6ff; text-decoration: none;" title="${linkTitle}"><strong>${s.symbol.replace('USDT', '')}</strong></a><br><span style="font-size: 10px; color: #6e7681;">${s.coinName || ''}</span></td>
+        <td><span class="badge badge-${s.direction}">${s.direction.toUpperCase()}</span></td>
+        <td>${s.timeframe}</td>
+        <td><span class="badge badge-${stateClass}">${s.state.replace('_', ' ')}</span></td>
+        <td style="font-weight: 600; color: ${rsiColor}">${s.currentRSI.toFixed(1)}</td>
+        <td style="text-align: center;">${htfHtml}</td>
+        <td>${stopHtml}</td>
+        <td style="text-align: center;">${tierHtml}</td>
+        <td style="font-size: 11px;">${divHtml}</td>
+        <td style="font-size: 11px;">${xSigHtml}</td>
+        <td style="font-family: monospace; font-size: 12px;">${formatPrice(s.currentPrice)}</td>
+        <td style="color: ${impulseColor}; font-weight: 500;">${impulseSign}${s.impulsePercentMove?.toFixed(1) || '?'}%</td>
+        <td style="color: #8b949e; font-size: 11px;">${formatTimeAgo(s.triggeredAt || s.detectedAt)}</td>
+        <td style="color: #6e7681; font-size: 11px;">${lastColTime}</td>
+      </tr>`;
     }).join('') +
     '</tbody></table>';
 }
@@ -2081,15 +2101,15 @@ function renderPositionsTable(positions, botType) {
   if (positions.length === 0) return '<div class="empty-state">No open positions</div>';
 
   return '<table><thead><tr><th>Symbol</th><th>TF</th><th>Dir</th><th>Entry</th><th>Current</th><th>P&L</th><th>TP/SL</th></tr></thead><tbody>' +
-    positions.map(p => \`<tr>
-      <td><strong>\${p.symbol.replace('USDT', '')}</strong></td>
-      <td>\${p.timeframe || '?'}</td>
-      <td><span class="badge badge-\${p.direction}">\${p.direction.toUpperCase()}</span></td>
-      <td>\${p.entryPrice.toPrecision(5)}</td>
-      <td>\${p.currentPrice.toPrecision(5)}</td>
-      <td class="pnl \${p.unrealizedPnL >= 0 ? 'positive' : 'negative'}">\${formatCurrency(p.unrealizedPnL)} (\${formatPercent(p.unrealizedPnLPercent)})</td>
-      <td>\${p.takeProfitPrice?.toPrecision(4) || '∞'} / \${p.stopLossPrice.toPrecision(4)}</td>
-    </tr>\`).join('') +
+    positions.map(p => `<tr>
+      <td><strong>${p.symbol.replace('USDT', '')}</strong></td>
+      <td>${p.timeframe || '?'}</td>
+      <td><span class="badge badge-${p.direction}">${p.direction.toUpperCase()}</span></td>
+      <td>${p.entryPrice.toPrecision(5)}</td>
+      <td>${p.currentPrice.toPrecision(5)}</td>
+      <td class="pnl ${p.unrealizedPnL >= 0 ? 'positive' : 'negative'}">${formatCurrency(p.unrealizedPnL)} (${formatPercent(p.unrealizedPnLPercent)})</td>
+      <td>${p.takeProfitPrice?.toPrecision(4) || '∞'} / ${p.stopLossPrice.toPrecision(4)}</td>
+    </tr>`).join('') +
     '</tbody></table>';
 }
 
@@ -2101,18 +2121,18 @@ function renderGPPositionsTable(positions) {
       const returnOnMargin = p.marginUsed > 0 ? (p.unrealizedPnL / p.marginUsed) * 100 : 0;
       const statusColor = p.tp1Closed ? '#8bc34a' : (p.status === 'open' ? '#58a6ff' : '#8b949e');
       const statusText = p.tp1Closed ? 'TP1 Hit' : (p.status === 'open' ? 'Open' : p.status);
-      return \`<tr>
-        <td><strong>\${p.symbol.replace('USDT', '')}</strong></td>
-        <td>\${p.timeframe || '?'}</td>
-        <td><span class="badge badge-\${p.direction}">\${p.direction.toUpperCase()}</span></td>
-        <td style="color: #8b949e; font-size: 11px;">\${formatCurrency(p.marginUsed)}<br><span style="font-size: 10px;">\${p.leverage}x</span></td>
-        <td>\${p.entryPrice.toPrecision(5)}</td>
-        <td style="color: #4caf50;">\${p.tp1Price.toPrecision(5)}</td>
-        <td style="color: #8bc34a;">\${p.tp2Price.toPrecision(5)}</td>
-        <td style="color: #f44336;">\${p.stopPrice.toPrecision(5)}</td>
-        <td class="pnl \${p.unrealizedPnL >= 0 ? 'positive' : 'negative'}">\${formatCurrency(p.unrealizedPnL)}<br><span style="font-size: 10px;">(\${formatPercent(returnOnMargin)} ROI)</span></td>
-        <td style="color: \${statusColor}; font-weight: 600;">\${statusText}</td>
-      </tr>\`;
+      return `<tr>
+        <td><strong>${p.symbol.replace('USDT', '')}</strong></td>
+        <td>${p.timeframe || '?'}</td>
+        <td><span class="badge badge-${p.direction}">${p.direction.toUpperCase()}</span></td>
+        <td style="color: #8b949e; font-size: 11px;">${formatCurrency(p.marginUsed)}<br><span style="font-size: 10px;">${p.leverage}x</span></td>
+        <td>${p.entryPrice.toPrecision(5)}</td>
+        <td style="color: #4caf50;">${p.tp1Price.toPrecision(5)}</td>
+        <td style="color: #8bc34a;">${p.tp2Price.toPrecision(5)}</td>
+        <td style="color: #f44336;">${p.stopPrice.toPrecision(5)}</td>
+        <td class="pnl ${p.unrealizedPnL >= 0 ? 'positive' : 'negative'}">${formatCurrency(p.unrealizedPnL)}<br><span style="font-size: 10px;">(${formatPercent(returnOnMargin)} ROI)</span></td>
+        <td style="color: ${statusColor}; font-weight: 600;">${statusText}</td>
+      </tr>`;
     }).join('') +
     '</tbody></table>';
 }
@@ -2126,17 +2146,17 @@ function renderTrailingPositionsTable(positions) {
       const trailText = p.trailLevel > 0 ? 'L' + p.trailLevel + ' (' + ((p.trailLevel - 1) * 10) + '%+)' : 'Not yet';
       // Calculate return on margin (ROI) - this is what MEXC shows
       const returnOnMargin = p.marginUsed > 0 ? (p.unrealizedPnL / p.marginUsed) * 100 : 0;
-      return \`<tr>
-        <td><strong>\${p.symbol.replace('USDT', '')}</strong></td>
-        <td>\${p.timeframe || '?'}</td>
-        <td><span class="badge badge-\${p.direction}">\${p.direction.toUpperCase()}</span></td>
-        <td style="color: #8b949e; font-size: 11px;">\${formatCurrency(p.marginUsed)}<br><span style="font-size: 10px;">\${p.leverage}x</span></td>
-        <td>\${p.entryPrice.toPrecision(5)}</td>
-        <td>\${p.currentPrice.toPrecision(5)}</td>
-        <td class="pnl \${p.unrealizedPnL >= 0 ? 'positive' : 'negative'}">\${formatCurrency(p.unrealizedPnL)}<br><span style="font-size: 10px;">(\${formatPercent(returnOnMargin)} ROI)</span></td>
-        <td style="color: \${trailColor}; font-weight: 600;">\${trailText}</td>
-        <td>\${p.currentStopLossPrice.toPrecision(4)}</td>
-      </tr>\`;
+      return `<tr>
+        <td><strong>${p.symbol.replace('USDT', '')}</strong></td>
+        <td>${p.timeframe || '?'}</td>
+        <td><span class="badge badge-${p.direction}">${p.direction.toUpperCase()}</span></td>
+        <td style="color: #8b949e; font-size: 11px;">${formatCurrency(p.marginUsed)}<br><span style="font-size: 10px;">${p.leverage}x</span></td>
+        <td>${p.entryPrice.toPrecision(5)}</td>
+        <td>${p.currentPrice.toPrecision(5)}</td>
+        <td class="pnl ${p.unrealizedPnL >= 0 ? 'positive' : 'negative'}">${formatCurrency(p.unrealizedPnL)}<br><span style="font-size: 10px;">(${formatPercent(returnOnMargin)} ROI)</span></td>
+        <td style="color: ${trailColor}; font-weight: 600;">${trailText}</td>
+        <td>${p.currentStopLossPrice.toPrecision(4)}</td>
+      </tr>`;
     }).join('') +
     '</tbody></table>';
 }
@@ -2145,15 +2165,15 @@ function renderHistoryTable(trades) {
   if (trades.length === 0) return '<div class="empty-state">No trade history</div>';
 
   return '<table><thead><tr><th>Symbol</th><th>TF</th><th>Dir</th><th>Entry</th><th>Exit</th><th>P&L</th><th>Reason</th></tr></thead><tbody>' +
-    trades.map(t => \`<tr>
-      <td><strong>\${t.symbol.replace('USDT', '')}</strong></td>
-      <td>\${t.timeframe || '?'}</td>
-      <td><span class="badge badge-\${t.direction}">\${t.direction.toUpperCase()}</span></td>
-      <td>\${t.entryPrice.toPrecision(5)}</td>
-      <td>\${t.exitPrice?.toPrecision(5) || '-'}</td>
-      <td class="pnl \${(t.realizedPnL || 0) >= 0 ? 'positive' : 'negative'}">\${formatCurrency(t.realizedPnL || 0)} (\${formatPercent(t.realizedPnLPercent || 0)})</td>
-      <td>\${t.exitReason || '-'}</td>
-    </tr>\`).join('') +
+    trades.map(t => `<tr>
+      <td><strong>${t.symbol.replace('USDT', '')}</strong></td>
+      <td>${t.timeframe || '?'}</td>
+      <td><span class="badge badge-${t.direction}">${t.direction.toUpperCase()}</span></td>
+      <td>${t.entryPrice.toPrecision(5)}</td>
+      <td>${t.exitPrice?.toPrecision(5) || '-'}</td>
+      <td class="pnl ${(t.realizedPnL || 0) >= 0 ? 'positive' : 'negative'}">${formatCurrency(t.realizedPnL || 0)} (${formatPercent(t.realizedPnLPercent || 0)})</td>
+      <td>${t.exitReason || '-'}</td>
+    </tr>`).join('') +
     '</tbody></table>';
 }
 
@@ -2167,14 +2187,14 @@ function renderTrailingHistoryTable(trades) {
   const totalPnL = trades.reduce((sum, t) => sum + (t.realizedPnL || 0), 0);
   const rawPnL = trades.reduce((sum, t) => sum + (t.rawPnL || (t.realizedPnL || 0) + (t.totalCosts || 0)), 0);
 
-  const costsSummary = totalCosts > 0 ? \`
+  const costsSummary = totalCosts > 0 ? `
     <div style="display: flex; gap: 16px; margin-bottom: 12px; padding: 10px; background: #0d1117; border-radius: 6px; font-size: 12px;">
-      <div><span style="color: #8b949e;">Total Fees:</span> <span style="color: #f85149;">\${formatCurrency(totalFees)}</span></div>
-      <div><span style="color: #8b949e;">Funding:</span> <span style="color: #f85149;">\${formatCurrency(totalFunding)}</span></div>
-      <div><span style="color: #8b949e;">Total Costs:</span> <span style="color: #f85149;">\${formatCurrency(totalCosts)}</span></div>
-      <div><span style="color: #8b949e;">Net P&L:</span> <span class="\${totalPnL >= 0 ? 'positive' : 'negative'}">\${formatCurrency(totalPnL)}</span></div>
-      <div><span style="color: #8b949e;">Costs/Gross:</span> <span style="color: #d29922;">\${rawPnL > 0 ? ((totalCosts / rawPnL) * 100).toFixed(1) : 0}%</span></div>
-    </div>\` : '';
+      <div><span style="color: #8b949e;">Total Fees:</span> <span style="color: #f85149;">${formatCurrency(totalFees)}</span></div>
+      <div><span style="color: #8b949e;">Funding:</span> <span style="color: #f85149;">${formatCurrency(totalFunding)}</span></div>
+      <div><span style="color: #8b949e;">Total Costs:</span> <span style="color: #f85149;">${formatCurrency(totalCosts)}</span></div>
+      <div><span style="color: #8b949e;">Net P&L:</span> <span class="${totalPnL >= 0 ? 'positive' : 'negative'}">${formatCurrency(totalPnL)}</span></div>
+      <div><span style="color: #8b949e;">Costs/Gross:</span> <span style="color: #d29922;">${rawPnL > 0 ? ((totalCosts / rawPnL) * 100).toFixed(1) : 0}%</span></div>
+    </div>` : '';
 
   return costsSummary + '<table><thead><tr><th>Symbol</th><th>TF</th><th>Dir</th><th>Margin</th><th>Entry</th><th>Exit</th><th>Gross</th><th>Costs</th><th>Net P&L</th><th>Trail</th><th>Reason</th></tr></thead><tbody>' +
     trades.map(t => {
@@ -2183,19 +2203,19 @@ function renderTrailingHistoryTable(trades) {
       const returnOnMargin = t.marginUsed > 0 ? ((t.realizedPnL || 0) / t.marginUsed) * 100 : 0;
       const grossPnL = t.rawPnL || (t.realizedPnL || 0) + (t.totalCosts || 0);
       const costs = t.totalCosts || 0;
-      return \`<tr>
-        <td><strong>\${t.symbol.replace('USDT', '')}</strong></td>
-        <td>\${t.timeframe || '?'}</td>
-        <td><span class="badge badge-\${t.direction}">\${t.direction.toUpperCase()}</span></td>
-        <td style="color: #8b949e; font-size: 11px;">\${formatCurrency(t.marginUsed || 0)}<br><span style="font-size: 10px;">\${t.leverage || '?'}x</span></td>
-        <td>\${t.entryPrice.toPrecision(5)}</td>
-        <td>\${t.exitPrice?.toPrecision(5) || '-'}</td>
-        <td class="pnl \${grossPnL >= 0 ? 'positive' : 'negative'}" style="font-size: 11px;">\${formatCurrency(grossPnL)}</td>
-        <td style="color: #f85149; font-size: 11px;">\${costs > 0 ? '-' + formatCurrency(costs) : '-'}</td>
-        <td class="pnl \${(t.realizedPnL || 0) >= 0 ? 'positive' : 'negative'}">\${formatCurrency(t.realizedPnL || 0)}<br><span style="font-size: 10px;">(\${formatPercent(returnOnMargin)} ROI)</span></td>
-        <td style="color: \${trailColor}; font-weight: 600;">L\${t.trailLevel || 0}</td>
-        <td>\${t.exitReason || '-'}</td>
-      </tr>\`;
+      return `<tr>
+        <td><strong>${t.symbol.replace('USDT', '')}</strong></td>
+        <td>${t.timeframe || '?'}</td>
+        <td><span class="badge badge-${t.direction}">${t.direction.toUpperCase()}</span></td>
+        <td style="color: #8b949e; font-size: 11px;">${formatCurrency(t.marginUsed || 0)}<br><span style="font-size: 10px;">${t.leverage || '?'}x</span></td>
+        <td>${t.entryPrice.toPrecision(5)}</td>
+        <td>${t.exitPrice?.toPrecision(5) || '-'}</td>
+        <td class="pnl ${grossPnL >= 0 ? 'positive' : 'negative'}" style="font-size: 11px;">${formatCurrency(grossPnL)}</td>
+        <td style="color: #f85149; font-size: 11px;">${costs > 0 ? '-' + formatCurrency(costs) : '-'}</td>
+        <td class="pnl ${(t.realizedPnL || 0) >= 0 ? 'positive' : 'negative'}">${formatCurrency(t.realizedPnL || 0)}<br><span style="font-size: 10px;">(${formatPercent(returnOnMargin)} ROI)</span></td>
+        <td style="color: ${trailColor}; font-weight: 600;">L${t.trailLevel || 0}</td>
+        <td>${t.exitReason || '-'}</td>
+      </tr>`;
     }).join('') +
     '</tbody></table>';
 }
@@ -2209,17 +2229,17 @@ function renderBtcExtremePosition(position) {
   const returnOnMargin = p.marginUsed > 0 ? (p.unrealizedPnL / p.marginUsed) * 100 : 0;
 
   return '<table><thead><tr><th>Symbol</th><th>Dir</th><th>Margin</th><th>Entry</th><th>Current</th><th>P&L</th><th>Trail</th><th>SL</th><th>Reason</th></tr></thead><tbody>' +
-    \`<tr>
+    `<tr>
       <td><strong>₿ BTC</strong></td>
-      <td><span class="badge badge-\${p.direction}">\${p.direction.toUpperCase()}</span></td>
-      <td style="color: #8b949e; font-size: 11px;">\${formatCurrency(p.marginUsed)}<br><span style="font-size: 10px;">50x</span></td>
-      <td>\${p.entryPrice.toPrecision(5)}</td>
-      <td>\${p.currentPrice.toPrecision(5)}</td>
-      <td class="pnl \${p.unrealizedPnL >= 0 ? 'positive' : 'negative'}">\${formatCurrency(p.unrealizedPnL)}<br><span style="font-size: 10px;">(\${formatPercent(returnOnMargin)} ROI)</span></td>
-      <td style="color: \${trailColor}; font-weight: 600;">\${trailText}</td>
-      <td>\${p.currentStopLossPrice.toPrecision(4)}</td>
-      <td style="font-size: 11px; color: #6e7681;">\${p.openReason || '-'}</td>
-    </tr>\` +
+      <td><span class="badge badge-${p.direction}">${p.direction.toUpperCase()}</span></td>
+      <td style="color: #8b949e; font-size: 11px;">${formatCurrency(p.marginUsed)}<br><span style="font-size: 10px;">50x</span></td>
+      <td>${p.entryPrice.toPrecision(5)}</td>
+      <td>${p.currentPrice.toPrecision(5)}</td>
+      <td class="pnl ${p.unrealizedPnL >= 0 ? 'positive' : 'negative'}">${formatCurrency(p.unrealizedPnL)}<br><span style="font-size: 10px;">(${formatPercent(returnOnMargin)} ROI)</span></td>
+      <td style="color: ${trailColor}; font-weight: 600;">${trailText}</td>
+      <td>${p.currentStopLossPrice.toPrecision(4)}</td>
+      <td style="font-size: 11px; color: #6e7681;">${p.openReason || '-'}</td>
+    </tr>` +
     '</tbody></table>';
 }
 
@@ -2232,17 +2252,17 @@ function renderBtcTrendPosition(position) {
   const returnOnMargin = p.marginUsed > 0 ? (p.unrealizedPnL / p.marginUsed) * 100 : 0;
 
   return '<table><thead><tr><th>Symbol</th><th>Dir</th><th>Margin</th><th>Entry</th><th>Current</th><th>P&L</th><th>Trail</th><th>SL</th><th>Reason</th></tr></thead><tbody>' +
-    \`<tr>
+    `<tr>
       <td><strong>₿ BTC</strong></td>
-      <td><span class="badge badge-\${p.direction}">\${p.direction.toUpperCase()}</span></td>
-      <td style="color: #8b949e; font-size: 11px;">\${formatCurrency(p.marginUsed)}<br><span style="font-size: 10px;">50x</span></td>
-      <td>\${p.entryPrice.toPrecision(5)}</td>
-      <td>\${p.currentPrice.toPrecision(5)}</td>
-      <td class="pnl \${p.unrealizedPnL >= 0 ? 'positive' : 'negative'}">\${formatCurrency(p.unrealizedPnL)}<br><span style="font-size: 10px;">(\${formatPercent(returnOnMargin)} ROI)</span></td>
-      <td style="color: \${trailColor}; font-weight: 600;">\${trailText}</td>
-      <td>\${p.currentStopLossPrice.toPrecision(4)}</td>
-      <td style="font-size: 11px; color: #00d4aa;">\${p.openReason || '-'}</td>
-    </tr>\` +
+      <td><span class="badge badge-${p.direction}">${p.direction.toUpperCase()}</span></td>
+      <td style="color: #8b949e; font-size: 11px;">${formatCurrency(p.marginUsed)}<br><span style="font-size: 10px;">50x</span></td>
+      <td>${p.entryPrice.toPrecision(5)}</td>
+      <td>${p.currentPrice.toPrecision(5)}</td>
+      <td class="pnl ${p.unrealizedPnL >= 0 ? 'positive' : 'negative'}">${formatCurrency(p.unrealizedPnL)}<br><span style="font-size: 10px;">(${formatPercent(returnOnMargin)} ROI)</span></td>
+      <td style="color: ${trailColor}; font-weight: 600;">${trailText}</td>
+      <td>${p.currentStopLossPrice.toPrecision(4)}</td>
+      <td style="font-size: 11px; color: #00d4aa;">${p.openReason || '-'}</td>
+    </tr>` +
     '</tbody></table>';
 }
 
@@ -2253,16 +2273,16 @@ function renderBtcExtremeHistoryTable(trades) {
     trades.map(t => {
       const trailColor = t.trailLevel > 0 ? '#a371f7' : '#8b949e';
       const returnOnMargin = t.marginUsed > 0 ? ((t.realizedPnL || 0) / t.marginUsed) * 100 : 0;
-      return \`<tr>
-        <td><span class="badge badge-\${t.direction}">\${t.direction.toUpperCase()}</span></td>
-        <td style="color: #8b949e; font-size: 11px;">\${formatCurrency(t.marginUsed || 0)}<br><span style="font-size: 10px;">50x</span></td>
-        <td>\${t.entryPrice.toPrecision(5)}</td>
-        <td>\${t.exitPrice?.toPrecision(5) || '-'}</td>
-        <td class="pnl \${(t.realizedPnL || 0) >= 0 ? 'positive' : 'negative'}">\${formatCurrency(t.realizedPnL || 0)}<br><span style="font-size: 10px;">(\${formatPercent(returnOnMargin)} ROI)</span></td>
-        <td style="color: \${trailColor}; font-weight: 600;">L\${t.trailLevel || 0}</td>
-        <td style="font-size: 11px; color: #6e7681;">\${t.openReason || '-'}</td>
-        <td style="font-size: 11px; color: #6e7681;">\${t.closeReason || '-'}</td>
-      </tr>\`;
+      return `<tr>
+        <td><span class="badge badge-${t.direction}">${t.direction.toUpperCase()}</span></td>
+        <td style="color: #8b949e; font-size: 11px;">${formatCurrency(t.marginUsed || 0)}<br><span style="font-size: 10px;">50x</span></td>
+        <td>${t.entryPrice.toPrecision(5)}</td>
+        <td>${t.exitPrice?.toPrecision(5) || '-'}</td>
+        <td class="pnl ${(t.realizedPnL || 0) >= 0 ? 'positive' : 'negative'}">${formatCurrency(t.realizedPnL || 0)}<br><span style="font-size: 10px;">(${formatPercent(returnOnMargin)} ROI)</span></td>
+        <td style="color: ${trailColor}; font-weight: 600;">L${t.trailLevel || 0}</td>
+        <td style="font-size: 11px; color: #6e7681;">${t.openReason || '-'}</td>
+        <td style="font-size: 11px; color: #6e7681;">${t.closeReason || '-'}</td>
+      </tr>`;
     }).join('') +
     '</tbody></table>';
 }

@@ -301,3 +301,150 @@ All 4 phases complete:
 - focus-mode-dashboard.ts: 4841 → 1211 lines (-75%)
 - Bot duplication: Centralized in BaseBot class
 - Backtest organization: 26 files organized into 3 categories
+
+---
+
+## Task Queue
+
+### Pending Tasks
+
+#### 1. Timezone/Time-of-Day Analysis (Priority: High)
+**Hypothesis:** Best trades may correlate with active trading sessions (US open, Asia open, Europe open, etc.)
+
+**Analysis needed:**
+- Extract entry_time from historical trades
+- Convert to hour-of-day (UTC and major timezones)
+- Group by:
+  - Hour of day (0-23)
+  - Trading session (Asia: 00-08 UTC, Europe: 07-16 UTC, US: 13-22 UTC)
+  - Day of week
+- Metrics per bucket:
+  - Win rate
+  - Average P&L
+  - Trade count
+  - Profit factor
+
+**Query sketch:**
+```sql
+SELECT
+  strftime('%H', datetime(entry_time/1000, 'unixepoch')) as hour_utc,
+  COUNT(*) as trades,
+  SUM(CASE WHEN pnl_percent > 0 THEN 1 ELSE 0 END) as wins,
+  ROUND(AVG(pnl_percent), 2) as avg_pnl
+FROM trades
+WHERE status = 'closed' AND bot_id LIKE 'focus-%'
+GROUP BY hour_utc
+ORDER BY avg_pnl DESC;
+```
+
+**Expected outcome:** Identify optimal trading windows, potentially filter signals outside peak hours.
+
+---
+
+## Automation Status (Jan 21, 2026)
+
+### Created
+- `src/execution-bridge.ts` - Connects FocusModeShadowBot to MexcTradingClient
+- `src/routes/execution.ts` - API endpoints for dashboard control
+- `src/spot-backtest-cli.ts` - Configurable spot backtest CLI
+
+### MEXC Research Findings (IMPORTANT)
+**US users are BANNED from MEXC:**
+- US is on "Prohibited Countries" list
+- Using VPN violates ToS → account suspension, funds locked
+- No SEC/CFTC/FinCEN licenses
+
+**Alternatives to consider:**
+- Coinbase Advanced (US-compliant, has API)
+- Kraken (US-compliant, has API)
+- Keep MEXC manual-only (no API automation)
+
+### Spot Backtest CLI
+```bash
+npm run spot-backtest -- --help
+npm run spot-backtest -- --days 7 --compare
+npm run spot-backtest -- --verbose
+```
+
+---
+
+## Backtesting Framework & Findings
+
+### Current Tools
+
+1. **`spot-backtest-cli.ts`** - Backtests against Turso trade history
+   - Uses actual bot trades from database
+   - Limited to data we've collected (currently ~7 days for focus bots)
+   - Good for: validating live bot performance
+
+2. **`backtest-engine.ts`** - Backtests against historical candle data
+   - Fetches OHLC from MEXC API
+   - Replays signal detection logic
+   - Good for: testing strategy over longer periods
+
+3. **Historical Strategy Backtest** (TO BUILD)
+   - Fetch 30+ days of candle data from MEXC
+   - Run Focus Mode signal detection
+   - Simulate spot-only (long, 1x) trading
+   - Compare to leveraged results
+
+### Key Findings (Jan 21, 2026)
+
+#### Bot Performance Summary (7-day Turso data)
+| Bot Type | Direction | Trades | Avg PnL | Win Rate |
+|----------|-----------|--------|---------|----------|
+| focus-aggressive | long | 15 | +8.72% | 93% |
+| focus-baseline | long | 3 | +14.17% | 100% |
+| gp2-* | long | 4 | +6.5% | 100% |
+| wide/aggressive/standard | long | 300+ | -0.5% to -0.8% | 10-40% |
+
+**Conclusion:** Focus Mode bots significantly outperform other strategies, but sample size is small (27 trades vs 870+ for others).
+
+#### Spot vs Leveraged Reality Check
+- At 22.5x leverage: +10% ROI from a 0.44% price move
+- At 1x spot: same trade = +0.44% ROI
+- **Spot requires 22.5x more trades OR larger position sizes to match leveraged returns**
+
+#### Spot Backtest Results (Focus bots, 7 days, long-only)
+| Position Size | End Balance | Return | Win Rate | Max DD |
+|---------------|-------------|--------|----------|--------|
+| 10% | $2,003 | +0.13% | 92.9% | 0.3% |
+| 25% | $2,006 | +0.32% | 92.9% | 0.7% |
+| 50% | $2,013 | +0.64% | 92.9% | 1.4% |
+| 75% | $2,019 | +0.96% | 92.9% | 2.1% |
+
+**Observation:** High win rate but tiny returns at spot. Larger position sizes help but increase drawdown risk.
+
+### Task Queue
+
+#### 2. Historical Strategy Backtest (Priority: High) - READY TO TEST
+**Goal:** Test Focus Mode strategy against 30+ days of historical MEXC data
+
+**Status:** Tool built (`src/historical-backtest.ts`), needs to run from local machine (sandbox can't reach MEXC API).
+
+**Usage:**
+```bash
+# Quick test (5 symbols, 14 days)
+npm run historical-backtest -- --symbols 5 --days 14 --compare
+
+# Full test (20 symbols, 30 days)
+npm run historical-backtest -- --symbols 20 --days 30 --compare
+
+# Spot-only mode
+npm run historical-backtest -- --spot-only --days 30
+```
+
+**Approach:**
+- Fetches candle data from MEXC API (up to 1000 candles per request)
+- Runs BackburnerDetector signal detection (RSI + impulse)
+- Looks for "triggered" or "deep_extreme" setup states
+- Simulates trades with trailing stops (3% trigger, 1.5% trail)
+- `--compare` flag runs both spot (1x) and leveraged (10x) scenarios
+
+**Expected output:**
+- Statistically significant sample (100+ trades)
+- Realistic performance expectations for spot trading
+- Identify if strategy works historically or just recent luck
+
+#### 1. Timezone/Time-of-Day Analysis (Priority: Medium)
+(moved down - need more data first)

@@ -421,3 +421,78 @@ Continue monitoring through **Jan 17-18** (3-4 more days) to capture:
 1. **Top performer:** aggressive with +$36.57 (100% win rate)
 2. **Underperformer:** wide-2cb with $-56.14
 3. **Average win rate across all bots:** 50.0%
+
+---
+
+## 2026-01-21
+
+**Analysis Timestamp:** 2026-01-21T05:55:05.515Z
+**Market Context:** Mixed
+**Total Trades:** 15 | **Total P&L:** $-307.00
+
+### Performance Summary
+
+| Bot | Trades | Wins | Losses | Win Rate | Total P&L | Avg P&L |
+|-----|--------|------|--------|----------|-----------|---------|
+| aggressive | 1 | 0 | 1 | 0% | $-17.89 | $-17.89 |
+| standard-05cb | 2 | 1 | 1 | 50% | $-40.57 | $-20.28 |
+| wide-2cb | 4 | 3 | 1 | 75% | $-46.53 | $-11.63 |
+| Trail Wide | 1 | 0 | 1 | 0% | $-63.02 | $-63.02 |
+| standard | 1 | 0 | 1 | 0% | $-63.02 | $-63.02 |
+| aggressive-2cb | 6 | 3 | 3 | 50% | $-75.97 | $-12.66 |
+
+### Observations
+
+2. **Underperformer:** aggressive-2cb with $-75.97
+3. **Average win rate across all bots:** 29.2%
+
+---
+
+## 2026-01-22
+
+**Analysis Timestamp:** 2026-01-22T05:55:01.313Z
+**Market Context:** Bearish (mostly shorts)
+**Total Trades:** 165 | **Total P&L:** $-14101.23
+
+### Performance Summary
+
+| Bot | Trades | Wins | Losses | Win Rate | Total P&L | Avg P&L |
+|-----|--------|------|--------|----------|-----------|---------|
+| aggressive | 6 | 3 | 3 | 50% | +$131.44 | +$21.91 |
+| standard-05cb | 8 | 4 | 4 | 50% | +$69.73 | +$8.72 |
+| standard | 9 | 4 | 5 | 44% | +$5.14 | +$0.57 |
+| Fixed TP/SL | 2 | 0 | 2 | 0% | +$0.00 | +$0.00 |
+| spot-strict | 1 | 0 | 1 | 0% | $-0.08 | $-0.08 |
+| spot-contrarian | 1 | 0 | 1 | 0% | $-0.08 | $-0.08 |
+| spot-standard | 1 | 0 | 1 | 0% | $-0.08 | $-0.08 |
+| spot-loose | 1 | 0 | 1 | 0% | $-0.23 | $-0.23 |
+| aggressive-2cb | 8 | 2 | 6 | 25% | $-5.63 | $-0.70 |
+| wide-2cb | 6 | 2 | 4 | 33% | $-9.35 | $-1.56 |
+| Trail Light (1%) | 6 | 1 | 5 | 17% | $-25.67 | $-4.28 |
+| focus-conservative | 2 | 0 | 2 | 0% | $-74.28 | $-37.14 |
+| focus-hybrid | 4 | 2 | 2 | 50% | $-82.90 | $-20.72 |
+| focus-excellent | 3 | 1 | 2 | 33% | $-89.91 | $-29.97 |
+| focus-baseline | 5 | 2 | 3 | 40% | $-138.23 | $-27.65 |
+| focus-conflict | 5 | 2 | 3 | 40% | $-140.61 | $-28.12 |
+| focus-contrarian-only | 5 | 2 | 3 | 40% | $-145.04 | $-29.01 |
+| shadow-10pct10x-sl8 | 10 | 3 | 7 | 30% | $-166.55 | $-16.66 |
+| shadow-10pct10x-sl10 | 11 | 1 | 10 | 9% | $-167.05 | $-15.19 |
+| Trail Standard (10x) | 11 | 1 | 10 | 9% | $-195.99 | $-17.82 |
+| Trail Wide | 17 | 7 | 10 | 41% | $-205.66 | $-12.10 |
+| Trail Aggressive (20x) | 9 | 2 | 7 | 22% | $-242.69 | $-26.97 |
+| shadow-10pct10x-sl18 | 9 | 0 | 9 | 0% | $-244.47 | $-27.16 |
+| shadow-10pct10x-sl15 | 9 | 0 | 9 | 0% | $-247.45 | $-27.49 |
+| focus-aggressive | 11 | 4 | 7 | 36% | $-300.30 | $-27.30 |
+| focus-kelly | 5 | 2 | 3 | 40% | $-11825.29 | $-2365.06 |
+
+### Notable Winning Trades
+
+- **aggressive**: GWEI +$262.38
+- **standard-05cb**: GWEI +$148.86
+- **standard**: GWEI +$141.70
+
+### Observations
+
+1. **Top performer:** aggressive with +$131.44 (50% win rate)
+2. **Underperformer:** focus-kelly with $-11825.29
+3. **Average win rate across all bots:** 23.5%
