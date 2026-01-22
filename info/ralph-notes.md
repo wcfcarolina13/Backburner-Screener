@@ -446,5 +446,47 @@ npm run historical-backtest -- --spot-only --days 30
 - Realistic performance expectations for spot trading
 - Identify if strategy works historically or just recent luck
 
+---
+
+## Experimental Shadow Bots (Jan 22, 2026)
+
+### Overview
+Created `src/experimental-shadow-bots.ts` to test untested combinations of bias systems and regime filters.
+
+### Bot Configurations
+
+| Bot ID | Signal Source | Bias Filter | Regime Filter | Description |
+|--------|---------------|-------------|---------------|-------------|
+| `exp-bb-sysB` | Backburner | System B (Multi-Indicator) | None | Tests System B (funding, OI, premium) instead of System A (RSI-only) |
+| `exp-bb-sysB-contrarian` | Backburner | System B | Contrarian only | System B + only trade in NEU+BEAR, BEAR+BEAR quadrants |
+| `exp-gp-regime` | Golden Pocket | None | Contrarian only | GP signals filtered by signal-ratio regime |
+| `exp-gp-sysA` | Golden Pocket | System A (RSI) | None | GP signals filtered by BTC RSI bias |
+| `exp-gp-sysB` | Golden Pocket | System B | None | GP signals filtered by multi-indicator bias |
+| `exp-gp-sysB-contrarian` | Golden Pocket | System B | Contrarian only | Double filter: System B + contrarian quadrants |
+
+### Hypothesis Testing
+
+1. **System B vs System A**: Does multi-indicator bias outperform RSI-only?
+2. **GP + Filters**: GP bots have no bias/regime filters - would adding them improve performance?
+3. **Contrarian Quadrants**: NEU+BEAR and BEAR+BEAR showed 93% win rate historically - validate this
+
+### Signal Processing Flow
+- ALL signals feed into regime detectors for history building
+- Backburner setups → `exp-bb-*` bots
+- Golden Pocket setups → `exp-gp-*` bots
+- System B bias updates every 10 seconds
+
+### Data Collection
+- All trades logged to Turso with `entryBias` and `entryQuadrant` fields
+- Stats tracked by bias level and quadrant for later analysis
+- Dashboard state includes `experimentalBots` section
+
+### Usage Notes
+- Run `npm run start` to start server with experimental bots
+- Check `/api/state` for experimental bot performance
+- Bots reset with daily reset or manual reset
+
+---
+
 #### 1. Timezone/Time-of-Day Analysis (Priority: Medium)
 (moved down - need more data first)

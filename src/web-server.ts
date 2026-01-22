@@ -40,6 +40,7 @@ import { GoldenPocketBotV2 } from './golden-pocket-bot-v2.js';
 import { GoldenPocketDetectorV2 } from './golden-pocket-detector-v2.js';
 import { getKlines, getFuturesKlines, spotSymbolToFutures, getCurrentPrice, getPrice, getBtcMarketData } from './mexc-api.js';
 import { getMarketBiasSystemB, type SystemBBiasResult } from './market-bias-system-b.js';
+import { createExperimentalBots, type ExperimentalShadowBot } from './experimental-shadow-bots.js';
 import { getCurrentRSI, calculateRSI, calculateSMA, detectDivergence } from './indicators.js';
 import { DEFAULT_CONFIG } from './config.js';
 import { getDataPersistence } from './data-persistence.js';
@@ -831,6 +832,10 @@ const focusShadowBots = new Map<string, FocusModeShadowBot>([
   ['focus-contrarian-only', createFocusContrarianBot()],
 ]);
 
+// Experimental Shadow Bots - Testing different bias system combinations
+// See src/experimental-shadow-bots.ts for experiment details
+const experimentalBots = createExperimentalBots(2000);
+
 // GP V2 Detector (loosened thresholds)
 const gpDetectorV2 = new GoldenPocketDetectorV2({
   minImpulsePercent: 4,      // V1: 5%
@@ -1073,6 +1078,12 @@ function resetAllBots(): void {
     console.log(`  ✓ Reset ${botId}`);
   }
 
+  // Experimental Shadow bots
+  for (const [botId, bot] of experimentalBots) {
+    bot.reset();
+    console.log(`  ✓ Reset ${botId}`);
+  }
+
   // Update last reset date
   serverSettings.lastResetDate = getCurrentDateString();
   saveServerSettings();
@@ -1298,6 +1309,18 @@ async function handleNewSetup(setup: BackburnerSetup) {
         }
       }
     }
+
+    // EXPERIMENTAL GP BOTS: Process GP setups through experimental bots with bias/regime filters
+    for (const [botId, bot] of experimentalBots) {
+      // Only process GP setups for GP experimental bots (start with 'exp-gp-')
+      if (botId.startsWith('exp-gp-')) {
+        const result = bot.processGoldenPocketSetup(setup as any, setup.currentPrice, currentBtcBias);
+        if (result.action === 'open' && result.position) {
+          console.log(`[EXP:${botId}] OPENED GP ${result.position.direction.toUpperCase()} ${setup.symbol} | Reason: ${result.reason}`);
+          broadcast('position_opened', { bot: botId, position: result.position });
+        }
+      }
+    }
   } else if (isGPSetup && !gpTimeframeOk) {
     console.log(`[GP-BOT] Skipped ${setup.symbol} ${setup.timeframe} - timeframe not allowed`);
   }
@@ -1445,6 +1468,30 @@ async function handleNewSetup(setup: BackburnerSetup) {
           entryQuality: result.position.entryQuality,
         };
         dataPersistence.logTradeOpen(botId, positionForLog as any, setup);
+      }
+    }
+  }
+
+  // EXPERIMENTAL BOTS: Feed ALL signals to regime detectors and process Backburner setups
+  if (setup.state === 'triggered' || setup.state === 'deep_extreme') {
+    // Feed signal to all experimental bots for regime detection
+    const expSignal = {
+      timestamp: setup.triggeredAt || Date.now(),
+      symbol: setup.symbol,
+      direction: setup.direction,
+      timeframe: setup.timeframe,
+    };
+
+    for (const [botId, bot] of experimentalBots) {
+      bot.feedSignal(expSignal);
+
+      // Only process Backburner setups (not GP) here - BB bots start with 'exp-bb-'
+      if (botId.startsWith('exp-bb-')) {
+        const result = bot.processBackburnerSetup(setup, setup.currentPrice, currentBtcBias);
+        if (result.action === 'open' && result.position) {
+          console.log(`[EXP:${botId}] OPENED ${result.position.direction.toUpperCase()} ${setup.symbol} | Reason: ${result.reason}`);
+          broadcast('position_opened', { bot: botId, position: result.position });
+        }
       }
     }
   }
@@ -2244,6 +2291,13 @@ function getFullState() {
         },
       ])
     ),
+    // Bots 57+: Experimental Shadow Bots (testing different bias/regime combinations)
+    experimentalBots: Object.fromEntries(
+      Array.from(experimentalBots.entries()).map(([key, bot]) => [
+        key,
+        bot.getState(),
+      ])
+    ),
     botVisibility,
     // Focus Mode state - sync with target bot positions first
     focusMode: (() => {
@@ -2525,6 +2579,7 @@ app.post('/api/investment-amount', express.json(), (req, res) => {
     for (const [, bot] of fadeBots) bot.reset();
     for (const [, bot] of mexcSimBots) bot.reset();
     for (const [, bot] of focusShadowBots) bot.reset();
+    for (const [, bot] of experimentalBots) bot.reset();
   }
 
   broadcastState();
@@ -4910,6 +4965,17 @@ async function main() {
         }
       };
 
+      // Update System B bias for experimental bots (they need this for their filters)
+      try {
+        const systemB = getMarketBiasSystemB();
+        const result = await systemB.calculateBias();
+        for (const [, bot] of experimentalBots) {
+          bot.updateBias(result);
+        }
+      } catch (biasErr) {
+        console.error('[EXP BOTS] Error updating System B bias:', biasErr);
+      }
+
       // Update ALL positions with real-time prices (for trailing bots that have the new method)
       // Use getPrice which handles both spot and futures markets
       await fixedTPBot.updateOrphanedPositions(getCurrentPrice);
@@ -5070,6 +5136,57 @@ async function main() {
             // Focus Mode specific fields for regime analysis
             entryQuadrant: closedPos.entryQuadrant,
             entryQuality: closedPos.entryQuality,
+            trailActivated: closedPos.trailActivated,
+            highestPnlPercent: closedPos.highestPnlPercent,
+          };
+          dataPersistence.logTradeClose(botId, positionForClose as any);
+        }
+      }
+
+      // Update Experimental bot positions with current prices and track closures
+      const expPriceMap = new Map<string, number>();
+      for (const [botId, bot] of experimentalBots) {
+        // Get state to access positions
+        const state = bot.getState();
+        // Collect all symbols that need prices from open positions
+        for (const pos of state.openPositions) {
+          if (!expPriceMap.has(pos.symbol)) {
+            const price = await getPrice(pos.symbol, 'futures');
+            if (price) expPriceMap.set(pos.symbol, price);
+          }
+        }
+
+        // Update all positions and get closed ones
+        const closed = bot.updatePrices(expPriceMap);
+
+        // Broadcast and log any closed positions
+        for (const closedPos of closed) {
+          console.log(`[EXP:${botId}] CLOSED ${closedPos.symbol}: ${closedPos.exitReason} | PnL: $${closedPos.realizedPnl.toFixed(2)}`);
+          broadcast('position_closed', { bot: botId, position: closedPos });
+
+          // Log close event to persistence
+          const dataPersistence = getDataPersistence();
+          const positionForClose = {
+            id: closedPos.id,
+            symbol: closedPos.symbol,
+            direction: closedPos.direction,
+            timeframe: '5m',  // Default for experimental
+            marketType: 'futures' as const,
+            entryPrice: closedPos.entryPrice,
+            entryTime: closedPos.entryTime,
+            exitPrice: closedPos.exitPrice,
+            exitTime: closedPos.exitTime,
+            exitReason: closedPos.exitReason,
+            realizedPnL: closedPos.realizedPnl,
+            realizedPnLPercent: closedPos.realizedPnlPercent,
+            marginUsed: closedPos.positionSize,
+            notionalSize: closedPos.positionSize * closedPos.leverage,
+            leverage: closedPos.leverage,
+            takeProfitPrice: closedPos.takeProfit,
+            stopLossPrice: closedPos.stopLoss,
+            // Experimental bot specific fields
+            entryBias: closedPos.entryBias,
+            entryQuadrant: closedPos.entryQuadrant,
             trailActivated: closedPos.trailActivated,
             highestPnlPercent: closedPos.highestPnlPercent,
           };
