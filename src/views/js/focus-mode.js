@@ -5,6 +5,23 @@ let lastQuadrant = window.FOCUS_MODE_INIT?.quadrant || 'NEU+NEU';
 let lastActionableCount = window.FOCUS_MODE_INIT?.actionableCount || 0;
 let audioContext = null;
 
+// Quadrant rules - maps quadrant to recommended action
+const QUADRANT_RULES = {
+  'BULL+BULL': 'LONG',
+  'BULL+NEU': 'LONG',
+  'BULL+BEAR': 'SKIP',   // Bull trap - avoid
+  'NEU+BULL': 'LONG',
+  'NEU+NEU': 'LONG',     // Default to long in neutral
+  'NEU+BEAR': 'LONG',    // Contrarian - good for longs
+  'BEAR+BULL': 'SKIP',   // Bear trap - avoid
+  'BEAR+NEU': 'SHORT',
+  'BEAR+BEAR': 'LONG'    // Contrarian - good for longs
+};
+
+function getQuadrantAction(quadrant) {
+  return QUADRANT_RULES[quadrant] || 'SKIP';
+}
+
 // Load Focus Mode settings from localStorage (separate from Screener)
 function loadFocusModeSettings() {
   try {
@@ -544,9 +561,9 @@ function updatePositionHealth(cardId) {
     else if (entryRsi <= 40) { rsiText += ' (Oversold ⚠️)'; rsiStatus = 'warning'; }
   }
 
-  // Regime alignment (from current quadrant)
-  const currentQuadrant = '${quadrant}';
-  const currentAction = '${rule.action}';
+  // Regime alignment (from current quadrant via window.FOCUS_MODE_INIT or live data)
+  const currentQuadrant = (window.FOCUS_MODE_INIT && window.FOCUS_MODE_INIT.quadrant) || 'NEU+NEU';
+  const currentAction = getQuadrantAction(currentQuadrant);
   let regimeStatus = 'good';
   let regimeText = currentQuadrant + ' → ' + currentAction;
 
