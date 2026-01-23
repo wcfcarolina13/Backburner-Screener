@@ -1782,9 +1782,9 @@ function updateExperimentalBots(expBots) {
 
   let totalPnl = 0;
   let totalTrades = 0;
-  let bestBot = null;
-  let bestPnl = -Infinity;
 
+  // Collect bot data for ranking
+  const botData = [];
   for (const [botId, prefix] of Object.entries(botMap)) {
     const bot = expBots[botId];
     if (!bot) continue;
@@ -1800,10 +1800,16 @@ function updateExperimentalBots(expBots) {
     totalPnl += pnl;
     totalTrades += trades;
 
-    if (pnl > bestPnl) {
-      bestPnl = pnl;
-      bestBot = botId;
-    }
+    botData.push({ botId, prefix, balance, unrealPnl, pnl, trades, winRate, positions });
+  }
+
+  // Sort by P&L descending
+  botData.sort((a, b) => b.pnl - a.pnl);
+
+  // Update DOM elements with rank
+  for (let i = 0; i < botData.length; i++) {
+    const { botId, prefix, balance, unrealPnl, pnl, trades, winRate, positions } = botData[i];
+    const rank = i + 1;
 
     // Update DOM elements
     const balEl = document.getElementById(prefix + 'Balance');
@@ -1812,6 +1818,7 @@ function updateExperimentalBots(expBots) {
     const winRateEl = document.getElementById(prefix + 'WinRate');
     const tradesEl = document.getElementById(prefix + 'Trades');
     const posEl = document.getElementById(prefix + 'Positions');
+    const rankEl = document.getElementById(prefix + 'Rank');
 
     if (balEl) balEl.textContent = formatCurrency(balance);
     if (pnlEl) {
@@ -1825,7 +1832,16 @@ function updateExperimentalBots(expBots) {
     if (winRateEl) winRateEl.textContent = winRate;
     if (tradesEl) tradesEl.textContent = trades;
     if (posEl) posEl.textContent = positions;
+
+    // Update rank badge
+    if (rankEl) {
+      rankEl.textContent = rank === 1 ? '🏆 #1' : rank === 2 ? '🥈 #2' : rank === 3 ? '🥉 #3' : '#' + rank;
+      rankEl.style.color = rank === 1 ? '#ffd700' : rank === 2 ? '#c0c0c0' : rank === 3 ? '#cd7f32' : '#6e7681';
+    }
   }
+
+  const bestBot = botData.length > 0 ? botData[0].botId : null;
+  const bestPnl = botData.length > 0 ? botData[0].pnl : 0;
 
   // Update summary row
   const bestBotEl = document.getElementById('expBestBot');
