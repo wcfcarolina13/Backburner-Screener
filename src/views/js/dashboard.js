@@ -2607,15 +2607,16 @@ function updateMomentumIndicators(data) {
 }
 
 function updatePerformanceSummary(state) {
-  // GP Bots performance
+  // GP Bots performance - data is in state.goldenPocketBots['gp-xxx']
   let gpPnL = 0, gpWins = 0, gpLosses = 0;
-  const gpBotKeys = ['gpConservative', 'gpStandard', 'gpAggressive', 'gpYolo'];
-  for (const key of gpBotKeys) {
-    const botState = state[key + 'Bot'];
-    if (botState && botState.stats) {
-      gpPnL += botState.stats.realizedPnL || 0;
-      gpWins += botState.stats.wins || 0;
-      gpLosses += botState.stats.losses || 0;
+  if (state.goldenPocketBots) {
+    for (const key of Object.keys(state.goldenPocketBots)) {
+      const bot = state.goldenPocketBots[key];
+      if (bot && bot.stats) {
+        gpPnL += bot.stats.totalPnL || 0;
+        gpWins += bot.stats.winningTrades || 0;
+        gpLosses += bot.stats.losingTrades || 0;
+      }
     }
   }
 
@@ -2624,13 +2625,13 @@ function updatePerformanceSummary(state) {
   gpPnLEl.style.color = gpPnL >= 0 ? '#3fb950' : '#f85149';
   document.getElementById('perfGpWinRate').textContent = gpWins + 'W / ' + gpLosses + 'L';
 
-  // Trailing Bots performance
+  // Trailing Bots performance - data is in state.trailing1pctBot, etc.
   let trailPnL = 0, trailWins = 0, trailLosses = 0;
-  const trailBotKeys = ['trailing1pctBot', 'trailing10pct10xBot', 'trailing10pct20xBot'];
+  const trailBotKeys = ['trailing1pctBot', 'trailing10pct10xBot', 'trailing10pct20xBot', 'trailWideBot'];
   for (const key of trailBotKeys) {
     const botState = state[key];
     if (botState && botState.stats) {
-      trailPnL += botState.stats.realizedPnL || 0;
+      trailPnL += botState.stats.totalPnL || 0;
       trailWins += botState.stats.wins || 0;
       trailLosses += botState.stats.losses || 0;
     }
@@ -2643,7 +2644,22 @@ function updatePerformanceSummary(state) {
 
   // Active positions and unrealized PnL
   let activeCount = 0, unrealizedPnL = 0;
-  for (const key of [...gpBotKeys.map(k => k + 'Bot'), ...trailBotKeys]) {
+
+  // Count from GP bots
+  if (state.goldenPocketBots) {
+    for (const key of Object.keys(state.goldenPocketBots)) {
+      const bot = state.goldenPocketBots[key];
+      if (bot && bot.openPositions) {
+        activeCount += bot.openPositions.length;
+        for (const pos of bot.openPositions) {
+          unrealizedPnL += pos.unrealizedPnL || 0;
+        }
+      }
+    }
+  }
+
+  // Count from trailing bots
+  for (const key of trailBotKeys) {
     const botState = state[key];
     if (botState && botState.openPositions) {
       activeCount += botState.openPositions.length;
@@ -2659,8 +2675,10 @@ function updatePerformanceSummary(state) {
   unrealEl.style.color = unrealizedPnL >= 0 ? '#3fb950' : unrealizedPnL < 0 ? '#f85149' : '#6e7681';
 
   // Setup counts
-  document.getElementById('perfGpSetups').textContent = (state.goldenPocketStats?.activeSetups || 0) + ' active';
-  document.getElementById('perfBbSetups').textContent = (state.stats?.activeSetups || 0) + ' active';
+  const gpSetups = (state.setups?.goldenPocket || []).length;
+  const bbSetups = (state.setups?.active || []).length;
+  document.getElementById('perfGpSetups').textContent = gpSetups + ' active';
+  document.getElementById('perfBbSetups').textContent = bbSetups + ' active';
 }
 
 function updateBtcSignalSummary(data) {
