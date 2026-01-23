@@ -32,6 +32,49 @@ eventSource.addEventListener('scan_status', (e) => {
   }
 });
 
+// Listen for position opened events from shadow bots
+eventSource.addEventListener('position_opened', (e) => {
+  try {
+    const { bot, position } = JSON.parse(e.data);
+    // Check if this bot's notifications are enabled
+    if (isBotNotificationEnabled(bot)) {
+      const ticker = position.symbol.replace('USDT', '');
+      const dirEmoji = position.direction === 'long' ? '🟢 LONG' : '🔴 SHORT';
+      const size = position.marginUsed || position.positionSize || 0;
+      const entry = position.entryPrice || 0;
+      showBrowserNotification(
+        '⚡ ' + bot + ': ' + ticker + ' ' + dirEmoji,
+        'Size: $' + size.toFixed(0) + ' | Entry: $' + entry.toPrecision(5),
+        'bot-open-' + bot + '-' + position.symbol
+      );
+    }
+  } catch (err) {
+    console.error('[Dashboard] Error parsing position_opened:', err);
+  }
+});
+
+// Listen for position closed events from shadow bots
+eventSource.addEventListener('position_closed', (e) => {
+  try {
+    const { bot, position } = JSON.parse(e.data);
+    // Check if this bot's notifications are enabled
+    if (isBotNotificationEnabled(bot)) {
+      const ticker = position.symbol.replace('USDT', '');
+      const pnl = position.realizedPnL || position.pnl || 0;
+      const pnlStr = pnl >= 0 ? '+$' + pnl.toFixed(2) : '-$' + Math.abs(pnl).toFixed(2);
+      const emoji = pnl >= 0 ? '💰' : '❌';
+      const reason = position.exitReason || 'closed';
+      showBrowserNotification(
+        emoji + ' ' + bot + ': ' + ticker + ' CLOSED',
+        pnlStr + ' | ' + reason,
+        'bot-close-' + bot + '-' + position.symbol
+      );
+    }
+  } catch (err) {
+    console.error('[Dashboard] Error parsing position_closed:', err);
+  }
+});
+
 // Symbol check functionality
 const symbolSearchEl = document.getElementById('symbolSearch');
 if (symbolSearchEl) {
@@ -183,6 +226,7 @@ async function toggleDailyReset(enabled) {
 // Notification & Sound settings
 let notificationsEnabled = true;
 let soundEnabled = true;
+let botNotifications = {};  // Per-bot notification settings
 
 async function loadNotificationSettings() {
   try {
@@ -190,12 +234,19 @@ async function loadNotificationSettings() {
     const data = await res.json();
     notificationsEnabled = data.notificationsEnabled;
     soundEnabled = data.soundEnabled;
+    botNotifications = data.botNotifications || {};
 
     // Update UI toggles
     const notifToggle = document.getElementById('notificationsToggle');
     const soundToggle = document.getElementById('soundToggle');
     if (notifToggle) notifToggle.checked = notificationsEnabled;
     if (soundToggle) soundToggle.checked = soundEnabled;
+
+    // Update bot notification checkboxes
+    for (const [botId, enabled] of Object.entries(botNotifications)) {
+      const checkbox = document.getElementById('botNotif_' + botId);
+      if (checkbox) checkbox.checked = enabled;
+    }
   } catch (err) {
     console.error('[Settings] Failed to load notification settings:', err);
   }
@@ -231,6 +282,56 @@ async function toggleSound(enabled) {
     console.error('[Settings] Failed to toggle sound:', err);
     alert('Failed to update setting: ' + err.message);
   }
+}
+
+// Toggle notification for a specific bot
+async function toggleBotNotification(botId, enabled) {
+  try {
+    const res = await fetch('/api/notification-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ botNotifications: { [botId]: enabled } })
+    });
+    const data = await res.json();
+    botNotifications = data.botNotifications || {};
+    console.log('[Settings] Bot notification toggled:', botId, enabled);
+  } catch (err) {
+    console.error('[Settings] Failed to toggle bot notification:', err);
+    alert('Failed to update setting: ' + err.message);
+  }
+}
+
+// Toggle all bot notifications on/off
+async function toggleAllBotNotifications(enabled) {
+  const allBotIds = Object.keys(botNotifications);
+  const updates = {};
+  for (const botId of allBotIds) {
+    updates[botId] = enabled;
+  }
+  try {
+    const res = await fetch('/api/notification-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ botNotifications: updates })
+    });
+    const data = await res.json();
+    botNotifications = data.botNotifications || {};
+    // Update all checkboxes
+    for (const [botId, isEnabled] of Object.entries(botNotifications)) {
+      const checkbox = document.getElementById('botNotif_' + botId);
+      if (checkbox) checkbox.checked = isEnabled;
+    }
+    console.log('[Settings] All bot notifications toggled:', enabled);
+  } catch (err) {
+    console.error('[Settings] Failed to toggle all bot notifications:', err);
+    alert('Failed to update settings: ' + err.message);
+  }
+}
+
+// Check if notifications are enabled for a specific bot
+function isBotNotificationEnabled(botId) {
+  if (!notificationsEnabled) return false;
+  return botNotifications[botId] !== false;  // Default to true if not explicitly disabled
 }
 
 function testNotification() {

@@ -178,7 +178,31 @@ interface ServerSettings {
   notificationsEnabled: boolean;
   soundEnabled: boolean;
   investmentAmount: number;  // User's actual MEXC investment amount
+  botNotifications: Record<string, boolean>;  // Per-bot notification enable/disable
 }
+
+// Default bot notification settings - top performers enabled by default
+const defaultBotNotifications: Record<string, boolean> = {
+  // Experimental A/B Testing Bots (top performers)
+  'exp-bb-sysB': true,
+  'exp-bb-sysB-contrarian': true,
+  'exp-gp-sysA': false,
+  'exp-gp-sysB': false,
+  'exp-gp-regime': false,
+  'exp-gp-sysB-contrarian': false,
+  // Focus Mode Shadow Bots
+  'focus-baseline': true,
+  'focus-aggressive': false,
+  'focus-conservative': true,
+  'focus-conflict': false,
+  'focus-hybrid': false,
+  'focus-excellent': true,
+  'focus-kelly': false,
+  'focus-contrarian-only': true,
+  'focus-euphoria-fade': true,
+  'focus-bull-dip': true,
+  'focus-full-quadrant': false,
+};
 
 const serverSettings: ServerSettings = {
   dailyResetEnabled: false,  // Default: OFF
@@ -186,6 +210,7 @@ const serverSettings: ServerSettings = {
   notificationsEnabled: true,  // Default: ON
   soundEnabled: true,  // Default: ON
   investmentAmount: 2000,  // Default: $2000
+  botNotifications: { ...defaultBotNotifications },
 };
 
 // Load server settings from disk (uses fs/path imported via data-persistence)
@@ -194,6 +219,10 @@ function loadServerSettings(): void {
     const settingsPath = path.join(process.cwd(), 'data', 'server-settings.json');
     if (fs.existsSync(settingsPath)) {
       const data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      // Merge botNotifications with defaults (so new bots get added)
+      if (data.botNotifications) {
+        data.botNotifications = { ...defaultBotNotifications, ...data.botNotifications };
+      }
       Object.assign(serverSettings, data);
       console.log('[SETTINGS] Loaded server settings:', serverSettings);
     }
@@ -2533,11 +2562,12 @@ app.get('/api/notification-settings', (req, res) => {
   res.json({
     notificationsEnabled: serverSettings.notificationsEnabled,
     soundEnabled: serverSettings.soundEnabled,
+    botNotifications: serverSettings.botNotifications,
   });
 });
 
 app.post('/api/notification-settings', express.json(), (req, res) => {
-  const { notificationsEnabled, soundEnabled } = req.body;
+  const { notificationsEnabled, soundEnabled, botNotifications } = req.body;
 
   if (typeof notificationsEnabled === 'boolean') {
     serverSettings.notificationsEnabled = notificationsEnabled;
@@ -2549,12 +2579,23 @@ app.post('/api/notification-settings', express.json(), (req, res) => {
     console.log(`[SETTINGS] Sound ${soundEnabled ? 'ENABLED' : 'DISABLED'}`);
   }
 
+  // Update individual bot notification settings
+  if (botNotifications && typeof botNotifications === 'object') {
+    for (const [botId, enabled] of Object.entries(botNotifications)) {
+      if (typeof enabled === 'boolean') {
+        serverSettings.botNotifications[botId] = enabled;
+        console.log(`[SETTINGS] Bot ${botId} notifications ${enabled ? 'ENABLED' : 'DISABLED'}`);
+      }
+    }
+  }
+
   saveServerSettings();
 
   res.json({
     success: true,
     notificationsEnabled: serverSettings.notificationsEnabled,
     soundEnabled: serverSettings.soundEnabled,
+    botNotifications: serverSettings.botNotifications,
   });
 });
 
@@ -3596,6 +3637,99 @@ function getHtmlPage(): string {
           <button onclick="testSound()" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #58a6ff; background: transparent; color: #58a6ff; font-weight: 600; cursor: pointer;">
             🔊 Test Sound
           </button>
+
+          <!-- Bot-specific notification toggles -->
+          <div style="margin-top: 16px; padding: 12px; background: #0d1117; border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <span style="font-size: 12px; color: #8b949e; font-weight: 600;">Bot Notifications</span>
+              <div style="display: flex; gap: 8px;">
+                <button onclick="toggleAllBotNotifications(true)" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 11px; cursor: pointer;">All On</button>
+                <button onclick="toggleAllBotNotifications(false)" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 11px; cursor: pointer;">All Off</button>
+              </div>
+            </div>
+
+            <!-- Experimental Bots -->
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 11px; color: #58a6ff; margin-bottom: 6px;">🧪 Experimental Bots</div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_exp-bb-sysB" onchange="toggleBotNotification('exp-bb-sysB', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">exp-bb-sysB</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_exp-bb-sysB-contrarian" onchange="toggleBotNotification('exp-bb-sysB-contrarian', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">exp-bb-sysB-ctr</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_exp-gp-sysA" onchange="toggleBotNotification('exp-gp-sysA', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">exp-gp-sysA</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_exp-gp-sysB" onchange="toggleBotNotification('exp-gp-sysB', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">exp-gp-sysB</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_exp-gp-regime" onchange="toggleBotNotification('exp-gp-regime', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">exp-gp-regime</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_exp-gp-sysB-contrarian" onchange="toggleBotNotification('exp-gp-sysB-contrarian', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">exp-gp-sysB-ctr</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Focus Mode Bots -->
+            <div>
+              <div style="font-size: 11px; color: #f0883e; margin-bottom: 6px;">🎯 Focus Mode Bots</div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-baseline" onchange="toggleBotNotification('focus-baseline', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">baseline</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-conservative" onchange="toggleBotNotification('focus-conservative', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">conservative</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-aggressive" onchange="toggleBotNotification('focus-aggressive', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">aggressive</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-excellent" onchange="toggleBotNotification('focus-excellent', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">excellent</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-conflict" onchange="toggleBotNotification('focus-conflict', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">conflict</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-hybrid" onchange="toggleBotNotification('focus-hybrid', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">hybrid</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-contrarian-only" onchange="toggleBotNotification('focus-contrarian-only', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">contrarian</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-kelly" onchange="toggleBotNotification('focus-kelly', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">kelly</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-euphoria-fade" onchange="toggleBotNotification('focus-euphoria-fade', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">euphoria-fade</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-bull-dip" onchange="toggleBotNotification('focus-bull-dip', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">bull-dip</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-full-quadrant" onchange="toggleBotNotification('focus-full-quadrant', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">full-quadrant</span>
+                </label>
+              </div>
+            </div>
+          </div>
 
           <hr style="border: none; border-top: 1px solid #30363d; margin: 20px 0;">
 
