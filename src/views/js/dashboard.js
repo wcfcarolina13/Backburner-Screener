@@ -1982,6 +1982,11 @@ function updateUI(state) {
     }
   }
 
+  // Update Experimental Shadow Bots
+  if (state.experimentalBots) {
+    updateExperimentalBots(state.experimentalBots);
+  }
+
   // Update Focus Mode
   if (state.focusMode) {
     updateFocusPositions(state.focusMode);
@@ -2007,6 +2012,87 @@ function formatTimeAgo(timestamp) {
   if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
   if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
   return Math.floor(seconds / 86400) + 'd ago';
+}
+
+// Update Experimental Shadow Bots display
+function updateExperimentalBots(expBots) {
+  // Map bot IDs to HTML element ID prefixes
+  const botMap = {
+    'exp-bb-sysB': 'expBbSysB',
+    'exp-bb-sysB-contrarian': 'expBbSysBContrarian',
+    'exp-gp-sysA': 'expGpSysA',
+    'exp-gp-sysB': 'expGpSysB',
+    'exp-gp-regime': 'expGpRegime',
+    'exp-gp-sysB-contrarian': 'expGpSysBContrarian',
+  };
+
+  let totalPnl = 0;
+  let totalTrades = 0;
+  let bestBot = null;
+  let bestPnl = -Infinity;
+
+  for (const [botId, prefix] of Object.entries(botMap)) {
+    const bot = expBots[botId];
+    if (!bot) continue;
+
+    const stats = bot.stats || {};
+    const balance = bot.balance || 2000;
+    const unrealPnl = bot.unrealizedPnl || 0;
+    const pnl = parseFloat(stats.totalPnl) || 0;
+    const trades = stats.totalTrades || 0;
+    const winRate = stats.winRate || '0%';
+    const positions = (bot.openPositions || []).length;
+
+    totalPnl += pnl;
+    totalTrades += trades;
+
+    if (pnl > bestPnl) {
+      bestPnl = pnl;
+      bestBot = botId;
+    }
+
+    // Update DOM elements
+    const balEl = document.getElementById(prefix + 'Balance');
+    const pnlEl = document.getElementById(prefix + 'PnL');
+    const unrealEl = document.getElementById(prefix + 'Unreal');
+    const winRateEl = document.getElementById(prefix + 'WinRate');
+    const tradesEl = document.getElementById(prefix + 'Trades');
+    const posEl = document.getElementById(prefix + 'Positions');
+
+    if (balEl) balEl.textContent = formatCurrency(balance);
+    if (pnlEl) {
+      pnlEl.textContent = formatCurrency(pnl);
+      pnlEl.className = pnl >= 0 ? 'positive' : 'negative';
+    }
+    if (unrealEl) {
+      unrealEl.textContent = formatCurrency(unrealPnl);
+      unrealEl.className = unrealPnl >= 0 ? 'positive' : 'negative';
+    }
+    if (winRateEl) winRateEl.textContent = winRate;
+    if (tradesEl) tradesEl.textContent = trades;
+    if (posEl) posEl.textContent = positions;
+  }
+
+  // Update summary row
+  const bestBotEl = document.getElementById('expBestBot');
+  const bestPnlEl = document.getElementById('expBestPnL');
+  const totalPnlEl = document.getElementById('expTotalPnL');
+  const totalTradesEl = document.getElementById('expTotalTrades');
+
+  if (bestBotEl && bestBot) {
+    bestBotEl.textContent = bestBot;
+  }
+  if (bestPnlEl && bestBot) {
+    bestPnlEl.textContent = formatCurrency(bestPnl);
+    bestPnlEl.style.color = bestPnl >= 0 ? '#3fb950' : '#f85149';
+  }
+  if (totalPnlEl) {
+    totalPnlEl.textContent = formatCurrency(totalPnl);
+    totalPnlEl.style.color = totalPnl >= 0 ? '#3fb950' : '#f85149';
+  }
+  if (totalTradesEl) {
+    totalTradesEl.textContent = totalTrades;
+  }
 }
 
 function renderSetupsTable(setups, tabType) {

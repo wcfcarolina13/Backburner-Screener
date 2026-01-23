@@ -4097,6 +4097,86 @@ function getHtmlPage(): string {
       </div>
     </div>
 
+    <!-- Section: Experimental Shadow Bots -->
+    <div class="section-header" onclick="toggleSection('expBots')" style="margin-top: 12px;">
+      <span class="section-title">🧪 Experimental Shadow Bots (A/B Testing)</span>
+      <span class="section-toggle" id="expBotsToggle">▼</span>
+    </div>
+    <div class="section-content" id="expBotsContent">
+      <div style="font-size: 11px; color: #8b949e; margin-bottom: 8px; padding: 6px 10px; background: #0d1117; border-radius: 4px;">
+        Paper trading bots testing different bias filters (System A vs B) and signal sources (Backburner vs Golden Pocket). All run on shadow mode.
+      </div>
+      <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 12px;" id="expBotsGrid">
+        <!-- exp-bb-sysB (TOP PERFORMER) -->
+        <div class="stat-box" style="border-left: 3px solid #ffd700;" title="Backburner + System B multi-indicator bias filter">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 14px; font-weight: bold; color: #ffd700;">exp-bb-sysB</span>
+            <span style="font-size: 10px; color: #ffd700;">TOP</span>
+          </div>
+          <div class="stat-value" id="expBbSysBBalance" style="font-size: 18px;">$2,000</div>
+          <div class="stat-label">BB + System B | <span id="expBbSysBPositions">0</span> pos</div>
+          <div class="stat-label" style="margin-top: 2px;">P&L: <span id="expBbSysBPnL" class="positive">$0</span> | Unreal: <span id="expBbSysBUnreal" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="expBbSysBWinRate">0%</span> win (<span id="expBbSysBTrades">0</span> trades)</div>
+        </div>
+        <!-- exp-bb-sysB-contrarian -->
+        <div class="stat-box" style="border-left: 3px solid #a371f7;" title="Backburner + System B + NEU+BEAR/BEAR+BEAR quadrants only">
+          <div style="font-size: 12px; font-weight: 600; color: #a371f7;">exp-bb-sysB-contrarian</div>
+          <div class="stat-value" id="expBbSysBContrarianBalance" style="font-size: 18px;">$2,000</div>
+          <div class="stat-label">BB + SysB + Contrarian | <span id="expBbSysBContrarianPositions">0</span> pos</div>
+          <div class="stat-label" style="margin-top: 2px;">P&L: <span id="expBbSysBContrarianPnL" class="positive">$0</span> | Unreal: <span id="expBbSysBContrarianUnreal" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="expBbSysBContrarianWinRate">0%</span> win (<span id="expBbSysBContrarianTrades">0</span> trades)</div>
+        </div>
+        <!-- exp-gp-sysA -->
+        <div class="stat-box" style="border-left: 3px solid #58a6ff;" title="Golden Pocket + System A RSI-only bias filter">
+          <div style="font-size: 12px; font-weight: 600; color: #58a6ff;">exp-gp-sysA</div>
+          <div class="stat-value" id="expGpSysABalance" style="font-size: 18px;">$2,000</div>
+          <div class="stat-label">GP + System A (RSI) | <span id="expGpSysAPositions">0</span> pos</div>
+          <div class="stat-label" style="margin-top: 2px;">P&L: <span id="expGpSysAPnL" class="positive">$0</span> | Unreal: <span id="expGpSysAUnreal" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="expGpSysAWinRate">0%</span> win (<span id="expGpSysATrades">0</span> trades)</div>
+        </div>
+        <!-- exp-gp-sysB -->
+        <div class="stat-box" style="border-left: 3px solid #3fb950;" title="Golden Pocket + System B multi-indicator bias filter">
+          <div style="font-size: 12px; font-weight: 600; color: #3fb950;">exp-gp-sysB</div>
+          <div class="stat-value" id="expGpSysBBalance" style="font-size: 18px;">$2,000</div>
+          <div class="stat-label">GP + System B | <span id="expGpSysBPositions">0</span> pos</div>
+          <div class="stat-label" style="margin-top: 2px;">P&L: <span id="expGpSysBPnL" class="positive">$0</span> | Unreal: <span id="expGpSysBUnreal" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="expGpSysBWinRate">0%</span> win (<span id="expGpSysBTrades">0</span> trades)</div>
+        </div>
+        <!-- exp-gp-regime -->
+        <div class="stat-box" style="border-left: 3px solid #f85149;" title="Golden Pocket + Regime filter (NEU+BEAR/BEAR+BEAR quadrants)">
+          <div style="font-size: 12px; font-weight: 600; color: #f85149;">exp-gp-regime</div>
+          <div class="stat-value" id="expGpRegimeBalance" style="font-size: 18px;">$2,000</div>
+          <div class="stat-label">GP + Regime Filter | <span id="expGpRegimePositions">0</span> pos</div>
+          <div class="stat-label" style="margin-top: 2px;">P&L: <span id="expGpRegimePnL" class="positive">$0</span> | Unreal: <span id="expGpRegimeUnreal" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="expGpRegimeWinRate">0%</span> win (<span id="expGpRegimeTrades">0</span> trades)</div>
+        </div>
+        <!-- exp-gp-sysB-contrarian -->
+        <div class="stat-box" style="border-left: 3px solid #d29922;" title="Golden Pocket + System B + Contrarian quadrants">
+          <div style="font-size: 12px; font-weight: 600; color: #d29922;">exp-gp-sysB-contrarian</div>
+          <div class="stat-value" id="expGpSysBContrarianBalance" style="font-size: 18px;">$2,000</div>
+          <div class="stat-label">GP + SysB + Contrarian | <span id="expGpSysBContrarianPositions">0</span> pos</div>
+          <div class="stat-label" style="margin-top: 2px;">P&L: <span id="expGpSysBContrarianPnL" class="positive">$0</span> | Unreal: <span id="expGpSysBContrarianUnreal" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="expGpSysBContrarianWinRate">0%</span> win (<span id="expGpSysBContrarianTrades">0</span> trades)</div>
+        </div>
+      </div>
+      <!-- Performance summary row -->
+      <div style="display: flex; gap: 12px; padding: 8px 12px; background: #0d1117; border-radius: 6px; border: 1px solid #30363d; flex-wrap: wrap;">
+        <div style="flex: 1; min-width: 200px;">
+          <span style="color: #8b949e; font-size: 11px;">Best Performer:</span>
+          <span id="expBestBot" style="color: #ffd700; font-weight: 600; margin-left: 4px;">-</span>
+          <span id="expBestPnL" style="color: #3fb950; font-size: 12px; margin-left: 8px;">-</span>
+        </div>
+        <div style="flex: 1; min-width: 200px;">
+          <span style="color: #8b949e; font-size: 11px;">Total Experimental P&L:</span>
+          <span id="expTotalPnL" style="font-weight: 600; margin-left: 4px; color: #c9d1d9;">$0</span>
+        </div>
+        <div style="flex: 1; min-width: 200px;">
+          <span style="color: #8b949e; font-size: 11px;">Total Trades:</span>
+          <span id="expTotalTrades" style="font-weight: 600; margin-left: 4px; color: #c9d1d9;">0</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Setups Card with Tabs -->
     <div class="card" style="margin-bottom: 20px;">
       <div class="card-header" style="flex-wrap: wrap; gap: 12px;">
