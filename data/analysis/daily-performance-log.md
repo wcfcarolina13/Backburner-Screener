@@ -496,3 +496,58 @@ Continue monitoring through **Jan 17-18** (3-4 more days) to capture:
 1. **Top performer:** aggressive with +$131.44 (50% win rate)
 2. **Underperformer:** focus-kelly with $-11825.29
 3. **Average win rate across all bots:** 23.5%
+
+---
+
+## 2026-01-23
+
+**Analysis Timestamp:** 2026-01-23T05:55:01.489Z
+**Market Context:** Bullish (mostly longs)
+**Total Trades:** 130 | **Total P&L:** $-250.84
+
+### Performance Summary
+
+| Bot | Trades | Wins | Losses | Win Rate | Total P&L | Avg P&L |
+|-----|--------|------|--------|----------|-----------|---------|
+| exp-bb-sysB | 24 | 12 | 12 | 50% | +$498.81 | +$20.78 |
+| focus-kelly | 2 | 2 | 0 | 100% | +$132.29 | +$66.15 |
+| exp-bb-sysB-contrarian | 6 | 3 | 3 | 50% | +$72.37 | +$12.06 |
+| focus-excellent | 4 | 4 | 0 | 100% | +$41.68 | +$10.42 |
+| GP-YOLO | 1 | 1 | 0 | 100% | +$36.58 | +$36.58 |
+| exp-gp-sysB | 10 | 4 | 6 | 40% | +$26.00 | +$2.60 |
+| GP-Aggressive | 1 | 1 | 0 | 100% | +$14.63 | +$14.63 |
+| GP-Standard | 1 | 1 | 0 | 100% | +$10.97 | +$10.97 |
+| standard-05cb | 4 | 3 | 1 | 75% | +$9.80 | +$2.45 |
+| GP-Conservative | 1 | 1 | 0 | 100% | +$4.39 | +$4.39 |
+| focus-baseline | 6 | 5 | 1 | 83% | +$0.87 | +$0.15 |
+| focus-conflict | 6 | 5 | 1 | 83% | +$0.87 | +$0.15 |
+| focus-hybrid | 6 | 5 | 1 | 83% | +$0.87 | +$0.15 |
+| standard | 4 | 3 | 1 | 75% | $-6.70 | $-1.67 |
+| Trail Light (1%) | 2 | 0 | 2 | 0% | $-7.54 | $-3.77 |
+| exp-gp-sysA | 6 | 2 | 4 | 33% | $-27.06 | $-4.51 |
+| focus-contrarian-only | 2 | 1 | 1 | 50% | $-35.84 | $-17.92 |
+| exp-gp-regime | 4 | 1 | 3 | 25% | $-36.92 | $-9.23 |
+| exp-gp-sysB-contrarian | 4 | 1 | 3 | 25% | $-36.92 | $-9.23 |
+| wide-2cb | 3 | 1 | 2 | 33% | $-45.46 | $-15.15 |
+| shadow-10pct10x-sl10 | 2 | 0 | 2 | 0% | $-73.09 | $-36.55 |
+| shadow-10pct10x-sl8 | 2 | 0 | 2 | 0% | $-73.30 | $-36.65 |
+| Trail Standard (10x) | 2 | 0 | 2 | 0% | $-75.65 | $-37.83 |
+| shadow-10pct10x-sl18 | 2 | 0 | 2 | 0% | $-77.29 | $-38.65 |
+| shadow-10pct10x-sl15 | 2 | 0 | 2 | 0% | $-77.39 | $-38.70 |
+| aggressive | 3 | 1 | 2 | 33% | $-79.63 | $-26.54 |
+| aggressive-2cb | 2 | 1 | 1 | 50% | $-80.98 | $-40.49 |
+| Trail Wide | 6 | 3 | 3 | 50% | $-91.26 | $-15.21 |
+| Trail Aggressive (20x) | 2 | 0 | 2 | 0% | $-134.86 | $-67.43 |
+| focus-aggressive | 10 | 7 | 3 | 70% | $-141.08 | $-14.11 |
+
+### Notable Winning Trades
+
+- **exp-bb-sysB**: ELSA +$93.64
+- **focus-kelly**: ELSA +$66.55
+- **exp-bb-sysB-contrarian**: CYS +$29.68
+
+### Observations
+
+1. **Top performer:** exp-bb-sysB with +$498.81 (50% win rate)
+2. **Underperformer:** focus-aggressive with $-141.08
+3. **Average win rate across all bots:** 50.3%
