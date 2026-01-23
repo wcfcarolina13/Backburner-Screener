@@ -145,6 +145,9 @@ function openSettings() {
   // Load investment amount setting from server
   loadInvestmentAmount();
 
+  // Load database stats
+  loadDatabaseStats();
+
   document.getElementById('settingsModal').style.display = 'block';
 }
 
@@ -509,6 +512,63 @@ async function triggerManualReset() {
   } catch (err) {
     console.error('[Settings] Failed to trigger reset:', err);
     alert('Failed to reset bots: ' + err.message);
+  }
+}
+
+// Database stats and export functions
+async function loadDatabaseStats() {
+  try {
+    const res = await fetch('/api/db-stats');
+    const stats = await res.json();
+
+    document.getElementById('dbTotalTrades').textContent = stats.totalTrades || 0;
+    document.getElementById('dbWinLoss').innerHTML =
+      '<span style="color: #3fb950;">' + (stats.wins || 0) + ' W</span> / ' +
+      '<span style="color: #f85149;">' + (stats.losses || 0) + ' L</span>';
+
+    if (stats.firstTrade && stats.lastTrade) {
+      const first = new Date(stats.firstTrade).toLocaleDateString();
+      const last = new Date(stats.lastTrade).toLocaleDateString();
+      document.getElementById('dbDateRange').textContent = first + ' - ' + last;
+    } else {
+      document.getElementById('dbDateRange').textContent = 'No trades yet';
+    }
+
+    const pnl = stats.totalPnl || 0;
+    const pnlEl = document.getElementById('dbTotalPnl');
+    pnlEl.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
+    pnlEl.style.color = pnl >= 0 ? '#3fb950' : '#f85149';
+
+  } catch (err) {
+    console.error('[Settings] Failed to load database stats:', err);
+    document.getElementById('dbTotalTrades').textContent = 'Error';
+  }
+}
+
+async function exportTrades() {
+  const days = document.getElementById('exportDays').value;
+  const url = '/api/export-trades?days=' + days;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Export failed');
+
+    const blob = await res.blob();
+    const filename = 'trades-' + days + 'days-' + new Date().toISOString().split('T')[0] + '.csv';
+
+    // Create download link
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+
+    console.log('[Export] Downloaded', filename);
+  } catch (err) {
+    console.error('[Export] Failed:', err);
+    alert('Failed to export trades: ' + err.message);
   }
 }
 

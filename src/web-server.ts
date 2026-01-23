@@ -2961,6 +2961,65 @@ app.get('/api/db-stats', async (req, res) => {
   res.json(result);
 });
 
+// Export trades as CSV
+app.get('/api/export-trades', async (req, res) => {
+  const days = parseInt(req.query.days as string) || 7;
+  const botId = req.query.bot as string;
+
+  // Calculate date range
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - days);
+
+  let sql = `SELECT * FROM trade_events WHERE date >= ? AND date <= ?`;
+  const args: (string | number)[] = [
+    startDate.toISOString().split('T')[0],
+    endDate.toISOString().split('T')[0],
+  ];
+
+  if (botId) {
+    sql += ` AND bot_id = ?`;
+    args.push(botId);
+  }
+
+  sql += ` ORDER BY timestamp DESC`;
+
+  const result = await executeReadQuery(sql, args);
+
+  if (!result.success || !result.rows) {
+    res.status(500).json({ success: false, error: result.error || 'Query failed' });
+    return;
+  }
+
+  // Convert to CSV
+  if (result.rows.length === 0) {
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="trades_${startDate.toISOString().split('T')[0]}_${endDate.toISOString().split('T')[0]}.csv"`);
+    res.send('No trades found in the specified date range');
+    return;
+  }
+
+  // Get columns from first row
+  const columns = result.columns || Object.keys(result.rows[0] as Record<string, unknown>);
+  const csvRows = [columns.join(',')];
+
+  for (const row of result.rows) {
+    const values = columns.map((col: string) => {
+      const val = (row as Record<string, unknown>)[col];
+      if (val === null || val === undefined) return '';
+      if (typeof val === 'string' && (val.includes(',') || val.includes('"') || val.includes('\n'))) {
+        return `"${val.replace(/"/g, '""')}"`;
+      }
+      return String(val);
+    });
+    csvRows.push(values.join(','));
+  }
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="trades_${startDate.toISOString().split('T')[0]}_${endDate.toISOString().split('T')[0]}.csv"`);
+  res.send(csvRows.join('\n'));
+});
+
 app.post('/api/query-db', express.json(), async (req, res) => {
   const { sql, args } = req.body;
 
@@ -3542,6 +3601,43 @@ function getHtmlPage(): string {
           </div>
 
           <div id="investmentStatus" style="margin-top: 12px; padding: 8px 12px; background: #0d1117; border-radius: 6px; font-size: 12px; display: none;"></div>
+
+          <hr style="border: none; border-top: 1px solid #30363d; margin: 20px 0;">
+
+          <h4 style="margin: 0 0 12px 0; color: #8b949e;">📦 Data Management</h4>
+          <p style="color: #6e7681; font-size: 12px; margin: 0 0 12px 0;">Export trade history or view database statistics.</p>
+
+          <div id="dbStats" style="background: #0d1117; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+              <span style="color: #8b949e; font-size: 12px;">Total Trades:</span>
+              <span id="dbTotalTrades" style="color: #c9d1d9; font-size: 12px;">Loading...</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+              <span style="color: #8b949e; font-size: 12px;">Wins / Losses:</span>
+              <span id="dbWinLoss" style="color: #c9d1d9; font-size: 12px;">-</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+              <span style="color: #8b949e; font-size: 12px;">Date Range:</span>
+              <span id="dbDateRange" style="color: #c9d1d9; font-size: 12px;">-</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: #8b949e; font-size: 12px;">Total P&L:</span>
+              <span id="dbTotalPnl" style="color: #c9d1d9; font-size: 12px;">-</span>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <select id="exportDays" style="padding: 8px 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; font-size: 13px;">
+              <option value="7">Last 7 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="365">Last year</option>
+              <option value="9999">All time</option>
+            </select>
+            <button onclick="exportTrades()" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #238636; background: transparent; color: #3fb950; font-weight: 600; cursor: pointer;">
+              📥 Export CSV
+            </button>
+          </div>
         </div>
       </div>
     </div>

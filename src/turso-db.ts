@@ -571,11 +571,16 @@ export async function executeReadQuery(sql: string, args: (string | number)[] = 
 }
 
 /**
- * Get database statistics (table names and row counts)
+ * Get database statistics for trades
  */
 export async function getDatabaseStats(): Promise<{
   success: boolean;
-  tables?: Array<{ name: string; rowCount: number }>;
+  totalTrades?: number;
+  wins?: number;
+  losses?: number;
+  totalPnl?: number;
+  firstTrade?: string;
+  lastTrade?: string;
   error?: string;
 }> {
   const client = getTurso();
@@ -584,23 +589,29 @@ export async function getDatabaseStats(): Promise<{
   }
 
   try {
-    // Get table names
-    const tablesResult = await client.execute(
-      "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-    );
+    // Get trade statistics from trade_events table
+    const statsResult = await client.execute(`
+      SELECT
+        COUNT(*) as total_trades,
+        SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
+        SUM(CASE WHEN pnl <= 0 THEN 1 ELSE 0 END) as losses,
+        SUM(pnl) as total_pnl,
+        MIN(timestamp) as first_trade,
+        MAX(timestamp) as last_trade
+      FROM trade_events
+      WHERE event_type = 'close'
+    `);
 
-    const tables: Array<{ name: string; rowCount: number }> = [];
-
-    for (const row of tablesResult.rows) {
-      const tableName = row.name as string;
-      const countResult = await client.execute(`SELECT COUNT(*) as cnt FROM ${tableName}`);
-      tables.push({
-        name: tableName,
-        rowCount: countResult.rows[0].cnt as number,
-      });
-    }
-
-    return { success: true, tables };
+    const row = statsResult.rows[0];
+    return {
+      success: true,
+      totalTrades: (row.total_trades as number) || 0,
+      wins: (row.wins as number) || 0,
+      losses: (row.losses as number) || 0,
+      totalPnl: (row.total_pnl as number) || 0,
+      firstTrade: row.first_trade as string | undefined,
+      lastTrade: row.last_trade as string | undefined,
+    };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('[TURSO] Stats query failed:', errorMessage);
