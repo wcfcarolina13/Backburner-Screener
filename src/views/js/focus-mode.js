@@ -6,16 +6,17 @@ let lastActionableCount = window.FOCUS_MODE_INIT?.actionableCount || 0;
 let audioContext = null;
 
 // Quadrant rules - maps quadrant to recommended action
+// Must match the Quick Reference panel in focus-mode-dashboard.ts
 const QUADRANT_RULES = {
-  'BULL+BULL': 'LONG',
-  'BULL+NEU': 'LONG',
-  'BULL+BEAR': 'SKIP',   // Bull trap - avoid
-  'NEU+BULL': 'LONG',
-  'NEU+NEU': 'LONG',     // Default to long in neutral
-  'NEU+BEAR': 'LONG',    // Contrarian - good for longs
-  'BEAR+BULL': 'SKIP',   // Bear trap - avoid
-  'BEAR+NEU': 'SHORT',
-  'BEAR+BEAR': 'LONG'    // Contrarian - good for longs
+  'BULL+BULL': 'SHORT',  // Fade euphoria - HIGH WIN RATE
+  'BULL+NEU': 'SKIP',    // Wait for clearer signal
+  'BULL+BEAR': 'LONG',   // Buy macro-bull dip
+  'NEU+BULL': 'SHORT',   // Fade the rally
+  'NEU+NEU': 'SKIP',     // No clear regime
+  'NEU+BEAR': 'LONG',    // Contrarian long - buy the dip
+  'BEAR+BULL': 'SKIP',   // BULL TRAP - never trade
+  'BEAR+NEU': 'SKIP',    // Wait for clearer signal
+  'BEAR+BEAR': 'LONG'    // Deep contrarian long
 };
 
 function getQuadrantAction(quadrant) {
