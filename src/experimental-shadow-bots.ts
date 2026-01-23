@@ -299,8 +299,18 @@ class ExperimentalShadowBot extends EventEmitter {
       return { action: 'skip', reason: regimeCheck.reason };
     }
 
-    // Calculate position
-    const positionSize = this.balance * (this.config.positionSizePercent / 100);
+    // Calculate AVAILABLE balance (total balance minus capital in open positions)
+    const allocatedCapital = Array.from(this.positions.values())
+      .reduce((sum, p) => sum + p.positionSize, 0);
+    const availableBalance = Math.max(0, this.balance - allocatedCapital);
+
+    // Calculate position size from AVAILABLE balance, not total balance
+    const positionSize = availableBalance * (this.config.positionSizePercent / 100);
+
+    // Skip if insufficient available capital
+    if (positionSize < 10) {  // Minimum $10 position
+      return { action: 'skip', reason: `Insufficient available balance ($${availableBalance.toFixed(2)} available, $${allocatedCapital.toFixed(2)} allocated)` };
+    }
     const entryPrice = currentPrice * (1 + this.config.slippagePercent / 100 * (setup.direction === 'long' ? 1 : -1));
 
     const stopDistance = entryPrice * (this.config.initialStopPercent / 100);
@@ -385,9 +395,19 @@ class ExperimentalShadowBot extends EventEmitter {
       return { action: 'skip', reason: regimeCheck.reason };
     }
 
+    // Calculate AVAILABLE balance (total balance minus capital in open positions)
+    const allocatedCapital = Array.from(this.positions.values())
+      .reduce((sum, p) => sum + p.positionSize, 0);
+    const availableBalance = Math.max(0, this.balance - allocatedCapital);
+
     // Use GP's built-in TP/SL levels
     const entryPrice = currentPrice * (1 + this.config.slippagePercent / 100 * (setup.direction === 'long' ? 1 : -1));
-    const positionSize = this.balance * (this.config.positionSizePercent / 100);
+    const positionSize = availableBalance * (this.config.positionSizePercent / 100);
+
+    // Skip if insufficient available capital
+    if (positionSize < 10) {  // Minimum $10 position
+      return { action: 'skip', reason: `Insufficient available balance ($${availableBalance.toFixed(2)} available, $${allocatedCapital.toFixed(2)} allocated)` };
+    }
 
     const position: ShadowPosition = {
       id: `${this.config.botId}-${setup.symbol}-${Date.now()}`,

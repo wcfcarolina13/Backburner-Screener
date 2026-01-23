@@ -77,6 +77,24 @@ export async function initSchema(): Promise<void> {
       )
     `);
 
+    // Add new columns for regime analysis (will silently fail if already exist)
+    const newColumns = [
+      'entry_quadrant TEXT',
+      'entry_quality TEXT',
+      'entry_bias TEXT',
+      'trail_activated INTEGER',
+      'highest_pnl_percent REAL',
+      'entry_time TEXT',
+      'duration_ms INTEGER',
+    ];
+    for (const col of newColumns) {
+      try {
+        await client.execute(`ALTER TABLE trade_events ADD COLUMN ${col}`);
+      } catch {
+        // Column already exists, ignore
+      }
+    }
+
     // Signal events table
     await client.execute(`
       CREATE TABLE IF NOT EXISTS signal_events (
@@ -179,6 +197,14 @@ export async function insertTradeEvent(event: {
   signalRsi?: number;
   signalState?: string;
   impulsePercent?: number;
+  // New regime analysis fields
+  entryQuadrant?: string;
+  entryQuality?: string;
+  entryBias?: string;
+  trailActivated?: boolean;
+  highestPnlPercent?: number;
+  entryTime?: string;
+  durationMs?: number;
   [key: string]: unknown;
 }): Promise<void> {
   const client = getTurso();
@@ -192,8 +218,10 @@ export async function insertTradeEvent(event: {
         timestamp, date, event_type, bot_id, position_id, symbol, direction,
         timeframe, market_type, entry_price, exit_price, margin_used,
         notional_size, leverage, realized_pnl, realized_pnl_percent,
-        exit_reason, signal_rsi, signal_state, impulse_percent, data_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        exit_reason, signal_rsi, signal_state, impulse_percent,
+        entry_quadrant, entry_quality, entry_bias, trail_activated,
+        highest_pnl_percent, entry_time, duration_ms, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         event.timestamp,
         date,
@@ -215,6 +243,13 @@ export async function insertTradeEvent(event: {
         event.signalRsi || null,
         event.signalState || null,
         event.impulsePercent || null,
+        event.entryQuadrant || null,
+        event.entryQuality || null,
+        event.entryBias || null,
+        event.trailActivated ? 1 : 0,
+        event.highestPnlPercent || null,
+        event.entryTime || null,
+        event.durationMs || null,
         JSON.stringify(event),
       ],
     });
@@ -536,11 +571,16 @@ export async function executeReadQuery(sql: string, args: (string | number)[] = 
 }
 
 /**
- * Get database statistics (table names and row counts)
+ * Get database statistics for trades
  */
 export async function getDatabaseStats(): Promise<{
   success: boolean;
-  tables?: Array<{ name: string; rowCount: number }>;
+  totalTrades?: number;
+  wins?: number;
+  losses?: number;
+  totalPnl?: number;
+  firstTrade?: string;
+  lastTrade?: string;
   error?: string;
 }> {
   const client = getTurso();
@@ -549,23 +589,29 @@ export async function getDatabaseStats(): Promise<{
   }
 
   try {
-    // Get table names
-    const tablesResult = await client.execute(
-      "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-    );
+    // Get trade statistics from trade_events table
+    const statsResult = await client.execute(`
+      SELECT
+        COUNT(*) as total_trades,
+        SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
+        SUM(CASE WHEN pnl <= 0 THEN 1 ELSE 0 END) as losses,
+        SUM(pnl) as total_pnl,
+        MIN(timestamp) as first_trade,
+        MAX(timestamp) as last_trade
+      FROM trade_events
+      WHERE event_type = 'close'
+    `);
 
-    const tables: Array<{ name: string; rowCount: number }> = [];
-
-    for (const row of tablesResult.rows) {
-      const tableName = row.name as string;
-      const countResult = await client.execute(`SELECT COUNT(*) as cnt FROM ${tableName}`);
-      tables.push({
-        name: tableName,
-        rowCount: countResult.rows[0].cnt as number,
-      });
-    }
-
-    return { success: true, tables };
+    const row = statsResult.rows[0];
+    return {
+      success: true,
+      totalTrades: (row.total_trades as number) || 0,
+      wins: (row.wins as number) || 0,
+      losses: (row.losses as number) || 0,
+      totalPnl: (row.total_pnl as number) || 0,
+      firstTrade: row.first_trade as string | undefined,
+      lastTrade: row.last_trade as string | undefined,
+    };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('[TURSO] Stats query failed:', errorMessage);

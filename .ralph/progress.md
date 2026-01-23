@@ -4,10 +4,98 @@
 
 ## Summary
 
-- Iterations completed: 27
-- Current status: Focus Mode Shadow Bots Wired Up
+- Iterations completed: 28
+- Current status: Turso Data Logging Enhanced + New Quadrant Test Bots
 
-## Current Task: Focus Mode Shadow Bots
+## Current Task: Database Analysis & Data Collection Improvements
+
+### Iteration 28 - Turso Database Analysis & Quadrant Data Logging
+**Date**: 2026-01-23
+**Status**: ✅ Complete
+
+**Goal**: Analyze today's bot performance from Turso, identify data collection gaps, and add new shadow bots to test untested quadrant strategies.
+
+**Key Discoveries**:
+
+1. **Top Performer Today: `exp-bb-sysB`** (+$677.20, 44 trades, 50% win rate)
+   - Uses System B bias filter (multi-indicator)
+   - NO regime filter (trades all quadrants)
+   - Backburner signals + trailing stops
+   - Config: 20x leverage, 10% position, 8% initial stop, 10% trail trigger
+
+2. **Focus Mode Bots Win Rates Are High** (66-100%) but losses outweigh wins
+   - `focus-conservative`: +$40.84 (81.8% win rate) ← PROFITABLE
+   - `focus-contrarian-only`: +$40.54 (100% win rate, 4 trades) ← PROFITABLE
+   - `focus-kelly`: -$1,321.42 (66.7% win rate) ← Kelly sizing is CATASTROPHIC
+
+3. **BULL+BULL Quadrant Not Being Tested**
+   - Dashboard advertises BULL+BULL SHORT as "HIGH WIN RATE"
+   - NO shadow bot was actually testing this strategy
+   - Also found inconsistency: dashboard says SHORT, JS file says LONG
+
+4. **Quadrant Data NOT Being Logged to Turso**
+   - `entryQuadrant` field exists in code but never made it to database
+   - Can't analyze performance by quadrant retroactively
+
+**Changes Implemented**:
+
+1. **Added 7 New Turso Columns** (auto-migrating schema):
+   - `entry_quadrant` - Regime quadrant at entry (e.g., BULL+BULL)
+   - `entry_quality` - Setup quality (excellent/good/marginal)
+   - `entry_bias` - BTC bias at entry
+   - `trail_activated` - Whether trailing stop triggered
+   - `highest_pnl_percent` - Peak unrealized PnL
+   - `entry_time` - Position open timestamp
+   - `duration_ms` - Trade duration
+
+2. **Updated Data Flow**:
+   - `turso-db.ts`: Added ALTER TABLE migration + updated insertTradeEvent
+   - `data-persistence.ts`: Added fields to TradeEvent interface + logTradeClose
+
+3. **Created 3 New Focus Mode Shadow Bots**:
+   - `focus-euphoria-fade`: BULL+BULL only (test "fade euphoria" claim)
+   - `focus-bull-dip`: BULL+BEAR only (buy dips in macro bull)
+   - `focus-full-quadrant`: ALL quadrants except BEAR+BULL (comprehensive data)
+
+4. **Wired New Bots into web-server.ts**:
+   - Added imports for new factory functions
+   - Added to focusShadowBots Map
+   - Added display names in getFullState()
+
+**Files Modified**:
+- `src/turso-db.ts` (+39 lines)
+- `src/data-persistence.ts` (+15 lines)
+- `src/focus-mode-shadow-bot.ts` (+58 lines)
+- `src/web-server.ts` (+24 lines)
+
+**Build**: ✅ Passes
+
+**Commit**: d33f397 "feat: Add quadrant data logging to Turso + new shadow bots for BULL+BULL testing"
+
+---
+
+**Key Takeaways from Analysis**:
+
+| Bot Category | Jan 22 PnL | Key Insight |
+|--------------|------------|-------------|
+| **Experimental A/B** | +$775 | `exp-bb-sysB` is crushing it with System B bias |
+| **Spot Regime** | +$42 | All 4 variants profitable (1x leverage) |
+| **Focus Mode Shadow** | -$1,394 | High win rates but Kelly bot destroyed gains |
+| **Backburner Trailing** | -$3,524 | Struggling in current conditions |
+
+**Exit Reason Analysis (Focus Mode)**:
+- Trailing stops: 95% win rate (+$1,591)
+- Stop losses: 0% win rate (-$3,060) ← THE PROBLEM
+
+**Recommendations**:
+1. Disable or heavily modify `focus-kelly` - variance is unacceptable
+2. Investigate `exp-bb-sysB` System B filter for potential adoption
+3. Monitor new `focus-euphoria-fade` bot for BULL+BULL data
+4. Consider widening stop losses or reducing position sizes
+
+---
+
+## Previous Task: Focus Mode Shadow Bots
 
 ### Iteration 27 - Create and Wire Focus Mode Shadow Bots
 **Date**: 2026-01-21

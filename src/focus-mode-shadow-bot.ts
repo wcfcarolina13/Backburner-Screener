@@ -317,6 +317,11 @@ export class FocusModeShadowBot extends EventEmitter {
   }
 
   private calculatePositionSize(signal: FocusModeSignal): { margin: number; leverage: number; notional: number } {
+    // Calculate AVAILABLE balance (total balance minus capital in open positions)
+    const allocatedCapital = Array.from(this.positions.values())
+      .reduce((sum, p) => sum + p.marginUsed, 0);
+    const availableBalance = Math.max(0, this.balance - allocatedCapital);
+
     // Determine leverage
     let leverage = signal.suggestedLeverage;
     if (!this.config.useSuggestedLeverage) {
@@ -324,10 +329,11 @@ export class FocusModeShadowBot extends EventEmitter {
     }
     leverage = Math.min(leverage * this.config.leverageMultiplier, this.config.maxLeverage);
 
-    // Determine margin
+    // Determine margin from AVAILABLE balance, not total balance
     let margin: number;
     if (this.config.useSuggestedSize) {
-      margin = signal.suggestedPositionSize;
+      // Suggested size should also be capped by available balance
+      margin = Math.min(signal.suggestedPositionSize, availableBalance * 0.9);
     } else if (this.config.useKellySizing) {
       // Kelly formula: f* = (bp - q) / b
       // where b = odds ratio (reward/risk), p = win probability, q = 1-p
@@ -336,13 +342,13 @@ export class FocusModeShadowBot extends EventEmitter {
                               Math.abs(signal.entryPrice - signal.suggestedStopLoss);
       const kellyFraction = (rewardRiskRatio * estimatedWinRate - (1 - estimatedWinRate)) / rewardRiskRatio;
       const safeFraction = Math.max(0, Math.min(kellyFraction * 0.5, 0.25));  // Half-Kelly, max 25%
-      margin = this.balance * safeFraction;
+      margin = availableBalance * safeFraction;  // Use available, not total
     } else {
-      margin = this.balance * (this.config.fixedPositionPercent / 100);
+      margin = availableBalance * (this.config.fixedPositionPercent / 100);  // Use available, not total
     }
 
-    // Cap at available balance
-    margin = Math.min(margin, this.balance * 0.9);  // Leave 10% buffer
+    // Cap at 90% of available balance (not total balance)
+    margin = Math.min(margin, availableBalance * 0.9);
 
     const notional = margin * leverage;
 
@@ -794,5 +800,63 @@ export function createContrarianOnlyBot(): FocusModeShadowBot {
     allowedQuadrants: ['NEU+BEAR', 'BEAR+BEAR'],
     closeOnConflict: true,
     conflictGracePeriodMs: 3 * 60 * 1000,
+  });
+}
+
+/**
+ * EUPHORIA_FADE: Fades bullish euphoria in BULL+BULL quadrant
+ * - Dashboard says this is "HIGH WIN RATE" for shorts
+ * - Only trades SHORT signals when macro AND micro are bullish
+ * - Contrarian "sell the top" strategy
+ * - Closes when regime becomes less bullish
+ */
+export function createEuphoriaFadeBot(): FocusModeShadowBot {
+  return new FocusModeShadowBot({
+    botId: 'focus-euphoria-fade',
+    maxPositions: 4,
+    maxExcellentOverflow: 1,
+    allowedQuadrants: ['BULL+BULL'],
+    closeOnConflict: true,
+    conflictGracePeriodMs: 3 * 60 * 1000,
+    minQualityScore: 55,  // Slightly higher bar for contrarian shorts
+    leverageMultiplier: 0.8,  // Conservative leverage for fighting the trend
+    maxLeverage: 15,
+  });
+}
+
+/**
+ * BULL_DIP_BUYER: Buys dips in macro bull markets
+ * - BULL+BEAR quadrant: macro bullish but micro bearish
+ * - Buy the dip in an uptrend
+ */
+export function createBullDipBuyerBot(): FocusModeShadowBot {
+  return new FocusModeShadowBot({
+    botId: 'focus-bull-dip',
+    maxPositions: 5,
+    maxExcellentOverflow: 2,
+    allowedQuadrants: ['BULL+BEAR'],
+    closeOnConflict: true,
+    conflictGracePeriodMs: 5 * 60 * 1000,
+    minQualityScore: 50,
+  });
+}
+
+/**
+ * FULL_QUADRANT: Trades ALL quadrants except BEAR+BULL (bull trap)
+ * - Comprehensive testing of all regime combinations
+ * - Used to collect data on which quadrants actually perform
+ */
+export function createFullQuadrantBot(): FocusModeShadowBot {
+  return new FocusModeShadowBot({
+    botId: 'focus-full-quadrant',
+    maxPositions: 6,
+    maxExcellentOverflow: 2,
+    allowedQuadrants: [
+      'NEU+BEAR', 'NEU+BULL', 'BEAR+BEAR', 'NEU+NEU',  // Original allowed
+      'BULL+BULL', 'BULL+BEAR', 'BULL+NEU', 'BEAR+NEU', // Add trend quadrants
+      // Note: BEAR+BULL (bull trap) is still excluded
+    ],
+    closeOnConflict: false,  // Don't close - we want to see how all quadrants perform
+    minQualityScore: 50,
   });
 }

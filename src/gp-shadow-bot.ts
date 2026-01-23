@@ -238,8 +238,19 @@ export class GpShadowBot {
       ? (gpZone === 'long' ? 'short' : 'long')
       : gpZone;
 
-    // Calculate position sizing
-    const marginToUse = this.balance * (this.config.positionSizePercent / 100);
+    // Calculate AVAILABLE balance (total balance minus capital in open positions)
+    const allocatedCapital = Array.from(this.positions.values())
+      .reduce((sum, p) => sum + p.marginUsed, 0);
+    const availableBalance = Math.max(0, this.balance - allocatedCapital);
+
+    // Calculate position sizing from AVAILABLE balance
+    const marginToUse = availableBalance * (this.config.positionSizePercent / 100);
+
+    // Skip if insufficient available capital
+    if (marginToUse < 10) {  // Minimum $10 position
+      return null;
+    }
+
     const notionalSize = marginToUse * this.config.leverage;
 
     // Calculate entry with execution costs

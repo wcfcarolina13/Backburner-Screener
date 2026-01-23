@@ -55,7 +55,6 @@ export interface ServerContext {
   focusShadowBots: any;
   spotRegimeBots: any;
 
-  // Focus mode
-  focusModeManager: any;
+  // Notifications
   notificationManager: any;
 }

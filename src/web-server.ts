@@ -5,7 +5,6 @@ import { BackburnerScreener } from './screener.js';
 import { PaperTradingEngine } from './paper-trading.js';
 import { TrailingStopEngine } from './paper-trading-trailing.js';
 import { ConfluenceBot } from './confluence-bot.js';
-// Triple Light bot removed - underperforming
 import { BTCExtremeBot } from './btc-extreme-bot.js';
 import { BTCTrendBot } from './btc-trend-bot.js';
 import { TrendOverrideBot } from './trend-override-bot.js';
@@ -20,20 +19,20 @@ import {
   createHybridBot,
   createAggressiveBot as createFocusAggressiveBot,
   createConservativeBot as createFocusConservativeBot,
-  createKellySizingBot,
+  // createKellySizingBot REMOVED - see data/archived/KELLY_SIZING_EXPERIMENT.md
   createContrarianOnlyBot as createFocusContrarianBot,
+  createEuphoriaFadeBot,
+  createBullDipBuyerBot,
+  createFullQuadrantBot,
   type FocusModeSignal,
   type SetupQuality,
   type Quadrant,
 } from './focus-mode-shadow-bot.js';
-// V2 CHANGE: BTC Bias bots REMOVED - 0% win rate, responsible for 40% of losses (~$7,459)
-// import { createBtcBiasBotsV2, type BiasLevel } from './btc-bias-bot.js';
+// BTC Bias bots (V1 & V2) REMOVED - 0% win rate, -$7,459 losses. See data/archived/BTC_BIAS_V1_EXPERIMENT.md
 import type { BiasLevel } from './btc-bias-bot.js';  // Keep type for BTC bias filter
-// createBtcBiasBots (V1) REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
-// createBtcBiasBotsV2 (V2) REMOVED - see V2 CHANGE note above
 import { createMexcSimulationBots } from './mexc-trailing-simulation.js';
 import { NotificationManager } from './notifications.js';
-import { FocusModeManager, getFocusModeManager } from './focus-mode.js';
+// FocusModeManager REMOVED - legacy trade copying feature removed, shadow bots remain for A/B testing
 import { BackburnerDetector } from './backburner-detector.js';
 import { GoldenPocketBot } from './golden-pocket-bot.js';
 import { GoldenPocketBotV2 } from './golden-pocket-bot-v2.js';
@@ -47,7 +46,7 @@ import { getDataPersistence } from './data-persistence.js';
 import { initSchema as initTursoSchema, isTursoConfigured, executeReadQuery, getDatabaseStats } from './turso-db.js';
 import { getFocusModeHtml, getFocusModeApiData, calculateSmartTradeSetup } from './focus-mode-dashboard.js';
 import type { BackburnerSetup, Timeframe } from './types.js';
-import { createSettingsRouter, createFocusModeRouter } from './routes/index.js';
+import { createSettingsRouter } from './routes/index.js';
 import type { ServerContext } from './server-context.js';
 import fs from 'fs';
 import path from 'path';
@@ -175,7 +174,31 @@ interface ServerSettings {
   notificationsEnabled: boolean;
   soundEnabled: boolean;
   investmentAmount: number;  // User's actual MEXC investment amount
+  botNotifications: Record<string, boolean>;  // Per-bot notification enable/disable
 }
+
+// Default bot notification settings - top performers enabled by default
+const defaultBotNotifications: Record<string, boolean> = {
+  // Experimental A/B Testing Bots (top performers)
+  'exp-bb-sysB': true,
+  'exp-bb-sysB-contrarian': true,
+  'exp-gp-sysA': false,
+  'exp-gp-sysB': false,
+  'exp-gp-regime': false,
+  'exp-gp-sysB-contrarian': false,
+  // Focus Mode Shadow Bots
+  'focus-baseline': true,
+  'focus-aggressive': false,
+  'focus-conservative': true,
+  'focus-conflict': false,
+  'focus-hybrid': false,
+  'focus-excellent': true,
+  // focus-kelly REMOVED - see data/archived/KELLY_SIZING_EXPERIMENT.md
+  'focus-contrarian-only': true,
+  'focus-euphoria-fade': true,
+  'focus-bull-dip': true,
+  'focus-full-quadrant': false,
+};
 
 const serverSettings: ServerSettings = {
   dailyResetEnabled: false,  // Default: OFF
@@ -183,6 +206,7 @@ const serverSettings: ServerSettings = {
   notificationsEnabled: true,  // Default: ON
   soundEnabled: true,  // Default: ON
   investmentAmount: 2000,  // Default: $2000
+  botNotifications: { ...defaultBotNotifications },
 };
 
 // Load server settings from disk (uses fs/path imported via data-persistence)
@@ -191,6 +215,10 @@ function loadServerSettings(): void {
     const settingsPath = path.join(process.cwd(), 'data', 'server-settings.json');
     if (fs.existsSync(settingsPath)) {
       const data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      // Merge botNotifications with defaults (so new bots get added)
+      if (data.botNotifications) {
+        data.botNotifications = { ...defaultBotNotifications, ...data.botNotifications };
+      }
       Object.assign(serverSettings, data);
       console.log('[SETTINGS] Loaded server settings:', serverSettings);
     }
@@ -825,11 +853,19 @@ const focusShadowBots = new Map<string, FocusModeShadowBot>([
   // CONSERVATIVE: 0.75x leverage, wider stops, stricter entry rules
   ['focus-conservative', createFocusConservativeBot()],
 
-  // KELLY_SIZING: Uses Kelly criterion for position sizing
-  ['focus-kelly', createKellySizingBot()],
+  // KELLY_SIZING REMOVED - see data/archived/KELLY_SIZING_EXPERIMENT.md
 
   // CONTRARIAN_ONLY: Only trades in NEU+BEAR and BEAR+BEAR quadrants
   ['focus-contrarian-only', createFocusContrarianBot()],
+
+  // EUPHORIA_FADE: Fades BULL+BULL (short when market is euphoric) - testing "high win rate" claim
+  ['focus-euphoria-fade', createEuphoriaFadeBot()],
+
+  // BULL_DIP: Buys BULL+BEAR (dips in macro bull market)
+  ['focus-bull-dip', createBullDipBuyerBot()],
+
+  // FULL_QUADRANT: Trades ALL quadrants except BEAR+BULL - comprehensive data collection
+  ['focus-full-quadrant', createFullQuadrantBot()],
 ]);
 
 // Experimental Shadow Bots - Testing different bias system combinations
@@ -1105,46 +1141,6 @@ function checkDailyReset(): void {
   if (serverSettings.lastResetDate !== today) {
     console.log(`[DAILY RESET] New day detected: ${serverSettings.lastResetDate} -> ${today}`);
     resetAllBots();
-  }
-}
-
-// Focus Mode - for manual trade copying with notifications
-const focusMode = getFocusModeManager();
-
-// Helper function to get positions from any target bot
-function getTargetBotPositions(targetBotId: string): any[] {
-  switch (targetBotId) {
-    case 'trailing10pct10x': return trailing10pct10xBot.getOpenPositions();
-    case 'trailing10pct20x': return trailing10pct20xBot.getOpenPositions();
-    case 'trailWide': return trailWideBot.getOpenPositions();
-    case 'trailing1pct': return trailing1pctBot.getOpenPositions();
-    case 'fixedTP': return fixedTPBot.getOpenPositions();
-    case 'confluence': return confluenceBot.getOpenPositions();
-    case 'trendOverride': return trendOverrideBot.getOpenPositions();
-    case 'trendFlip': return trendFlipBot.getOpenPositions();
-    case 'btcExtreme': {
-      const pos = btcExtremeBot.getPosition();
-      return pos ? [pos] : [];
-    }
-    case 'btcTrend': {
-      const pos = btcTrendBot.getPosition();
-      return pos ? [pos] : [];
-    }
-    case 'gp-conservative':
-    case 'gp-standard':
-    case 'gp-aggressive':
-    case 'gp-yolo': {
-      const gpBot = goldenPocketBots.get(targetBotId);
-      return gpBot ? gpBot.getOpenPositions() : [];
-    }
-    case 'gp2-conservative':
-    case 'gp2-standard':
-    case 'gp2-aggressive':
-    case 'gp2-yolo': {
-      const gpV2Bot = goldenPocketBotsV2.get(targetBotId);
-      return gpV2Bot ? gpV2Bot.getOpenPositions() : [];
-    }
-    default: return [];
   }
 }
 
@@ -1496,44 +1492,6 @@ async function handleNewSetup(setup: BackburnerSetup) {
     }
   }
 
-  // Focus Mode: Track positions from target bot
-  if (focusMode.isEnabled()) {
-    const targetBotId = focusMode.getConfig().targetBot;
-    let targetPosition = null;
-
-    // Match target bot to the newly created position
-    if (targetBotId === 'trailing10pct10x') targetPosition = trail10pct10xPosition;
-    else if (targetBotId === 'trailing10pct20x') targetPosition = trail10pct20xPosition;
-    else if (targetBotId === 'trailWide') targetPosition = trailWidePosition;
-    else if (targetBotId === 'trailing1pct') targetPosition = trail1pctPosition;
-    else if (targetBotId === 'fixedTP') targetPosition = fixedPosition;
-    else if (targetBotId === 'confluence') targetPosition = confluencePosition;
-    // GP V1 bots - find newly opened position for this setup
-    else if (targetBotId.startsWith('gp-') && !targetBotId.startsWith('gp2-')) {
-      const gpBot = goldenPocketBots.get(targetBotId);
-      if (gpBot) {
-        const gpPositions = gpBot.getOpenPositions();
-        targetPosition = gpPositions.find((p: any) =>
-          p.symbol === setup.symbol && p.direction === setup.direction
-        );
-      }
-    }
-    // GP V2 bots - find newly opened position for this setup
-    else if (targetBotId.startsWith('gp2-')) {
-      const gpV2Bot = goldenPocketBotsV2.get(targetBotId);
-      if (gpV2Bot) {
-        const gpV2Positions = gpV2Bot.getOpenPositions();
-        targetPosition = gpV2Positions.find((p: any) =>
-          p.symbol === setup.symbol && p.direction === setup.direction
-        );
-      }
-    }
-
-    if (targetPosition) {
-      await focusMode.onPositionOpened(targetPosition, setup);
-    }
-  }
-
   // Send notification (works for both regular and GP setups)
   if (isNotificationsEnabled()) {
     await notifier.notifyNewSetup(setup);
@@ -1739,57 +1697,6 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
     await notifier.notifyPlayedOut(setup);
   }
 
-  // Focus Mode: If a position was just opened in the target bot, track it
-  if (newlyOpened && focusMode.isEnabled()) {
-    const targetBotId = focusMode.getConfig().targetBot;
-    let targetPosition = null;
-
-    // Match target bot to the position
-    if (targetBotId === 'trailing10pct10x' && trail10pct10xPosition?.status === 'open') {
-      targetPosition = trail10pct10xPosition;
-    } else if (targetBotId === 'trailing10pct20x' && trail10pct20xPosition?.status === 'open') {
-      targetPosition = trail10pct20xPosition;
-    } else if (targetBotId === 'trailWide' && trailWidePosition?.status === 'open') {
-      targetPosition = trailWidePosition;
-    } else if (targetBotId === 'trailing1pct' && trail1pctPosition?.status === 'open') {
-      targetPosition = trail1pctPosition;
-    } else if (targetBotId === 'fixedTP' && fixedPosition?.status === 'open') {
-      targetPosition = fixedPosition;
-    } else if (targetBotId === 'confluence' && confluencePosition?.status === 'open') {
-      targetPosition = confluencePosition;
-    } else if (targetBotId.startsWith('gp-') && !targetBotId.startsWith('gp2-')) {
-      // GP V1 bots
-      const gpBot = goldenPocketBots.get(targetBotId);
-      if (gpBot) {
-        const gpPositions = gpBot.getOpenPositions();
-        targetPosition = gpPositions.find((p: any) =>
-          p.symbol === setup.symbol && p.direction === setup.direction && p.status === 'open'
-        );
-      }
-    } else if (targetBotId.startsWith('gp2-')) {
-      // GP V2 bots
-      const gpV2Bot = goldenPocketBotsV2.get(targetBotId);
-      if (gpV2Bot) {
-        const gpV2Positions = gpV2Bot.getOpenPositions();
-        targetPosition = gpV2Positions.find((p: any) =>
-          p.symbol === setup.symbol && p.direction === setup.direction && p.status === 'open'
-        );
-      }
-    }
-
-    if (targetPosition) {
-      // Check if Focus Mode is already tracking this position
-      const focusPositions = focusMode.getActivePositions();
-      const alreadyTracking = focusPositions.some(
-        p => p.symbol === setup.symbol && p.direction === setup.direction &&
-             p.timeframe === setup.timeframe && p.marketType === setup.marketType
-      );
-      if (!alreadyTracking) {
-        await focusMode.onPositionOpened(targetPosition, setup);
-      }
-    }
-  }
-
   if (fixedPosition) {
     if (fixedPosition.status !== 'open') {
       broadcast('position_closed', { bot: 'fixedTP', position: fixedPosition });
@@ -1860,51 +1767,6 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
     );
     if (position) {
       broadcast('position_updated', { bot: botId, position });
-    }
-  }
-
-  // Focus Mode: Track trailing stop updates
-  if (focusMode.isEnabled()) {
-    const targetBotId = focusMode.getConfig().targetBot;
-    let targetPosition = null;
-    let positionClosed = false;
-
-    // Match target bot to position
-    if (targetBotId === 'trailing10pct10x' && trail10pct10xPosition) {
-      targetPosition = trail10pct10xPosition;
-      positionClosed = trail10pct10xPosition.status !== 'open';
-    } else if (targetBotId === 'trailing10pct20x' && trail10pct20xPosition) {
-      targetPosition = trail10pct20xPosition;
-      positionClosed = trail10pct20xPosition.status !== 'open';
-    } else if (targetBotId === 'trailWide' && trailWidePosition) {
-      targetPosition = trailWidePosition;
-      positionClosed = trailWidePosition.status !== 'open';
-    } else if (targetBotId === 'trailing1pct' && trail1pctPosition) {
-      targetPosition = trail1pctPosition;
-      positionClosed = trail1pctPosition.status !== 'open';
-    } else if (targetBotId === 'fixedTP' && fixedPosition) {
-      targetPosition = fixedPosition;
-      positionClosed = fixedPosition.status !== 'open';
-    } else if (targetBotId === 'confluence' && confluencePosition) {
-      targetPosition = confluencePosition;
-      positionClosed = confluencePosition.status !== 'open';
-    } else if (targetBotId.startsWith('gp-')) {
-      const gpBot = goldenPocketBots.get(targetBotId);
-      if (gpBot) {
-        const gpPositions = gpBot.getOpenPositions();
-        targetPosition = gpPositions.find((p: any) =>
-          p.symbol === setup.symbol && p.direction === setup.direction
-        );
-        positionClosed = !!(targetPosition && targetPosition.status !== 'open');
-      }
-    }
-
-    if (targetPosition) {
-      if (positionClosed) {
-        await focusMode.onPositionClosed(targetPosition, targetPosition.exitReason || 'Unknown');
-      } else {
-        await focusMode.onPositionUpdated(targetPosition);
-      }
     }
   }
 
@@ -2270,16 +2132,22 @@ function getFullState() {
                 key === 'focus-hybrid' ? 'Focus Hybrid' :
                 key === 'focus-aggressive' ? 'Focus Aggressive' :
                 key === 'focus-conservative' ? 'Focus Conservative' :
-                key === 'focus-kelly' ? 'Focus Kelly Sizing' :
-                'Focus Contrarian-Only',
+                key === 'focus-contrarian-only' ? 'Focus Contrarian-Only' :
+                key === 'focus-euphoria-fade' ? 'Focus Euphoria Fade' :
+                key === 'focus-bull-dip' ? 'Focus Bull Dip Buyer' :
+                key === 'focus-full-quadrant' ? 'Focus Full Quadrant' :
+                key,
           description: key === 'focus-baseline' ? 'Standard rules, 5 max positions' :
                        key === 'focus-conflict' ? 'Closes on regime conflict' :
                        key === 'focus-excellent' ? '+2 positions for excellent setups' :
                        key === 'focus-hybrid' ? 'Conflict-close + excellent overflow' :
                        key === 'focus-aggressive' ? '1.5x leverage, 8 max positions' :
                        key === 'focus-conservative' ? '0.75x leverage, strict entries' :
-                       key === 'focus-kelly' ? 'Kelly criterion sizing' :
-                       'NEU+BEAR & BEAR+BEAR only',
+                       key === 'focus-contrarian-only' ? 'NEU+BEAR & BEAR+BEAR only' :
+                       key === 'focus-euphoria-fade' ? 'BULL+BULL shorts - fade euphoria' :
+                       key === 'focus-bull-dip' ? 'BULL+BEAR longs - buy dips in uptrend' :
+                       key === 'focus-full-quadrant' ? 'ALL quadrants (except BEAR+BULL)' :
+                       'Unknown variant',
           regime: bot.getCurrentRegime(),
           balance: bot.getBalance(),
           unrealizedPnl: bot.getUnrealizedPnl(),
@@ -2299,14 +2167,6 @@ function getFullState() {
       ])
     ),
     botVisibility,
-    // Focus Mode state - sync with target bot positions first
-    focusMode: (() => {
-      // Sync Focus Mode with current positions from target bot
-      const targetBotId = focusMode.getConfig().targetBot;
-      const targetBotPositions = getTargetBotPositions(targetBotId);
-      focusMode.syncWithBotPositions(targetBotPositions);
-      return focusMode.getState();
-    })(),
     meta: {
       eligibleSymbols: screener.getEligibleSymbolCount(),
       isRunning: screener.isActive(),
@@ -2345,13 +2205,11 @@ const serverContext: ServerContext = {
   gp2Bots: goldenPocketBotsV2,
   focusShadowBots,
   spotRegimeBots,
-  focusModeManager: focusMode,
   notificationManager: notifier,
 };
 
 // Mount extracted route modules
 app.use('/api', express.json(), createSettingsRouter(serverContext));
-app.use('/api/focus', express.json(), createFocusModeRouter(serverContext));
 
 // Serve static HTML - Screener (main page)
 app.get('/', (req, res) => {
@@ -2513,11 +2371,12 @@ app.get('/api/notification-settings', (req, res) => {
   res.json({
     notificationsEnabled: serverSettings.notificationsEnabled,
     soundEnabled: serverSettings.soundEnabled,
+    botNotifications: serverSettings.botNotifications,
   });
 });
 
 app.post('/api/notification-settings', express.json(), (req, res) => {
-  const { notificationsEnabled, soundEnabled } = req.body;
+  const { notificationsEnabled, soundEnabled, botNotifications } = req.body;
 
   if (typeof notificationsEnabled === 'boolean') {
     serverSettings.notificationsEnabled = notificationsEnabled;
@@ -2529,12 +2388,23 @@ app.post('/api/notification-settings', express.json(), (req, res) => {
     console.log(`[SETTINGS] Sound ${soundEnabled ? 'ENABLED' : 'DISABLED'}`);
   }
 
+  // Update individual bot notification settings
+  if (botNotifications && typeof botNotifications === 'object') {
+    for (const [botId, enabled] of Object.entries(botNotifications)) {
+      if (typeof enabled === 'boolean') {
+        serverSettings.botNotifications[botId] = enabled;
+        console.log(`[SETTINGS] Bot ${botId} notifications ${enabled ? 'ENABLED' : 'DISABLED'}`);
+      }
+    }
+  }
+
   saveServerSettings();
 
   res.json({
     success: true,
     notificationsEnabled: serverSettings.notificationsEnabled,
     soundEnabled: serverSettings.soundEnabled,
+    botNotifications: serverSettings.botNotifications,
   });
 });
 
@@ -2630,57 +2500,6 @@ app.post('/api/toggle-bot', express.json(), (req, res) => {
     return;
   }
   broadcastState();
-});
-
-// Focus Mode API endpoints
-app.get('/api/focus', (req, res) => {
-  res.json(focusMode.getState());
-});
-
-app.post('/api/focus/enable', express.json(), (req, res) => {
-  focusMode.setEnabled(true);
-  broadcastState();
-  res.json({ success: true, enabled: true });
-});
-
-app.post('/api/focus/disable', express.json(), (req, res) => {
-  focusMode.setEnabled(false);
-  broadcastState();
-  res.json({ success: true, enabled: false });
-});
-
-app.post('/api/focus/config', express.json(), (req, res) => {
-  const { accountBalance, maxPositionSizePercent, leverage, targetBot, maxOpenPositions } = req.body;
-  const config: any = {};
-  if (accountBalance !== undefined) config.accountBalance = accountBalance;
-  if (maxPositionSizePercent !== undefined) config.maxPositionSizePercent = maxPositionSizePercent;
-  if (leverage !== undefined) config.leverage = leverage;
-  if (maxOpenPositions !== undefined) config.maxOpenPositions = maxOpenPositions;
-
-  // If target bot changed, clear all tracked positions and re-sync
-  const currentConfig = focusMode.getConfig();
-  if (targetBot !== undefined && targetBot !== currentConfig.targetBot) {
-    config.targetBot = targetBot;
-    focusMode.updateConfig(config);
-    // Clear all positions and let sync re-import from new bot
-    focusMode.clearAllPositions();
-  } else {
-    focusMode.updateConfig(config);
-  }
-
-  broadcastState();
-  res.json({ success: true, config: focusMode.getConfig() });
-});
-
-app.post('/api/focus/test-notification', async (req, res) => {
-  await focusMode.testNotification();
-  res.json({ success: true });
-});
-
-app.post('/api/focus/clear-closed', (req, res) => {
-  focusMode.clearClosedPositions();
-  broadcastState();
-  res.json({ success: true });
 });
 
 // Check a specific symbol on demand
@@ -3142,6 +2961,65 @@ app.get('/api/db-stats', async (req, res) => {
   res.json(result);
 });
 
+// Export trades as CSV
+app.get('/api/export-trades', async (req, res) => {
+  const days = parseInt(req.query.days as string) || 7;
+  const botId = req.query.bot as string;
+
+  // Calculate date range
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - days);
+
+  let sql = `SELECT * FROM trade_events WHERE date >= ? AND date <= ?`;
+  const args: (string | number)[] = [
+    startDate.toISOString().split('T')[0],
+    endDate.toISOString().split('T')[0],
+  ];
+
+  if (botId) {
+    sql += ` AND bot_id = ?`;
+    args.push(botId);
+  }
+
+  sql += ` ORDER BY timestamp DESC`;
+
+  const result = await executeReadQuery(sql, args);
+
+  if (!result.success || !result.rows) {
+    res.status(500).json({ success: false, error: result.error || 'Query failed' });
+    return;
+  }
+
+  // Convert to CSV
+  if (result.rows.length === 0) {
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="trades_${startDate.toISOString().split('T')[0]}_${endDate.toISOString().split('T')[0]}.csv"`);
+    res.send('No trades found in the specified date range');
+    return;
+  }
+
+  // Get columns from first row
+  const columns = result.columns || Object.keys(result.rows[0] as Record<string, unknown>);
+  const csvRows = [columns.join(',')];
+
+  for (const row of result.rows) {
+    const values = columns.map((col: string) => {
+      const val = (row as Record<string, unknown>)[col];
+      if (val === null || val === undefined) return '';
+      if (typeof val === 'string' && (val.includes(',') || val.includes('"') || val.includes('\n'))) {
+        return `"${val.replace(/"/g, '""')}"`;
+      }
+      return String(val);
+    });
+    csvRows.push(values.join(','));
+  }
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="trades_${startDate.toISOString().split('T')[0]}_${endDate.toISOString().split('T')[0]}.csv"`);
+  res.send(csvRows.join('\n'));
+});
+
 app.post('/api/query-db', express.json(), async (req, res) => {
   const { sql, args } = req.body;
 
@@ -3577,6 +3455,95 @@ function getHtmlPage(): string {
             🔊 Test Sound
           </button>
 
+          <!-- Bot-specific notification toggles -->
+          <div style="margin-top: 16px; padding: 12px; background: #0d1117; border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <span style="font-size: 12px; color: #8b949e; font-weight: 600;">Bot Notifications</span>
+              <div style="display: flex; gap: 8px;">
+                <button onclick="toggleAllBotNotifications(true)" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 11px; cursor: pointer;">All On</button>
+                <button onclick="toggleAllBotNotifications(false)" style="padding: 2px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 11px; cursor: pointer;">All Off</button>
+              </div>
+            </div>
+
+            <!-- Experimental Bots -->
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 11px; color: #58a6ff; margin-bottom: 6px;">🧪 Experimental Bots</div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_exp-bb-sysB" onchange="toggleBotNotification('exp-bb-sysB', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">exp-bb-sysB</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_exp-bb-sysB-contrarian" onchange="toggleBotNotification('exp-bb-sysB-contrarian', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">exp-bb-sysB-ctr</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_exp-gp-sysA" onchange="toggleBotNotification('exp-gp-sysA', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">exp-gp-sysA</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_exp-gp-sysB" onchange="toggleBotNotification('exp-gp-sysB', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">exp-gp-sysB</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_exp-gp-regime" onchange="toggleBotNotification('exp-gp-regime', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">exp-gp-regime</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_exp-gp-sysB-contrarian" onchange="toggleBotNotification('exp-gp-sysB-contrarian', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">exp-gp-sysB-ctr</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Focus Mode Bots -->
+            <div>
+              <div style="font-size: 11px; color: #f0883e; margin-bottom: 6px;">🎯 Focus Mode Bots</div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-baseline" onchange="toggleBotNotification('focus-baseline', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">baseline</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-conservative" onchange="toggleBotNotification('focus-conservative', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">conservative</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-aggressive" onchange="toggleBotNotification('focus-aggressive', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">aggressive</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-excellent" onchange="toggleBotNotification('focus-excellent', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">excellent</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-conflict" onchange="toggleBotNotification('focus-conflict', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">conflict</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-hybrid" onchange="toggleBotNotification('focus-hybrid', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">hybrid</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-contrarian-only" onchange="toggleBotNotification('focus-contrarian-only', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">contrarian</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-euphoria-fade" onchange="toggleBotNotification('focus-euphoria-fade', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">euphoria-fade</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-bull-dip" onchange="toggleBotNotification('focus-bull-dip', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">bull-dip</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="botNotif_focus-full-quadrant" onchange="toggleBotNotification('focus-full-quadrant', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
+                  <span style="color: #c9d1d9;">full-quadrant</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
           <hr style="border: none; border-top: 1px solid #30363d; margin: 20px 0;">
 
           <h4 style="margin: 0 0 12px 0; color: #8b949e;">Saved List</h4>
@@ -3634,6 +3601,43 @@ function getHtmlPage(): string {
           </div>
 
           <div id="investmentStatus" style="margin-top: 12px; padding: 8px 12px; background: #0d1117; border-radius: 6px; font-size: 12px; display: none;"></div>
+
+          <hr style="border: none; border-top: 1px solid #30363d; margin: 20px 0;">
+
+          <h4 style="margin: 0 0 12px 0; color: #8b949e;">📦 Data Management</h4>
+          <p style="color: #6e7681; font-size: 12px; margin: 0 0 12px 0;">Export trade history or view database statistics.</p>
+
+          <div id="dbStats" style="background: #0d1117; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+              <span style="color: #8b949e; font-size: 12px;">Total Trades:</span>
+              <span id="dbTotalTrades" style="color: #c9d1d9; font-size: 12px;">Loading...</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+              <span style="color: #8b949e; font-size: 12px;">Wins / Losses:</span>
+              <span id="dbWinLoss" style="color: #c9d1d9; font-size: 12px;">-</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+              <span style="color: #8b949e; font-size: 12px;">Date Range:</span>
+              <span id="dbDateRange" style="color: #c9d1d9; font-size: 12px;">-</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: #8b949e; font-size: 12px;">Total P&L:</span>
+              <span id="dbTotalPnl" style="color: #c9d1d9; font-size: 12px;">-</span>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <select id="exportDays" style="padding: 8px 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; font-size: 13px;">
+              <option value="7">Last 7 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="365">Last year</option>
+              <option value="9999">All time</option>
+            </select>
+            <button onclick="exportTrades()" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #238636; background: transparent; color: #3fb950; font-weight: 600; cursor: pointer;">
+              📥 Export CSV
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -3655,87 +3659,6 @@ function getHtmlPage(): string {
         <span id="statusText">Connecting...</span>
       </div>
       <div id="symbolCount">-</div>
-    </div>
-
-    <!-- Focus Mode Panel -->
-    <div id="focusModePanel" class="card" style="margin-bottom: 16px; border-left: 3px solid #f0883e; display: none;">
-      <div class="card-header" style="background: linear-gradient(135deg, #21262d 0%, #161b22 100%); cursor: pointer;" onclick="toggleSection('focusMode')">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span class="section-toggle" id="focusModeToggle">▼</span>
-          <span class="card-title">🎯 Focus Mode - Trade Copying</span>
-        </div>
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <span id="focusPositionCount" style="font-size: 12px; color: #8b949e;">0/5 positions</span>
-          <button id="focusToggleBtn" onclick="event.stopPropagation(); toggleFocusMode()" style="padding: 4px 12px; border-radius: 4px; border: 1px solid #f0883e; background: #21262d; color: #f0883e; font-size: 11px; font-weight: 600; cursor: pointer;">
-            Enable
-          </button>
-          <button onclick="event.stopPropagation(); testFocusNotification()" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 11px; cursor: pointer;" title="Test notification">
-            🔔
-          </button>
-        </div>
-      </div>
-      <div id="focusModeContent" style="padding: 12px;">
-        <!-- Config row -->
-        <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #21262d;">
-          <div style="font-size: 11px; color: #8b949e;">
-            Sort by: <select id="focusSortBy" onchange="sortFocusBotOptions()" style="background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #c9d1d9; padding: 2px 8px; font-size: 11px;">
-              <option value="today">Today's P&L</option>
-              <option value="24h">24h P&L</option>
-              <option value="weekly">Weekly P&L</option>
-              <option value="winrate">Win Rate</option>
-            </select>
-          </div>
-          <div style="font-size: 11px; color: #8b949e;">
-            Mirror: <select id="focusTargetBot" onchange="updateFocusConfig()" style="background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #c9d1d9; padding: 2px 8px; font-size: 11px; min-width: 180px;">
-              <optgroup label="Trailing Stop Bots">
-                <option value="trailWide">🌊 Trail Wide</option>
-                <option value="trailing10pct10x">📈 Trail Standard (10x)</option>
-                <option value="trailing10pct20x">💀 Trail Aggressive (20x)</option>
-                <option value="trailing1pct">📉 Trail Light (1%)</option>
-              </optgroup>
-              <optgroup label="Backburner RSI Bots">
-                <option value="fixedTP">🎯 Fixed TP/SL</option>
-                <option value="confluence">🔗 Multi-TF Confluence</option>
-                <option value="trendOverride">↕ Trend Override</option>
-                <option value="trendFlip">🔄 Trend Flip</option>
-              </optgroup>
-              <optgroup label="Golden Pocket V1 (Strict)">
-                <option value="gp-conservative">🎯 GP-Conservative (5% 10x)</option>
-                <option value="gp-standard">🎯 GP-Standard (10% 10x)</option>
-                <option value="gp-aggressive">🎯 GP-Aggressive (10% 20x)</option>
-                <option value="gp-yolo">💀 GP-YOLO (15% 25x)</option>
-              </optgroup>
-              <optgroup label="Golden Pocket V2 (Loose)">
-                <option value="gp2-conservative">🎯 GP2-Conservative (5% 10x)</option>
-                <option value="gp2-standard">🎯 GP2-Standard (10% 10x)</option>
-                <option value="gp2-aggressive">🎯 GP2-Aggressive (10% 20x)</option>
-                <option value="gp2-yolo">💀 GP2-YOLO (15% 25x)</option>
-              </optgroup>
-              <optgroup label="BTC Bias Bots">
-                <option value="btcExtreme">₿ Contrarian</option>
-                <option value="btcTrend">₿ Momentum</option>
-              </optgroup>
-            </select>
-          </div>
-          <div style="font-size: 11px; color: #8b949e;">
-            Your Balance: $<input type="number" id="focusBalance" value="1000" onchange="updateFocusConfig()" style="width: 70px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #c9d1d9; padding: 2px 4px; font-size: 11px;">
-          </div>
-          <div id="focusBotInfo" style="font-size: 10px; color: #6e7681; margin-left: auto; text-align: right;">
-            Bot params: <span id="focusBotParams">-</span>
-          </div>
-        </div>
-        <!-- Active positions -->
-        <div id="focusPositions" style="font-size: 12px;">
-          <div style="color: #6e7681; text-align: center; padding: 16px;">
-            Enable Focus Mode to receive trade copy notifications
-          </div>
-        </div>
-        <!-- Recent actions -->
-        <div id="focusActions" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #21262d; display: none;">
-          <div style="font-size: 11px; color: #8b949e; margin-bottom: 8px;">Recent Actions:</div>
-          <div id="focusActionsList" style="font-size: 11px; max-height: 100px; overflow-y: auto;"></div>
-        </div>
-      </div>
     </div>
 
     <!-- Bot Control Panel -->
@@ -4073,6 +3996,119 @@ function getHtmlPage(): string {
           <div class="stat-label">10% 20x Hard 30%</div>
           <div class="stat-label" style="margin-top: 2px;">PnL: <span id="biasV210x20hardPnL" class="positive">$0</span></div>
           <div class="stat-label" style="margin-top: 2px;"><span id="biasV210x20hardStatus">-</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section: Experimental Shadow Bots -->
+    <div class="section-header" onclick="toggleSection('expBots')" style="margin-top: 12px;">
+      <span class="section-title">🧪 Experimental Shadow Bots (A/B Testing)</span>
+      <span class="section-toggle" id="expBotsToggle">▼</span>
+    </div>
+    <div class="section-content" id="expBotsContent">
+      <div style="font-size: 11px; color: #8b949e; margin-bottom: 8px; padding: 6px 10px; background: #0d1117; border-radius: 4px;">
+        Paper trading bots testing different bias filters (System A vs B) and signal sources (Backburner vs Golden Pocket). All run on shadow mode.
+      </div>
+      <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 12px;" id="expBotsGrid">
+        <!-- exp-bb-sysB (TOP PERFORMER) -->
+        <div class="stat-box" style="border-left: 3px solid #ffd700;" title="Backburner + System B multi-indicator bias filter">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 14px; font-weight: bold; color: #ffd700;">exp-bb-sysB</span>
+            <span style="display: flex; align-items: center; gap: 4px;">
+              <span id="notifBadge_exp-bb-sysB" style="font-size: 10px; cursor: pointer;" title="Click to toggle notifications" onclick="toggleBotNotification('exp-bb-sysB', !isBotNotificationEnabled('exp-bb-sysB'))"></span>
+              <span id="expBbSysBRank" style="font-size: 10px; color: #ffd700;">🏆 #1</span>
+            </span>
+          </div>
+          <div class="stat-value" id="expBbSysBBalance" style="font-size: 18px;">$2,000</div>
+          <div class="stat-label">BB + System B | <span id="expBbSysBPositions">0</span> pos</div>
+          <div class="stat-label" style="margin-top: 2px;">P&L: <span id="expBbSysBPnL" class="positive">$0</span> | Unreal: <span id="expBbSysBUnreal" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="expBbSysBWinRate">0%</span> win (<span id="expBbSysBTrades">0</span> trades)</div>
+        </div>
+        <!-- exp-bb-sysB-contrarian -->
+        <div class="stat-box" style="border-left: 3px solid #a371f7;" title="Backburner + System B + NEU+BEAR/BEAR+BEAR quadrants only">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; font-weight: 600; color: #a371f7;">exp-bb-sysB-contrarian</span>
+            <span style="display: flex; align-items: center; gap: 4px;">
+              <span id="notifBadge_exp-bb-sysB-contrarian" style="font-size: 10px; cursor: pointer;" title="Click to toggle notifications" onclick="toggleBotNotification('exp-bb-sysB-contrarian', !isBotNotificationEnabled('exp-bb-sysB-contrarian'))"></span>
+              <span id="expBbSysBContrarianRank" style="font-size: 10px; color: #6e7681;">#2</span>
+            </span>
+          </div>
+          <div class="stat-value" id="expBbSysBContrarianBalance" style="font-size: 18px;">$2,000</div>
+          <div class="stat-label">BB + SysB + Contrarian | <span id="expBbSysBContrarianPositions">0</span> pos</div>
+          <div class="stat-label" style="margin-top: 2px;">P&L: <span id="expBbSysBContrarianPnL" class="positive">$0</span> | Unreal: <span id="expBbSysBContrarianUnreal" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="expBbSysBContrarianWinRate">0%</span> win (<span id="expBbSysBContrarianTrades">0</span> trades)</div>
+        </div>
+        <!-- exp-gp-sysA -->
+        <div class="stat-box" style="border-left: 3px solid #58a6ff;" title="Golden Pocket + System A RSI-only bias filter">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; font-weight: 600; color: #58a6ff;">exp-gp-sysA</span>
+            <span style="display: flex; align-items: center; gap: 4px;">
+              <span id="notifBadge_exp-gp-sysA" style="font-size: 10px; cursor: pointer;" title="Click to toggle notifications" onclick="toggleBotNotification('exp-gp-sysA', !isBotNotificationEnabled('exp-gp-sysA'))"></span>
+              <span id="expGpSysARank" style="font-size: 10px; color: #6e7681;">#3</span>
+            </span>
+          </div>
+          <div class="stat-value" id="expGpSysABalance" style="font-size: 18px;">$2,000</div>
+          <div class="stat-label">GP + System A (RSI) | <span id="expGpSysAPositions">0</span> pos</div>
+          <div class="stat-label" style="margin-top: 2px;">P&L: <span id="expGpSysAPnL" class="positive">$0</span> | Unreal: <span id="expGpSysAUnreal" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="expGpSysAWinRate">0%</span> win (<span id="expGpSysATrades">0</span> trades)</div>
+        </div>
+        <!-- exp-gp-sysB -->
+        <div class="stat-box" style="border-left: 3px solid #3fb950;" title="Golden Pocket + System B multi-indicator bias filter">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; font-weight: 600; color: #3fb950;">exp-gp-sysB</span>
+            <span style="display: flex; align-items: center; gap: 4px;">
+              <span id="notifBadge_exp-gp-sysB" style="font-size: 10px; cursor: pointer;" title="Click to toggle notifications" onclick="toggleBotNotification('exp-gp-sysB', !isBotNotificationEnabled('exp-gp-sysB'))"></span>
+              <span id="expGpSysBRank" style="font-size: 10px; color: #6e7681;">#4</span>
+            </span>
+          </div>
+          <div class="stat-value" id="expGpSysBBalance" style="font-size: 18px;">$2,000</div>
+          <div class="stat-label">GP + System B | <span id="expGpSysBPositions">0</span> pos</div>
+          <div class="stat-label" style="margin-top: 2px;">P&L: <span id="expGpSysBPnL" class="positive">$0</span> | Unreal: <span id="expGpSysBUnreal" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="expGpSysBWinRate">0%</span> win (<span id="expGpSysBTrades">0</span> trades)</div>
+        </div>
+        <!-- exp-gp-regime -->
+        <div class="stat-box" style="border-left: 3px solid #f85149;" title="Golden Pocket + Regime filter (NEU+BEAR/BEAR+BEAR quadrants)">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; font-weight: 600; color: #f85149;">exp-gp-regime</span>
+            <span style="display: flex; align-items: center; gap: 4px;">
+              <span id="notifBadge_exp-gp-regime" style="font-size: 10px; cursor: pointer;" title="Click to toggle notifications" onclick="toggleBotNotification('exp-gp-regime', !isBotNotificationEnabled('exp-gp-regime'))"></span>
+              <span id="expGpRegimeRank" style="font-size: 10px; color: #6e7681;">#5</span>
+            </span>
+          </div>
+          <div class="stat-value" id="expGpRegimeBalance" style="font-size: 18px;">$2,000</div>
+          <div class="stat-label">GP + Regime Filter | <span id="expGpRegimePositions">0</span> pos</div>
+          <div class="stat-label" style="margin-top: 2px;">P&L: <span id="expGpRegimePnL" class="positive">$0</span> | Unreal: <span id="expGpRegimeUnreal" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="expGpRegimeWinRate">0%</span> win (<span id="expGpRegimeTrades">0</span> trades)</div>
+        </div>
+        <!-- exp-gp-sysB-contrarian -->
+        <div class="stat-box" style="border-left: 3px solid #d29922;" title="Golden Pocket + System B + Contrarian quadrants">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; font-weight: 600; color: #d29922;">exp-gp-sysB-contrarian</span>
+            <span style="display: flex; align-items: center; gap: 4px;">
+              <span id="notifBadge_exp-gp-sysB-contrarian" style="font-size: 10px; cursor: pointer;" title="Click to toggle notifications" onclick="toggleBotNotification('exp-gp-sysB-contrarian', !isBotNotificationEnabled('exp-gp-sysB-contrarian'))"></span>
+              <span id="expGpSysBContrarianRank" style="font-size: 10px; color: #6e7681;">#6</span>
+            </span>
+          </div>
+          <div class="stat-value" id="expGpSysBContrarianBalance" style="font-size: 18px;">$2,000</div>
+          <div class="stat-label">GP + SysB + Contrarian | <span id="expGpSysBContrarianPositions">0</span> pos</div>
+          <div class="stat-label" style="margin-top: 2px;">P&L: <span id="expGpSysBContrarianPnL" class="positive">$0</span> | Unreal: <span id="expGpSysBContrarianUnreal" class="positive">$0</span></div>
+          <div class="stat-label" style="margin-top: 2px;"><span id="expGpSysBContrarianWinRate">0%</span> win (<span id="expGpSysBContrarianTrades">0</span> trades)</div>
+        </div>
+      </div>
+      <!-- Performance summary row -->
+      <div style="display: flex; gap: 12px; padding: 8px 12px; background: #0d1117; border-radius: 6px; border: 1px solid #30363d; flex-wrap: wrap;">
+        <div style="flex: 1; min-width: 200px;">
+          <span style="color: #8b949e; font-size: 11px;">Best Performer:</span>
+          <span id="expBestBot" style="color: #ffd700; font-weight: 600; margin-left: 4px;">-</span>
+          <span id="expBestPnL" style="color: #3fb950; font-size: 12px; margin-left: 8px;">-</span>
+        </div>
+        <div style="flex: 1; min-width: 200px;">
+          <span style="color: #8b949e; font-size: 11px;">Total Experimental P&L:</span>
+          <span id="expTotalPnL" style="font-weight: 600; margin-left: 4px; color: #c9d1d9;">$0</span>
+        </div>
+        <div style="flex: 1; min-width: 200px;">
+          <span style="color: #8b949e; font-size: 11px;">Total Trades:</span>
+          <span id="expTotalTrades" style="font-weight: 600; margin-left: 4px; color: #c9d1d9;">0</span>
         </div>
       </div>
     </div>

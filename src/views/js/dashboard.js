@@ -32,6 +32,49 @@ eventSource.addEventListener('scan_status', (e) => {
   }
 });
 
+// Listen for position opened events from shadow bots
+eventSource.addEventListener('position_opened', (e) => {
+  try {
+    const { bot, position } = JSON.parse(e.data);
+    // Check if this bot's notifications are enabled
+    if (isBotNotificationEnabled(bot)) {
+      const ticker = position.symbol.replace('USDT', '');
+      const dirEmoji = position.direction === 'long' ? '🟢 LONG' : '🔴 SHORT';
+      const size = position.marginUsed || position.positionSize || 0;
+      const entry = position.entryPrice || 0;
+      showBrowserNotification(
+        '⚡ ' + bot + ': ' + ticker + ' ' + dirEmoji,
+        'Size: $' + size.toFixed(0) + ' | Entry: $' + entry.toPrecision(5),
+        'bot-open-' + bot + '-' + position.symbol
+      );
+    }
+  } catch (err) {
+    console.error('[Dashboard] Error parsing position_opened:', err);
+  }
+});
+
+// Listen for position closed events from shadow bots
+eventSource.addEventListener('position_closed', (e) => {
+  try {
+    const { bot, position } = JSON.parse(e.data);
+    // Check if this bot's notifications are enabled
+    if (isBotNotificationEnabled(bot)) {
+      const ticker = position.symbol.replace('USDT', '');
+      const pnl = position.realizedPnL || position.pnl || 0;
+      const pnlStr = pnl >= 0 ? '+$' + pnl.toFixed(2) : '-$' + Math.abs(pnl).toFixed(2);
+      const emoji = pnl >= 0 ? '💰' : '❌';
+      const reason = position.exitReason || 'closed';
+      showBrowserNotification(
+        emoji + ' ' + bot + ': ' + ticker + ' CLOSED',
+        pnlStr + ' | ' + reason,
+        'bot-close-' + bot + '-' + position.symbol
+      );
+    }
+  } catch (err) {
+    console.error('[Dashboard] Error parsing position_closed:', err);
+  }
+});
+
 // Symbol check functionality
 const symbolSearchEl = document.getElementById('symbolSearch');
 if (symbolSearchEl) {
@@ -101,6 +144,9 @@ function openSettings() {
 
   // Load investment amount setting from server
   loadInvestmentAmount();
+
+  // Load database stats
+  loadDatabaseStats();
 
   document.getElementById('settingsModal').style.display = 'block';
 }
@@ -183,6 +229,7 @@ async function toggleDailyReset(enabled) {
 // Notification & Sound settings
 let notificationsEnabled = true;
 let soundEnabled = true;
+let botNotifications = {};  // Per-bot notification settings
 
 async function loadNotificationSettings() {
   try {
@@ -190,12 +237,22 @@ async function loadNotificationSettings() {
     const data = await res.json();
     notificationsEnabled = data.notificationsEnabled;
     soundEnabled = data.soundEnabled;
+    botNotifications = data.botNotifications || {};
 
     // Update UI toggles
     const notifToggle = document.getElementById('notificationsToggle');
     const soundToggle = document.getElementById('soundToggle');
     if (notifToggle) notifToggle.checked = notificationsEnabled;
     if (soundToggle) soundToggle.checked = soundEnabled;
+
+    // Update bot notification checkboxes
+    for (const [botId, enabled] of Object.entries(botNotifications)) {
+      const checkbox = document.getElementById('botNotif_' + botId);
+      if (checkbox) checkbox.checked = enabled;
+    }
+
+    // Update notification badges on bot cards
+    updateNotificationBadges();
   } catch (err) {
     console.error('[Settings] Failed to load notification settings:', err);
   }
@@ -231,6 +288,82 @@ async function toggleSound(enabled) {
     console.error('[Settings] Failed to toggle sound:', err);
     alert('Failed to update setting: ' + err.message);
   }
+}
+
+// Toggle notification for a specific bot
+async function toggleBotNotification(botId, enabled) {
+  try {
+    const res = await fetch('/api/notification-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ botNotifications: { [botId]: enabled } })
+    });
+    const data = await res.json();
+    botNotifications = data.botNotifications || {};
+    console.log('[Settings] Bot notification toggled:', botId, enabled);
+    // Update notification badges on bot cards
+    updateNotificationBadges();
+    // Update settings checkbox if open
+    const checkbox = document.getElementById('botNotif_' + botId);
+    if (checkbox) checkbox.checked = enabled;
+  } catch (err) {
+    console.error('[Settings] Failed to toggle bot notification:', err);
+    alert('Failed to update setting: ' + err.message);
+  }
+}
+
+// Update notification badges on bot cards
+function updateNotificationBadges() {
+  // List of all bot IDs that have notification badges
+  const botIds = [
+    'exp-bb-sysB', 'exp-bb-sysB-contrarian',
+    'exp-gp-sysA', 'exp-gp-sysB', 'exp-gp-regime', 'exp-gp-sysB-contrarian',
+    'focus-baseline', 'focus-aggressive', 'focus-conservative',
+    'focus-conflict', 'focus-hybrid', 'focus-excellent',
+    'focus-contrarian-only', 'focus-euphoria-fade', 'focus-bull-dip', 'focus-full-quadrant'
+  ];
+
+  for (const botId of botIds) {
+    const badge = document.getElementById('notifBadge_' + botId);
+    if (badge) {
+      const enabled = isBotNotificationEnabled(botId);
+      badge.textContent = enabled ? '🔔' : '🔕';
+      badge.style.opacity = enabled ? '1' : '0.4';
+    }
+  }
+}
+
+// Toggle all bot notifications on/off
+async function toggleAllBotNotifications(enabled) {
+  const allBotIds = Object.keys(botNotifications);
+  const updates = {};
+  for (const botId of allBotIds) {
+    updates[botId] = enabled;
+  }
+  try {
+    const res = await fetch('/api/notification-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ botNotifications: updates })
+    });
+    const data = await res.json();
+    botNotifications = data.botNotifications || {};
+    // Update all checkboxes
+    for (const [botId, isEnabled] of Object.entries(botNotifications)) {
+      const checkbox = document.getElementById('botNotif_' + botId);
+      if (checkbox) checkbox.checked = isEnabled;
+    }
+    console.log('[Settings] All bot notifications toggled:', enabled);
+  } catch (err) {
+    console.error('[Settings] Failed to toggle all bot notifications:', err);
+    alert('Failed to update settings: ' + err.message);
+  }
+}
+
+// Check if notifications are enabled for a specific bot
+function isBotNotificationEnabled(botId) {
+  if (!notificationsEnabled) return false;
+  return botNotifications[botId] !== false;  // Default to true if not explicitly disabled
 }
 
 function testNotification() {
@@ -382,6 +515,63 @@ async function triggerManualReset() {
   }
 }
 
+// Database stats and export functions
+async function loadDatabaseStats() {
+  try {
+    const res = await fetch('/api/db-stats');
+    const stats = await res.json();
+
+    document.getElementById('dbTotalTrades').textContent = stats.totalTrades || 0;
+    document.getElementById('dbWinLoss').innerHTML =
+      '<span style="color: #3fb950;">' + (stats.wins || 0) + ' W</span> / ' +
+      '<span style="color: #f85149;">' + (stats.losses || 0) + ' L</span>';
+
+    if (stats.firstTrade && stats.lastTrade) {
+      const first = new Date(stats.firstTrade).toLocaleDateString();
+      const last = new Date(stats.lastTrade).toLocaleDateString();
+      document.getElementById('dbDateRange').textContent = first + ' - ' + last;
+    } else {
+      document.getElementById('dbDateRange').textContent = 'No trades yet';
+    }
+
+    const pnl = stats.totalPnl || 0;
+    const pnlEl = document.getElementById('dbTotalPnl');
+    pnlEl.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
+    pnlEl.style.color = pnl >= 0 ? '#3fb950' : '#f85149';
+
+  } catch (err) {
+    console.error('[Settings] Failed to load database stats:', err);
+    document.getElementById('dbTotalTrades').textContent = 'Error';
+  }
+}
+
+async function exportTrades() {
+  const days = document.getElementById('exportDays').value;
+  const url = '/api/export-trades?days=' + days;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Export failed');
+
+    const blob = await res.blob();
+    const filename = 'trades-' + days + 'days-' + new Date().toISOString().split('T')[0] + '.csv';
+
+    // Create download link
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+
+    console.log('[Export] Downloaded', filename);
+  } catch (err) {
+    console.error('[Export] Failed:', err);
+    alert('Failed to export trades: ' + err.message);
+  }
+}
+
 // History modal - stores last fetched state for rendering
 let lastState = null;
 
@@ -455,14 +645,13 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Section collapse/expand state
-const sectionState = {
+// Section collapse/expand state - defaults (all expanded)
+const defaultSectionState = {
   altcoinBots: true,
   // btcBiasBots V1 REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
   mexcSim: true,
   goldenPocket: true,
-  // Focus Mode and Bot Cards
-  focusMode: true,
+  // Bot Cards
   botCards: true,
   fixedTP: true,
   trailing1pct: true,
@@ -479,7 +668,36 @@ const sectionState = {
   gpStandard: true,
   gpAggressive: true,
   gpYolo: true,
+  // Experimental Bots
+  expBots: true,
 };
+
+// Load section state from localStorage, falling back to defaults
+function loadSectionState() {
+  try {
+    const saved = localStorage.getItem('backburner_sectionState');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Merge with defaults to handle new sections
+      return { ...defaultSectionState, ...parsed };
+    }
+  } catch (e) {
+    console.warn('[loadSectionState] Failed to load from localStorage:', e);
+  }
+  return { ...defaultSectionState };
+}
+
+// Save section state to localStorage
+function saveSectionState() {
+  try {
+    localStorage.setItem('backburner_sectionState', JSON.stringify(sectionState));
+  } catch (e) {
+    console.warn('[saveSectionState] Failed to save to localStorage:', e);
+  }
+}
+
+// Initialize section state from localStorage
+const sectionState = loadSectionState();
 
 function toggleSection(sectionId) {
   console.log('[toggleSection] Called for: ' + sectionId);
@@ -497,6 +715,8 @@ function toggleSection(sectionId) {
   } else {
     console.warn('[toggleSection] Elements not found for ' + sectionId + '. Content: ' + !!content + ', Toggle: ' + !!toggle);
   }
+  // Persist state to localStorage
+  saveSectionState();
 }
 
 function collapseAllSections() {
@@ -509,6 +729,7 @@ function collapseAllSections() {
       toggle.style.transform = 'rotate(-90deg)';
     }
   });
+  saveSectionState();
 }
 
 function expandAllSections() {
@@ -521,6 +742,28 @@ function expandAllSections() {
       toggle.style.transform = 'rotate(0deg)';
     }
   });
+  saveSectionState();
+}
+
+// Apply saved section states to DOM (call on page load)
+function applySectionStates() {
+  Object.keys(sectionState).forEach(id => {
+    const isExpanded = sectionState[id];
+    const content = document.getElementById(id + 'Content');
+    const toggle = document.getElementById(id + 'Toggle');
+    if (content && toggle) {
+      content.style.display = isExpanded ? 'block' : 'none';
+      toggle.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)';
+    }
+  });
+}
+
+// Apply section states once DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', applySectionStates);
+} else {
+  // DOM already loaded
+  applySectionStates();
 }
 
 function renderCheckResults(data) {
@@ -999,10 +1242,6 @@ function renderSavedListTable(setups) {
   return html;
 }
 
-// Focus Mode functions
-let focusModeEnabled = false;
-let lastFocusPositions = new Map(); // Track positions to detect changes
-
 // Browser notification helper
 async function showBrowserNotification(title, body, tag) {
   // Check if notifications are enabled in settings
@@ -1017,423 +1256,6 @@ async function showBrowserNotification(title, body, tag) {
     new Notification(title, { body, tag, requireInteraction: false });
   } catch (e) {
     console.error('Notification error:', e);
-  }
-}
-
-// Check focus mode positions for changes and send notifications
-function checkFocusNotifications(focusState) {
-  if (!focusState || !focusState.enabled || !focusState.activePositions) return;
-
-  const currentPositions = new Map();
-  for (const pos of focusState.activePositions) {
-    const key = pos.symbol + '-' + pos.direction;
-    currentPositions.set(key, pos);
-
-    const lastPos = lastFocusPositions.get(key);
-    if (!lastPos) {
-      // New position opened
-      const ticker = pos.symbol.replace('USDT', '');
-      const dirEmoji = pos.direction === 'long' ? '🟢 LONG' : '🔴 SHORT';
-      showBrowserNotification(
-        '⚡ OPEN ' + ticker + ' ' + dirEmoji,
-        'Size: $' + (pos.suggestedSize || 0).toFixed(0) + ' | Entry: $' + (pos.entryPrice || 0).toPrecision(5),
-        'focus-open-' + key
-      );
-    } else if (pos.currentTrailLevel > lastPos.currentTrailLevel) {
-      // Trail level increased
-      const ticker = pos.symbol.replace('USDT', '');
-      const oldLvl = lastPos.currentTrailLevel || 0;
-      const newLvl = pos.currentTrailLevel || 0;
-      if (newLvl === 1 && oldLvl === 0) {
-        showBrowserNotification(
-          '🔒 ' + ticker + ' BREAKEVEN',
-          'Move stop to entry price',
-          'focus-trail-' + key
-        );
-      } else {
-        showBrowserNotification(
-          '📈 ' + ticker + ' Trail L' + oldLvl + '→L' + newLvl,
-          'Raise stop to lock ' + ((newLvl - 1) * 10) + '% ROI',
-          'focus-trail-' + key
-        );
-      }
-    }
-  }
-
-  // Check for closed positions
-  for (const [key, lastPos] of lastFocusPositions) {
-    if (!currentPositions.has(key) && lastPos.status !== 'closed') {
-      const ticker = lastPos.symbol.replace('USDT', '');
-      const pnl = lastPos.unrealizedPnL || 0;
-      const pnlStr = pnl >= 0 ? '+$' + pnl.toFixed(2) : '-$' + Math.abs(pnl).toFixed(2);
-      const emoji = pnl >= 0 ? '💰' : '❌';
-      showBrowserNotification(
-        emoji + ' CLOSE ' + ticker + ' NOW',
-        'P&L: ' + pnlStr,
-        'focus-close-' + key
-      );
-    }
-  }
-
-  lastFocusPositions = currentPositions;
-}
-
-async function toggleFocusMode() {
-  const endpoint = focusModeEnabled ? '/api/focus/disable' : '/api/focus/enable';
-  try {
-    const res = await fetch(endpoint, { method: 'POST' });
-    const data = await res.json();
-    focusModeEnabled = data.enabled;
-    updateFocusModeUI();
-  } catch (err) {
-    console.error('Failed to toggle focus mode:', err);
-  }
-}
-
-// Bot definitions for Focus Mode (name, description, params)
-const focusBotDefs = {
-  'trailWide': { name: 'Trail Wide', params: '10% pos, 10x lev, wide trailing' },
-  'trailing10pct10x': { name: 'Trail Standard', params: '10% pos, 10x lev' },
-  'trailing10pct20x': { name: 'Trail Aggressive', params: '10% pos, 20x lev' },
-  'trailing1pct': { name: 'Trail Light', params: '1% trailing stop' },
-  'fixedTP': { name: 'Fixed TP/SL', params: '35% TP, 12% SL (V2)' },
-  'confluence': { name: 'Multi-TF', params: 'Multi-timeframe confluence' },
-  'trendOverride': { name: 'Trend Override', params: 'Ignores BTC bias' },
-  'trendFlip': { name: 'Trend Flip', params: 'Trades reversals' },
-  'btcExtreme': { name: 'BTC Contrarian', params: 'BTC RSI extremes' },
-  'btcTrend': { name: 'BTC Momentum', params: 'BTC trend following' },
-  'gp-conservative': { name: 'GP-Conservative', params: '3% pos, 5x lev, Fib targets' },
-  'gp-standard': { name: 'GP-Standard', params: '5% pos, 10x lev, Fib targets' },
-  'gp-aggressive': { name: 'GP-Aggressive', params: '5% pos, 15x lev, Fib targets' },
-  'gp-yolo': { name: 'GP-YOLO', params: '10% pos, 20x lev, Fib targets' },
-};
-
-// Store bot performance for sorting
-let botPerformanceData = {};
-
-function sortFocusBotOptions() {
-  const sortBy = document.getElementById('focusSortBy').value;
-  const select = document.getElementById('focusTargetBot');
-  const currentValue = select.value;
-
-  // Collect all options with their performance data
-  const options = [];
-  for (const [botId, def] of Object.entries(focusBotDefs)) {
-    const perf = botPerformanceData[botId] || { todayPnL: 0, pnl24h: 0, weeklyPnL: 0, winRate: 0 };
-    options.push({
-      botId,
-      name: def.name,
-      params: def.params,
-      todayPnL: perf.todayPnL || 0,
-      pnl24h: perf.pnl24h || 0,
-      weeklyPnL: perf.weeklyPnL || 0,
-      winRate: perf.winRate || 0,
-    });
-  }
-
-  // Sort by selected criteria
-  options.sort((a, b) => {
-    if (sortBy === 'today') return b.todayPnL - a.todayPnL;
-    if (sortBy === '24h') return b.pnl24h - a.pnl24h;
-    if (sortBy === 'weekly') return b.weeklyPnL - a.weeklyPnL;
-    if (sortBy === 'winrate') return b.winRate - a.winRate;
-    return 0;
-  });
-
-  // Rebuild dropdown with sorted options
-  select.innerHTML = options.map((opt, i) => {
-    const pnlValue = sortBy === 'today' ? opt.todayPnL : sortBy === '24h' ? opt.pnl24h : sortBy === 'weekly' ? opt.weeklyPnL : opt.winRate;
-    const pnlLabel = sortBy === 'winrate' ? pnlValue.toFixed(0) + '%' : (pnlValue >= 0 ? '+' : '') + '$' + pnlValue.toFixed(2);
-    const rank = i + 1;
-    return `<option value="${opt.botId}">${rank}. ${opt.name} (${pnlLabel})</option>`;
-  }).join('');
-
-  // Restore selection if it still exists
-  if (Array.from(select.options).some(o => o.value === currentValue)) {
-    select.value = currentValue;
-  }
-
-  updateFocusBotInfo();
-}
-
-function updateFocusBotInfo() {
-  const botId = document.getElementById('focusTargetBot').value;
-  const def = focusBotDefs[botId];
-  if (def) {
-    document.getElementById('focusBotParams').textContent = def.params;
-  }
-}
-
-function updateBotPerformanceData(state) {
-  // Extract performance data from state for each bot
-  const botStateMap = {
-    'trailWide': state.trailWideBot,
-    'trailing10pct10x': state.trailing10pct10xBot,
-    'trailing10pct20x': state.trailing10pct20xBot,
-    'trailing1pct': state.trailing1pctBot,
-    'fixedTP': state.fixedTPBot,
-    'confluence': state.confluenceBot,
-    'trendOverride': state.trendOverrideBot,
-    'trendFlip': state.trendFlipBot,
-    'btcExtreme': state.btcExtremeBot,
-    'btcTrend': state.btcTrendBot,
-  };
-
-  // Process regular bots
-  for (const [botId, botState] of Object.entries(botStateMap)) {
-    if (botState && botState.stats) {
-      botPerformanceData[botId] = {
-        todayPnL: botState.stats.totalPnL || 0,
-        pnl24h: botState.stats.totalPnL || 0, // Using same for now (would need historical data)
-        weeklyPnL: botState.stats.totalPnL || 0, // Using same for now
-        winRate: botState.stats.winRate || 0,
-      };
-    }
-  }
-
-  // Process GP bots
-  if (state.goldenPocketBots) {
-    const gpBotIds = ['gp-conservative', 'gp-standard', 'gp-aggressive', 'gp-yolo'];
-    for (const gpId of gpBotIds) {
-      const gpBot = state.goldenPocketBots[gpId];
-      if (gpBot && gpBot.stats) {
-        botPerformanceData[gpId] = {
-          todayPnL: gpBot.stats.totalPnL || 0,
-          pnl24h: gpBot.stats.totalPnL || 0,
-          weeklyPnL: gpBot.stats.totalPnL || 0,
-          winRate: gpBot.stats.winRate || 0,
-        };
-      }
-    }
-  }
-}
-
-async function updateFocusConfig() {
-  const targetBot = document.getElementById('focusTargetBot').value;
-  const config = {
-    targetBot: targetBot,
-    accountBalance: parseFloat(document.getElementById('focusBalance').value) || 1000,
-    // Position size and leverage are inherited from the target bot
-    maxPositionSizePercent: 100, // Allow full position scaling
-    leverage: 10, // Default, but will be overridden by bot's actual leverage
-  };
-  try {
-    await fetch('/api/focus/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(config)
-    });
-    updateFocusBotInfo();
-  } catch (err) {
-    console.error('Failed to update focus config:', err);
-  }
-}
-
-async function testFocusNotification() {
-  // Use browser notifications API
-  if (!('Notification' in window)) {
-    alert('Browser notifications not supported in this browser');
-    return;
-  }
-
-  console.log('[Focus] Current notification permission:', Notification.permission);
-
-  if (Notification.permission === 'denied') {
-    alert('Notifications are blocked. Click the lock icon in the URL bar → Site settings → Notifications → Allow');
-    return;
-  }
-
-  if (Notification.permission === 'default') {
-    console.log('[Focus] Requesting notification permission...');
-    try {
-      const permission = await Notification.requestPermission();
-      console.log('[Focus] Permission result:', permission);
-      if (permission !== 'granted') {
-        alert('Notification permission was not granted. Please allow notifications for this site.');
-        return;
-      }
-    } catch (err) {
-      console.error('[Focus] Permission request failed:', err);
-      alert('Failed to request notification permission: ' + err.message);
-      return;
-    }
-  }
-
-  // Show test notification
-  try {
-    console.log('[Focus] Creating test notification...');
-    const notif = new Notification('🎯 Focus Mode Test', {
-      body: 'Notifications are working! You will receive trade alerts here.',
-      tag: 'focus-test',
-      requireInteraction: false
-    });
-    notif.onclick = () => { console.log('[Focus] Notification clicked'); window.focus(); };
-    notif.onerror = (e) => { console.error('[Focus] Notification error:', e); };
-    notif.onshow = () => { console.log('[Focus] Notification shown'); };
-    console.log('[Focus] Notification created successfully');
-  } catch (err) {
-    console.error('[Focus] Failed to create notification:', err);
-    alert('Failed to create notification: ' + err.message);
-  }
-}
-
-function updateFocusModeUI() {
-  const panel = document.getElementById('focusModePanel');
-  const btn = document.getElementById('focusToggleBtn');
-
-  // Always show panel
-  panel.style.display = 'block';
-
-  if (focusModeEnabled) {
-    btn.textContent = 'Disable';
-    btn.style.background = '#f0883e';
-    btn.style.color = '#0d1117';
-    panel.style.borderLeftColor = '#3fb950';
-  } else {
-    btn.textContent = 'Enable';
-    btn.style.background = '#21262d';
-    btn.style.color = '#f0883e';
-    panel.style.borderLeftColor = '#f0883e';
-  }
-}
-
-function updateFocusPositions(focusState) {
-  if (!focusState) return;
-
-  // Check for position changes and send browser notifications
-  checkFocusNotifications(focusState);
-
-  focusModeEnabled = focusState.enabled;
-  updateFocusModeUI();
-
-  // Update config fields (with null checks for optional elements)
-  const targetBotEl = document.getElementById('focusTargetBot');
-  const balanceEl = document.getElementById('focusBalance');
-  const maxPercentEl = document.getElementById('focusMaxPercent');
-  const leverageEl = document.getElementById('focusLeverage');
-
-  if (targetBotEl) targetBotEl.value = focusState.targetBot || 'trailing10pct10x';
-  if (balanceEl) balanceEl.value = focusState.accountBalance || 1000;
-  if (maxPercentEl) maxPercentEl.value = focusState.maxPositionSizePercent || 5;
-  if (leverageEl) leverageEl.value = focusState.leverage || 10;
-
-  // Update position count
-  document.getElementById('focusPositionCount').textContent = focusState.positionCount + ' positions';
-
-  // Update positions display
-  const posDiv = document.getElementById('focusPositions');
-  if (focusState.activePositions && focusState.activePositions.length > 0) {
-    let html = '<table style="width: 100%; border-collapse: collapse;">';
-    html += '<tr style="border-bottom: 1px solid #30363d;"><th style="text-align: left; padding: 4px; color: #8b949e; font-size: 11px;">Symbol</th><th style="text-align: center; padding: 4px; color: #8b949e; font-size: 11px;">Action</th><th style="text-align: right; padding: 4px; color: #8b949e; font-size: 11px;">Size</th><th style="text-align: right; padding: 4px; color: #8b949e; font-size: 11px;">Stop</th><th style="text-align: right; padding: 4px; color: #8b949e; font-size: 11px;">P&L</th></tr>';
-
-    for (const pos of focusState.activePositions) {
-      const dirClass = pos.direction === 'long' ? 'badge-long' : 'badge-short';
-      const pnl = pos.unrealizedPnL || 0;
-      const pnlPct = pos.unrealizedPnLPercent || 0;
-      const pnlClass = pnl >= 0 ? 'positive' : 'negative';
-      const pnlSign = pnl >= 0 ? '+' : '';
-      // Calculate ROI-based stop (price % * leverage)
-      const stopPricePct = pos.initialStopPercent || 2;
-      const stopRoiPct = stopPricePct * (pos.suggestedLeverage || 10);
-      const leverage = pos.suggestedLeverage || 10;
-
-      // Format stop price for easy copy-paste to MEXC
-      const stopPrice = pos.currentStopPrice || 0;
-      const stopPriceStr = stopPrice < 0.01 ? stopPrice.toFixed(6) : stopPrice < 1 ? stopPrice.toFixed(4) : stopPrice.toFixed(2);
-      const entryPrice = pos.entryPrice || 0;
-      const entryPriceStr = entryPrice < 0.01 ? entryPrice.toFixed(6) : entryPrice < 1 ? entryPrice.toFixed(4) : entryPrice.toFixed(2);
-
-      html += '<tr style="border-bottom: 1px solid #21262d;">';
-      html += '<td style="padding: 6px 4px;"><span style="font-weight: 600;">' + pos.symbol.replace('USDT', '') + '</span> <span class="badge ' + dirClass + '" style="font-size: 10px;">' + pos.direction.toUpperCase() + '</span><br/><span style="color: #6e7681; font-size: 10px;">' + pos.timeframe + ' ' + pos.marketType + '</span></td>';
-
-      // Action column - clear instructions
-      html += '<td style="text-align: center; padding: 6px 4px; font-size: 11px;">';
-      if (pos.status === 'pending_open') {
-        html += '<span style="color: #f0883e; font-weight: 600;">OPEN NOW</span>';
-        html += '<br/><span style="color: #c9d1d9; font-size: 10px;">Entry ~$' + entryPriceStr + '</span>';
-      } else if (pos.currentTrailLevel > 0) {
-        const lockedRoi = (pos.currentTrailLevel - 1) * 10;
-        html += '<span style="color: #3fb950; font-weight: 600;">MOVE STOP</span>';
-        html += '<br/><span style="color: #58a6ff; font-size: 10px;">Lock +' + lockedRoi + '% ROI</span>';
-      } else {
-        html += '<span style="color: #8b949e;">HOLD</span>';
-        html += '<br/><span style="color: #6e7681; font-size: 10px;">Wait for +10% ROI</span>';
-      }
-      html += '</td>';
-
-      // Size column
-      html += '<td style="text-align: right; padding: 6px 4px; color: #c9d1d9; font-size: 11px;">$' + pos.suggestedSize.toFixed(0) + '<br/><span style="color: #6e7681;">' + leverage + 'x</span></td>';
-
-      // Stop Price column - THE KEY INFO for MEXC
-      html += '<td style="text-align: right; padding: 6px 4px; font-size: 11px;">';
-      if (pos.currentTrailLevel > 0) {
-        const lockedRoi = (pos.currentTrailLevel - 1) * 10;
-        html += '<span style="color: #3fb950; font-weight: 600; font-size: 12px;">$' + stopPriceStr + '</span>';
-        html += '<br/><span style="color: #6e7681; font-size: 10px;">+' + lockedRoi + '% ROI</span>';
-      } else {
-        html += '<span style="color: #f85149; font-weight: 600; font-size: 12px;">$' + stopPriceStr + '</span>';
-        html += '<br/><span style="color: #6e7681; font-size: 10px;">-' + stopRoiPct.toFixed(0) + '% ROI</span>';
-      }
-      html += '</td>';
-
-      // P&L column
-      html += '<td style="text-align: right; padding: 6px 4px;" class="pnl ' + pnlClass + '">' + pnlSign + '$' + pnl.toFixed(2) + '<br/><span style="font-size: 10px;">' + pnlSign + pnlPct.toFixed(1) + '%</span></td>';
-      html += '</tr>';
-    }
-    html += '</table>';
-    posDiv.innerHTML = html;
-  } else if (focusModeEnabled) {
-    posDiv.innerHTML = '<div style="color: #6e7681; text-align: center; padding: 16px;">Waiting for signals from ' + focusState.targetBot + '...</div>';
-  } else {
-    posDiv.innerHTML = '<div style="color: #6e7681; text-align: center; padding: 16px;">Enable Focus Mode to receive trade copy notifications</div>';
-  }
-
-  // Update recent actions
-  const actionsDiv = document.getElementById('focusActions');
-  const actionsList = document.getElementById('focusActionsList');
-  if (focusState.recentActions && focusState.recentActions.length > 0) {
-    actionsDiv.style.display = 'block';
-    let actHtml = '';
-    for (const action of focusState.recentActions.slice(0, 8)) {
-      const ticker = action.position.symbol.replace('USDT', '');
-      const pos = action.position;
-      const stopPrice = (pos.currentStopPrice || 0).toPrecision(4);
-      const entryPrice = (pos.entryPrice || 0).toPrecision(4);
-      const stopRoiPct = ((pos.initialStopPercent || 2) * (pos.suggestedLeverage || 10)).toFixed(0);
-
-      if (action.type === 'OPEN_POSITION') {
-        actHtml += '<div style="padding: 6px 0; border-bottom: 1px solid #21262d;">';
-        actHtml += '<div style="color: #f0883e; font-weight: 600;">🟢 OPEN ' + ticker + ' ' + pos.direction.toUpperCase() + ' ' + pos.timeframe + '</div>';
-        actHtml += '<div style="color: #8b949e; font-size: 11px; margin-top: 2px;">Entry: $' + entryPrice + ' | Stop: $' + stopPrice + ' (-' + stopRoiPct + '% ROI)</div>';
-        actHtml += '<div style="color: #6e7681; font-size: 10px;">Size: $' + pos.suggestedSize + ' @ ' + pos.suggestedLeverage + 'x</div>';
-        actHtml += '</div>';
-      } else if (action.type === 'CLOSE_POSITION') {
-        const pnl = pos.unrealizedPnL || 0;
-        const pnlStr = pnl >= 0 ? '+$' + pnl.toFixed(2) : '-$' + Math.abs(pnl).toFixed(2);
-        actHtml += '<div style="padding: 6px 0; border-bottom: 1px solid #21262d;">';
-        actHtml += '<div style="color: #f85149; font-weight: 600;">🔴 CLOSE ' + ticker + ' - ' + action.reason + '</div>';
-        actHtml += '<div style="color: #8b949e; font-size: 11px; margin-top: 2px;">P&L: ' + pnlStr + '</div>';
-        actHtml += '</div>';
-      } else if (action.type === 'MOVE_TO_BREAKEVEN') {
-        actHtml += '<div style="padding: 6px 0; border-bottom: 1px solid #21262d;">';
-        actHtml += '<div style="color: #3fb950; font-weight: 600;">🔒 ' + ticker + ' MOVE STOP TO BREAKEVEN</div>';
-        actHtml += '<div style="color: #8b949e; font-size: 11px; margin-top: 2px;">New stop: $' + entryPrice + ' (entry price)</div>';
-        actHtml += '</div>';
-      } else if (action.type === 'LOCK_PROFIT') {
-        actHtml += '<div style="padding: 6px 0; border-bottom: 1px solid #21262d;">';
-        actHtml += '<div style="color: #58a6ff; font-weight: 600;">📈 ' + ticker + ' RAISE STOP - Lock +' + action.lockedPnL + '% ROI</div>';
-        actHtml += '<div style="color: #8b949e; font-size: 11px; margin-top: 2px;">New stop: $' + stopPrice + '</div>';
-        actHtml += '</div>';
-      } else if (action.type === 'UPDATE_STOP') {
-        actHtml += '<div style="padding: 6px 0; border-bottom: 1px solid #21262d;">';
-        actHtml += '<div style="color: #58a6ff; font-weight: 600;">⬆️ ' + ticker + ' Trail L' + action.oldLevel + ' → L' + action.newLevel + '</div>';
-        actHtml += '<div style="color: #8b949e; font-size: 11px; margin-top: 2px;">New stop: $' + stopPrice + '</div>';
-        actHtml += '</div>';
-      }
-    }
-    actionsList.innerHTML = actHtml;
-  } else {
-    actionsDiv.style.display = 'none';
   }
 }
 
@@ -1534,9 +1356,6 @@ function updateBotVisibility() {
 function updateUI(state) {
   // Store state for history modal
   lastState = state;
-
-  // Update bot performance data for Focus Mode sorting
-  updateBotPerformanceData(state);
 
   // Sync bot visibility from server
   if (state.botVisibility) {
@@ -1982,9 +1801,9 @@ function updateUI(state) {
     }
   }
 
-  // Update Focus Mode
-  if (state.focusMode) {
-    updateFocusPositions(state.focusMode);
+  // Update Experimental Shadow Bots
+  if (state.experimentalBots) {
+    updateExperimentalBots(state.experimentalBots);
   }
 
   // Update performance summary panel
@@ -2007,6 +1826,103 @@ function formatTimeAgo(timestamp) {
   if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
   if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
   return Math.floor(seconds / 86400) + 'd ago';
+}
+
+// Update Experimental Shadow Bots display
+function updateExperimentalBots(expBots) {
+  // Map bot IDs to HTML element ID prefixes
+  const botMap = {
+    'exp-bb-sysB': 'expBbSysB',
+    'exp-bb-sysB-contrarian': 'expBbSysBContrarian',
+    'exp-gp-sysA': 'expGpSysA',
+    'exp-gp-sysB': 'expGpSysB',
+    'exp-gp-regime': 'expGpRegime',
+    'exp-gp-sysB-contrarian': 'expGpSysBContrarian',
+  };
+
+  let totalPnl = 0;
+  let totalTrades = 0;
+
+  // Collect bot data for ranking
+  const botData = [];
+  for (const [botId, prefix] of Object.entries(botMap)) {
+    const bot = expBots[botId];
+    if (!bot) continue;
+
+    const stats = bot.stats || {};
+    const balance = bot.balance || 2000;
+    const unrealPnl = bot.unrealizedPnl || 0;
+    const pnl = parseFloat(stats.totalPnl) || 0;
+    const trades = stats.totalTrades || 0;
+    const winRate = stats.winRate || '0%';
+    const positions = (bot.openPositions || []).length;
+
+    totalPnl += pnl;
+    totalTrades += trades;
+
+    botData.push({ botId, prefix, balance, unrealPnl, pnl, trades, winRate, positions });
+  }
+
+  // Sort by P&L descending
+  botData.sort((a, b) => b.pnl - a.pnl);
+
+  // Update DOM elements with rank
+  for (let i = 0; i < botData.length; i++) {
+    const { botId, prefix, balance, unrealPnl, pnl, trades, winRate, positions } = botData[i];
+    const rank = i + 1;
+
+    // Update DOM elements
+    const balEl = document.getElementById(prefix + 'Balance');
+    const pnlEl = document.getElementById(prefix + 'PnL');
+    const unrealEl = document.getElementById(prefix + 'Unreal');
+    const winRateEl = document.getElementById(prefix + 'WinRate');
+    const tradesEl = document.getElementById(prefix + 'Trades');
+    const posEl = document.getElementById(prefix + 'Positions');
+    const rankEl = document.getElementById(prefix + 'Rank');
+
+    if (balEl) balEl.textContent = formatCurrency(balance);
+    if (pnlEl) {
+      pnlEl.textContent = formatCurrency(pnl);
+      pnlEl.className = pnl >= 0 ? 'positive' : 'negative';
+    }
+    if (unrealEl) {
+      unrealEl.textContent = formatCurrency(unrealPnl);
+      unrealEl.className = unrealPnl >= 0 ? 'positive' : 'negative';
+    }
+    if (winRateEl) winRateEl.textContent = winRate;
+    if (tradesEl) tradesEl.textContent = trades;
+    if (posEl) posEl.textContent = positions;
+
+    // Update rank badge
+    if (rankEl) {
+      rankEl.textContent = rank === 1 ? '🏆 #1' : rank === 2 ? '🥈 #2' : rank === 3 ? '🥉 #3' : '#' + rank;
+      rankEl.style.color = rank === 1 ? '#ffd700' : rank === 2 ? '#c0c0c0' : rank === 3 ? '#cd7f32' : '#6e7681';
+    }
+  }
+
+  const bestBot = botData.length > 0 ? botData[0].botId : null;
+  const bestPnl = botData.length > 0 ? botData[0].pnl : 0;
+
+  // Update summary row
+  const bestBotEl = document.getElementById('expBestBot');
+  const bestPnlEl = document.getElementById('expBestPnL');
+  const totalPnlEl = document.getElementById('expTotalPnL');
+  const totalTradesEl = document.getElementById('expTotalTrades');
+
+  if (bestBotEl && bestBot) {
+    bestBotEl.textContent = bestBot;
+  }
+  if (bestPnlEl && bestBot) {
+    bestPnlEl.textContent = formatCurrency(bestPnl);
+    bestPnlEl.style.color = bestPnl >= 0 ? '#3fb950' : '#f85149';
+  }
+  if (totalPnlEl) {
+    totalPnlEl.textContent = formatCurrency(totalPnl);
+    totalPnlEl.style.color = totalPnl >= 0 ? '#3fb950' : '#f85149';
+  }
+  if (totalTradesEl) {
+    totalTradesEl.textContent = totalTrades;
+  }
 }
 
 function renderSetupsTable(setups, tabType) {
@@ -2521,15 +2437,16 @@ function updateMomentumIndicators(data) {
 }
 
 function updatePerformanceSummary(state) {
-  // GP Bots performance
+  // GP Bots performance - data is in state.goldenPocketBots['gp-xxx']
   let gpPnL = 0, gpWins = 0, gpLosses = 0;
-  const gpBotKeys = ['gpConservative', 'gpStandard', 'gpAggressive', 'gpYolo'];
-  for (const key of gpBotKeys) {
-    const botState = state[key + 'Bot'];
-    if (botState && botState.stats) {
-      gpPnL += botState.stats.realizedPnL || 0;
-      gpWins += botState.stats.wins || 0;
-      gpLosses += botState.stats.losses || 0;
+  if (state.goldenPocketBots) {
+    for (const key of Object.keys(state.goldenPocketBots)) {
+      const bot = state.goldenPocketBots[key];
+      if (bot && bot.stats) {
+        gpPnL += bot.stats.totalPnL || 0;
+        gpWins += bot.stats.winningTrades || 0;
+        gpLosses += bot.stats.losingTrades || 0;
+      }
     }
   }
 
@@ -2538,13 +2455,13 @@ function updatePerformanceSummary(state) {
   gpPnLEl.style.color = gpPnL >= 0 ? '#3fb950' : '#f85149';
   document.getElementById('perfGpWinRate').textContent = gpWins + 'W / ' + gpLosses + 'L';
 
-  // Trailing Bots performance
+  // Trailing Bots performance - data is in state.trailing1pctBot, etc.
   let trailPnL = 0, trailWins = 0, trailLosses = 0;
-  const trailBotKeys = ['trailing1pctBot', 'trailing10pct10xBot', 'trailing10pct20xBot'];
+  const trailBotKeys = ['trailing1pctBot', 'trailing10pct10xBot', 'trailing10pct20xBot', 'trailWideBot'];
   for (const key of trailBotKeys) {
     const botState = state[key];
     if (botState && botState.stats) {
-      trailPnL += botState.stats.realizedPnL || 0;
+      trailPnL += botState.stats.totalPnL || 0;
       trailWins += botState.stats.wins || 0;
       trailLosses += botState.stats.losses || 0;
     }
@@ -2557,7 +2474,22 @@ function updatePerformanceSummary(state) {
 
   // Active positions and unrealized PnL
   let activeCount = 0, unrealizedPnL = 0;
-  for (const key of [...gpBotKeys.map(k => k + 'Bot'), ...trailBotKeys]) {
+
+  // Count from GP bots
+  if (state.goldenPocketBots) {
+    for (const key of Object.keys(state.goldenPocketBots)) {
+      const bot = state.goldenPocketBots[key];
+      if (bot && bot.openPositions) {
+        activeCount += bot.openPositions.length;
+        for (const pos of bot.openPositions) {
+          unrealizedPnL += pos.unrealizedPnL || 0;
+        }
+      }
+    }
+  }
+
+  // Count from trailing bots
+  for (const key of trailBotKeys) {
     const botState = state[key];
     if (botState && botState.openPositions) {
       activeCount += botState.openPositions.length;
@@ -2573,8 +2505,10 @@ function updatePerformanceSummary(state) {
   unrealEl.style.color = unrealizedPnL >= 0 ? '#3fb950' : unrealizedPnL < 0 ? '#f85149' : '#6e7681';
 
   // Setup counts
-  document.getElementById('perfGpSetups').textContent = (state.goldenPocketStats?.activeSetups || 0) + ' active';
-  document.getElementById('perfBbSetups').textContent = (state.stats?.activeSetups || 0) + ' active';
+  const gpSetups = (state.setups?.goldenPocket || []).length;
+  const bbSetups = (state.setups?.active || []).length;
+  document.getElementById('perfGpSetups').textContent = gpSetups + ' active';
+  document.getElementById('perfBbSetups').textContent = bbSetups + ' active';
 }
 
 function updateBtcSignalSummary(data) {
