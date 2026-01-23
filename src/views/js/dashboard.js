@@ -247,6 +247,9 @@ async function loadNotificationSettings() {
       const checkbox = document.getElementById('botNotif_' + botId);
       if (checkbox) checkbox.checked = enabled;
     }
+
+    // Update notification badges on bot cards
+    updateNotificationBadges();
   } catch (err) {
     console.error('[Settings] Failed to load notification settings:', err);
   }
@@ -295,9 +298,35 @@ async function toggleBotNotification(botId, enabled) {
     const data = await res.json();
     botNotifications = data.botNotifications || {};
     console.log('[Settings] Bot notification toggled:', botId, enabled);
+    // Update notification badges on bot cards
+    updateNotificationBadges();
+    // Update settings checkbox if open
+    const checkbox = document.getElementById('botNotif_' + botId);
+    if (checkbox) checkbox.checked = enabled;
   } catch (err) {
     console.error('[Settings] Failed to toggle bot notification:', err);
     alert('Failed to update setting: ' + err.message);
+  }
+}
+
+// Update notification badges on bot cards
+function updateNotificationBadges() {
+  // List of all bot IDs that have notification badges
+  const botIds = [
+    'exp-bb-sysB', 'exp-bb-sysB-contrarian',
+    'exp-gp-sysA', 'exp-gp-sysB', 'exp-gp-regime', 'exp-gp-sysB-contrarian',
+    'focus-baseline', 'focus-aggressive', 'focus-conservative',
+    'focus-conflict', 'focus-hybrid', 'focus-excellent',
+    'focus-contrarian-only', 'focus-euphoria-fade', 'focus-bull-dip', 'focus-full-quadrant'
+  ];
+
+  for (const botId of botIds) {
+    const badge = document.getElementById('notifBadge_' + botId);
+    if (badge) {
+      const enabled = isBotNotificationEnabled(botId);
+      badge.textContent = enabled ? '🔔' : '🔕';
+      badge.style.opacity = enabled ? '1' : '0.4';
+    }
   }
 }
 

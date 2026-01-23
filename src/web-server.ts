@@ -3922,7 +3922,10 @@ function getHtmlPage(): string {
         <div class="stat-box" style="border-left: 3px solid #ffd700;" title="Backburner + System B multi-indicator bias filter">
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <span style="font-size: 14px; font-weight: bold; color: #ffd700;">exp-bb-sysB</span>
-            <span style="font-size: 10px; color: #ffd700;">TOP</span>
+            <span style="display: flex; align-items: center; gap: 4px;">
+              <span id="notifBadge_exp-bb-sysB" style="font-size: 10px; cursor: pointer;" title="Click to toggle notifications" onclick="toggleBotNotification('exp-bb-sysB', !isBotNotificationEnabled('exp-bb-sysB'))"></span>
+              <span style="font-size: 10px; color: #ffd700;">TOP</span>
+            </span>
           </div>
           <div class="stat-value" id="expBbSysBBalance" style="font-size: 18px;">$2,000</div>
           <div class="stat-label">BB + System B | <span id="expBbSysBPositions">0</span> pos</div>
@@ -3931,7 +3934,10 @@ function getHtmlPage(): string {
         </div>
         <!-- exp-bb-sysB-contrarian -->
         <div class="stat-box" style="border-left: 3px solid #a371f7;" title="Backburner + System B + NEU+BEAR/BEAR+BEAR quadrants only">
-          <div style="font-size: 12px; font-weight: 600; color: #a371f7;">exp-bb-sysB-contrarian</div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; font-weight: 600; color: #a371f7;">exp-bb-sysB-contrarian</span>
+            <span id="notifBadge_exp-bb-sysB-contrarian" style="font-size: 10px; cursor: pointer;" title="Click to toggle notifications" onclick="toggleBotNotification('exp-bb-sysB-contrarian', !isBotNotificationEnabled('exp-bb-sysB-contrarian'))"></span>
+          </div>
           <div class="stat-value" id="expBbSysBContrarianBalance" style="font-size: 18px;">$2,000</div>
           <div class="stat-label">BB + SysB + Contrarian | <span id="expBbSysBContrarianPositions">0</span> pos</div>
           <div class="stat-label" style="margin-top: 2px;">P&L: <span id="expBbSysBContrarianPnL" class="positive">$0</span> | Unreal: <span id="expBbSysBContrarianUnreal" class="positive">$0</span></div>
@@ -3939,7 +3945,10 @@ function getHtmlPage(): string {
         </div>
         <!-- exp-gp-sysA -->
         <div class="stat-box" style="border-left: 3px solid #58a6ff;" title="Golden Pocket + System A RSI-only bias filter">
-          <div style="font-size: 12px; font-weight: 600; color: #58a6ff;">exp-gp-sysA</div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; font-weight: 600; color: #58a6ff;">exp-gp-sysA</span>
+            <span id="notifBadge_exp-gp-sysA" style="font-size: 10px; cursor: pointer;" title="Click to toggle notifications" onclick="toggleBotNotification('exp-gp-sysA', !isBotNotificationEnabled('exp-gp-sysA'))"></span>
+          </div>
           <div class="stat-value" id="expGpSysABalance" style="font-size: 18px;">$2,000</div>
           <div class="stat-label">GP + System A (RSI) | <span id="expGpSysAPositions">0</span> pos</div>
           <div class="stat-label" style="margin-top: 2px;">P&L: <span id="expGpSysAPnL" class="positive">$0</span> | Unreal: <span id="expGpSysAUnreal" class="positive">$0</span></div>
@@ -3947,7 +3956,10 @@ function getHtmlPage(): string {
         </div>
         <!-- exp-gp-sysB -->
         <div class="stat-box" style="border-left: 3px solid #3fb950;" title="Golden Pocket + System B multi-indicator bias filter">
-          <div style="font-size: 12px; font-weight: 600; color: #3fb950;">exp-gp-sysB</div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; font-weight: 600; color: #3fb950;">exp-gp-sysB</span>
+            <span id="notifBadge_exp-gp-sysB" style="font-size: 10px; cursor: pointer;" title="Click to toggle notifications" onclick="toggleBotNotification('exp-gp-sysB', !isBotNotificationEnabled('exp-gp-sysB'))"></span>
+          </div>
           <div class="stat-value" id="expGpSysBBalance" style="font-size: 18px;">$2,000</div>
           <div class="stat-label">GP + System B | <span id="expGpSysBPositions">0</span> pos</div>
           <div class="stat-label" style="margin-top: 2px;">P&L: <span id="expGpSysBPnL" class="positive">$0</span> | Unreal: <span id="expGpSysBUnreal" class="positive">$0</span></div>
@@ -3955,7 +3967,10 @@ function getHtmlPage(): string {
         </div>
         <!-- exp-gp-regime -->
         <div class="stat-box" style="border-left: 3px solid #f85149;" title="Golden Pocket + Regime filter (NEU+BEAR/BEAR+BEAR quadrants)">
-          <div style="font-size: 12px; font-weight: 600; color: #f85149;">exp-gp-regime</div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; font-weight: 600; color: #f85149;">exp-gp-regime</span>
+            <span id="notifBadge_exp-gp-regime" style="font-size: 10px; cursor: pointer;" title="Click to toggle notifications" onclick="toggleBotNotification('exp-gp-regime', !isBotNotificationEnabled('exp-gp-regime'))"></span>
+          </div>
           <div class="stat-value" id="expGpRegimeBalance" style="font-size: 18px;">$2,000</div>
           <div class="stat-label">GP + Regime Filter | <span id="expGpRegimePositions">0</span> pos</div>
           <div class="stat-label" style="margin-top: 2px;">P&L: <span id="expGpRegimePnL" class="positive">$0</span> | Unreal: <span id="expGpRegimeUnreal" class="positive">$0</span></div>
@@ -3963,7 +3978,10 @@ function getHtmlPage(): string {
         </div>
         <!-- exp-gp-sysB-contrarian -->
         <div class="stat-box" style="border-left: 3px solid #d29922;" title="Golden Pocket + System B + Contrarian quadrants">
-          <div style="font-size: 12px; font-weight: 600; color: #d29922;">exp-gp-sysB-contrarian</div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; font-weight: 600; color: #d29922;">exp-gp-sysB-contrarian</span>
+            <span id="notifBadge_exp-gp-sysB-contrarian" style="font-size: 10px; cursor: pointer;" title="Click to toggle notifications" onclick="toggleBotNotification('exp-gp-sysB-contrarian', !isBotNotificationEnabled('exp-gp-sysB-contrarian'))"></span>
+          </div>
           <div class="stat-value" id="expGpSysBContrarianBalance" style="font-size: 18px;">$2,000</div>
           <div class="stat-label">GP + SysB + Contrarian | <span id="expGpSysBContrarianPositions">0</span> pos</div>
           <div class="stat-label" style="margin-top: 2px;">P&L: <span id="expGpSysBContrarianPnL" class="positive">$0</span> | Unreal: <span id="expGpSysBContrarianUnreal" class="positive">$0</span></div>
