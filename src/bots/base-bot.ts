@@ -249,12 +249,20 @@ export abstract class BaseBot<
   }
 
   /**
-   * Calculate position size based on config
+   * Calculate position size based on AVAILABLE balance (not total balance)
+   * This ensures position sizing accounts for capital already in open positions
    */
-  protected calculatePositionSize(): { margin: number; notional: number } {
-    const margin = this.balance * (this.config.positionSizePercent / 100);
+  protected calculatePositionSize(): { margin: number; notional: number; availableBalance: number } {
+    // Calculate capital already allocated to open positions
+    // Use type assertion since TPosition extends BasePosition which has marginUsed
+    const allocatedCapital = this.getOpenPositions()
+      .reduce((sum, p) => sum + ((p as BasePosition).marginUsed || 0), 0);
+    const availableBalance = Math.max(0, this.balance - allocatedCapital);
+
+    // Size from available balance, not total
+    const margin = availableBalance * (this.config.positionSizePercent / 100);
     const notional = margin * this.config.leverage;
-    return { margin, notional };
+    return { margin, notional, availableBalance };
   }
 
   /**

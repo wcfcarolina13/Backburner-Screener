@@ -317,6 +317,11 @@ export class FocusModeShadowBot extends EventEmitter {
   }
 
   private calculatePositionSize(signal: FocusModeSignal): { margin: number; leverage: number; notional: number } {
+    // Calculate AVAILABLE balance (total balance minus capital in open positions)
+    const allocatedCapital = Array.from(this.positions.values())
+      .reduce((sum, p) => sum + p.marginUsed, 0);
+    const availableBalance = Math.max(0, this.balance - allocatedCapital);
+
     // Determine leverage
     let leverage = signal.suggestedLeverage;
     if (!this.config.useSuggestedLeverage) {
@@ -324,10 +329,11 @@ export class FocusModeShadowBot extends EventEmitter {
     }
     leverage = Math.min(leverage * this.config.leverageMultiplier, this.config.maxLeverage);
 
-    // Determine margin
+    // Determine margin from AVAILABLE balance, not total balance
     let margin: number;
     if (this.config.useSuggestedSize) {
-      margin = signal.suggestedPositionSize;
+      // Suggested size should also be capped by available balance
+      margin = Math.min(signal.suggestedPositionSize, availableBalance * 0.9);
     } else if (this.config.useKellySizing) {
       // Kelly formula: f* = (bp - q) / b
       // where b = odds ratio (reward/risk), p = win probability, q = 1-p
@@ -336,13 +342,13 @@ export class FocusModeShadowBot extends EventEmitter {
                               Math.abs(signal.entryPrice - signal.suggestedStopLoss);
       const kellyFraction = (rewardRiskRatio * estimatedWinRate - (1 - estimatedWinRate)) / rewardRiskRatio;
       const safeFraction = Math.max(0, Math.min(kellyFraction * 0.5, 0.25));  // Half-Kelly, max 25%
-      margin = this.balance * safeFraction;
+      margin = availableBalance * safeFraction;  // Use available, not total
     } else {
-      margin = this.balance * (this.config.fixedPositionPercent / 100);
+      margin = availableBalance * (this.config.fixedPositionPercent / 100);  // Use available, not total
     }
 
-    // Cap at available balance
-    margin = Math.min(margin, this.balance * 0.9);  // Leave 10% buffer
+    // Cap at 90% of available balance (not total balance)
+    margin = Math.min(margin, availableBalance * 0.9);
 
     const notional = margin * leverage;
 
