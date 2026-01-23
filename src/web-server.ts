@@ -20,7 +20,7 @@ import {
   createHybridBot,
   createAggressiveBot as createFocusAggressiveBot,
   createConservativeBot as createFocusConservativeBot,
-  createKellySizingBot,
+  // createKellySizingBot REMOVED - see data/archived/KELLY_SIZING_EXPERIMENT.md
   createContrarianOnlyBot as createFocusContrarianBot,
   createEuphoriaFadeBot,
   createBullDipBuyerBot,
@@ -197,7 +197,7 @@ const defaultBotNotifications: Record<string, boolean> = {
   'focus-conflict': false,
   'focus-hybrid': false,
   'focus-excellent': true,
-  'focus-kelly': false,
+  // focus-kelly REMOVED - see data/archived/KELLY_SIZING_EXPERIMENT.md
   'focus-contrarian-only': true,
   'focus-euphoria-fade': true,
   'focus-bull-dip': true,
@@ -857,8 +857,7 @@ const focusShadowBots = new Map<string, FocusModeShadowBot>([
   // CONSERVATIVE: 0.75x leverage, wider stops, stricter entry rules
   ['focus-conservative', createFocusConservativeBot()],
 
-  // KELLY_SIZING: Uses Kelly criterion for position sizing
-  ['focus-kelly', createKellySizingBot()],
+  // KELLY_SIZING REMOVED - see data/archived/KELLY_SIZING_EXPERIMENT.md
 
   // CONTRARIAN_ONLY: Only trades in NEU+BEAR and BEAR+BEAR quadrants
   ['focus-contrarian-only', createFocusContrarianBot()],
@@ -2137,7 +2136,6 @@ function getFullState() {
                 key === 'focus-hybrid' ? 'Focus Hybrid' :
                 key === 'focus-aggressive' ? 'Focus Aggressive' :
                 key === 'focus-conservative' ? 'Focus Conservative' :
-                key === 'focus-kelly' ? 'Focus Kelly Sizing' :
                 key === 'focus-contrarian-only' ? 'Focus Contrarian-Only' :
                 key === 'focus-euphoria-fade' ? 'Focus Euphoria Fade' :
                 key === 'focus-bull-dip' ? 'Focus Bull Dip Buyer' :
@@ -2149,7 +2147,6 @@ function getFullState() {
                        key === 'focus-hybrid' ? 'Conflict-close + excellent overflow' :
                        key === 'focus-aggressive' ? '1.5x leverage, 8 max positions' :
                        key === 'focus-conservative' ? '0.75x leverage, strict entries' :
-                       key === 'focus-kelly' ? 'Kelly criterion sizing' :
                        key === 'focus-contrarian-only' ? 'NEU+BEAR & BEAR+BEAR only' :
                        key === 'focus-euphoria-fade' ? 'BULL+BULL shorts - fade euphoria' :
                        key === 'focus-bull-dip' ? 'BULL+BEAR longs - buy dips in uptrend' :
@@ -3475,10 +3472,6 @@ function getHtmlPage(): string {
                 <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
                   <input type="checkbox" id="botNotif_focus-contrarian-only" onchange="toggleBotNotification('focus-contrarian-only', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
                   <span style="color: #c9d1d9;">contrarian</span>
-                </label>
-                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
-                  <input type="checkbox" id="botNotif_focus-kelly" onchange="toggleBotNotification('focus-kelly', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
-                  <span style="color: #c9d1d9;">kelly</span>
                 </label>
                 <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
                   <input type="checkbox" id="botNotif_focus-euphoria-fade" onchange="toggleBotNotification('focus-euphoria-fade', this.checked)" style="accent-color: #3fb950; width: 14px; height: 14px;">
