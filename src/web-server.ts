@@ -5,7 +5,6 @@ import { BackburnerScreener } from './screener.js';
 import { PaperTradingEngine } from './paper-trading.js';
 import { TrailingStopEngine } from './paper-trading-trailing.js';
 import { ConfluenceBot } from './confluence-bot.js';
-// Triple Light bot removed - underperforming
 import { BTCExtremeBot } from './btc-extreme-bot.js';
 import { BTCTrendBot } from './btc-trend-bot.js';
 import { TrendOverrideBot } from './trend-override-bot.js';
@@ -29,11 +28,8 @@ import {
   type SetupQuality,
   type Quadrant,
 } from './focus-mode-shadow-bot.js';
-// V2 CHANGE: BTC Bias bots REMOVED - 0% win rate, responsible for 40% of losses (~$7,459)
-// import { createBtcBiasBotsV2, type BiasLevel } from './btc-bias-bot.js';
+// BTC Bias bots (V1 & V2) REMOVED - 0% win rate, -$7,459 losses. See data/archived/BTC_BIAS_V1_EXPERIMENT.md
 import type { BiasLevel } from './btc-bias-bot.js';  // Keep type for BTC bias filter
-// createBtcBiasBots (V1) REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
-// createBtcBiasBotsV2 (V2) REMOVED - see V2 CHANGE note above
 import { createMexcSimulationBots } from './mexc-trailing-simulation.js';
 import { NotificationManager } from './notifications.js';
 // FocusModeManager REMOVED - legacy trade copying feature removed, shadow bots remain for A/B testing
