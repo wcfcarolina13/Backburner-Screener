@@ -496,3 +496,118 @@ Continue monitoring through **Jan 17-18** (3-4 more days) to capture:
 1. **Top performer:** aggressive with +$131.44 (50% win rate)
 2. **Underperformer:** focus-kelly with $-11825.29
 3. **Average win rate across all bots:** 23.5%
+
+---
+
+## 2026-01-22 (Comprehensive Analysis via Turso)
+
+**Analysis Timestamp:** 2026-01-23T~15:00 UTC
+**Market Context:** Bearish (mostly shorts), choppy conditions
+**Total Closed Trades:** 528 | **Total P&L:** -$5,150.43
+**Data Source:** Turso Database (Render production server)
+
+### Performance by Bot Category
+
+| Category | Closed | Win Rate | Total PnL | Avg PnL |
+|----------|--------|----------|-----------|---------|
+| **Experimental A/B** | 48 | 50.0% | **+$775.32** | +$32.31 |
+| **Spot Regime** | 16 | 43.8% | **+$42.10** | +$2.63 |
+| Golden Pocket | 8 | 0.0% | -$50.94 | -$6.37 |
+| Trailing Shadow | 72 | 23.6% | -$999.24 | -$13.88 |
+| **Focus Mode Shadow** | 155 | **76.8%** | -$1,393.80 | -$8.99 |
+| Backburner Trailing | 229 | 31.9% | -$3,523.87 | -$15.46 |
+
+### 🏆 Top Performer: exp-bb-sysB
+
+| Bot ID | Trades | Win Rate | Total PnL | Avg PnL |
+|--------|--------|----------|-----------|---------|
+| **exp-bb-sysB** | 44 | 50.0% | **+$677.20** | +$30.78 |
+| exp-gp-sysB | 2 | 50.0% | +$49.06 | +$49.06 |
+| exp-gp-sysA | 2 | 50.0% | +$49.06 | +$49.06 |
+
+**exp-bb-sysB Configuration:**
+- Uses System B bias filter (multi-indicator, not RSI-only)
+- NO regime filter (trades all quadrants)
+- Backburner signals as entry source
+- 20x leverage, 10% position size, 8% initial stop, 10% trail trigger
+
+### Focus Mode Shadow Bots (Detailed)
+
+| Bot ID | Trades | Wins | Losses | Win Rate | Total PnL | Avg PnL |
+|--------|--------|------|--------|----------|-----------|---------|
+| **focus-conservative** | 11 | 9 | 2 | **81.8%** | **+$40.84** | +$3.71 |
+| **focus-contrarian-only** | 4 | 4 | 0 | **100%** | **+$40.54** | +$10.13 |
+| focus-excellent | 16 | 13 | 3 | 81.3% | +$10.51 | +$0.66 |
+| focus-aggressive | 44 | 36 | 8 | 81.8% | -$21.34 | -$0.49 |
+| focus-hybrid | 21 | 15 | 6 | 71.4% | -$39.27 | -$1.87 |
+| focus-baseline | 23 | 17 | 6 | 73.9% | -$50.00 | -$2.17 |
+| focus-conflict | 24 | 17 | 7 | 70.8% | -$53.65 | -$2.24 |
+| **focus-kelly** | 12 | 8 | 4 | 66.7% | **-$1,321.42** | -$110.12 |
+
+### Exit Reason Analysis (Focus Mode)
+
+| Exit Reason | Count | Wins | Win Rate | Total PnL |
+|-------------|-------|------|----------|-----------|
+| trailing_stop | 121 | 115 | **95.0%** | **+$1,591.56** |
+| take_profit | 4 | 4 | 100% | +$82.82 |
+| regime_conflict | 2 | 0 | 0% | -$7.30 |
+| stop_loss | 28 | 0 | 0% | **-$3,060.88** |
+
+**Critical Insight:** Trailing stops are working extremely well (95% win rate). Stop losses are the entire source of losses.
+
+### Spot Regime Bots (All Profitable)
+
+| Bot ID | Trades | Wins | Win Rate | Total PnL | Avg PnL |
+|--------|--------|------|----------|-----------|---------|
+| spot-standard | 5 | 3 | 60.0% | +$17.29 | +$3.46 |
+| spot-strict | 4 | 2 | 50.0% | +$12.90 | +$3.22 |
+| spot-contrarian | 3 | 1 | 33.3% | +$6.07 | +$2.02 |
+| spot-loose | 4 | 1 | 25.0% | +$5.84 | +$1.46 |
+
+### Key Observations
+
+1. **exp-bb-sysB is the clear winner** - System B multi-indicator bias filter + Backburner signals
+2. **Focus Mode has excellent win rates** (66-100%) but losses are too large
+3. **Kelly criterion sizing is CATASTROPHIC** - disabled immediately recommended
+4. **focus-contrarian-only and focus-conservative are the only profitable Focus variants**
+5. **Spot regime bots (1x leverage) are consistently profitable** - low risk, low reward
+6. **Stop losses account for -$3,060 of the -$1,393 Focus Mode loss**
+
+### Data Collection Gap Identified
+
+**BULL+BULL quadrant was NOT being tested** despite dashboard claiming it's "HIGH WIN RATE" for shorts.
+- Added `focus-euphoria-fade` bot to test this claim
+- Added `focus-bull-dip` bot for BULL+BEAR (buy dips in uptrend)
+- Added `focus-full-quadrant` bot for comprehensive quadrant data
+
+### Multi-Day Trend
+
+| Date | Events | Closes | Total PnL |
+|------|--------|--------|-----------|
+| Jan 23 (partial) | 337 | 163 | -$846.91 |
+| **Jan 22** | 1,286 | 528 | **-$5,150.43** |
+| Jan 21 | 1,567 | 528 | -$13,599.95 |
+| Jan 20 | 518 | 214 | +$76.15 |
+| Jan 19 | 408 | 153 | -$3,501.98 |
+
+---
+
+## 2026-01-23 (Partial Day via Turso)
+
+**Analysis Timestamp:** 2026-01-23T~15:00 UTC
+**Total Closed Trades:** 163 | **Total P&L:** -$846.91
+**Data Source:** Turso Database (Render production server)
+
+### Focus Mode Early Results
+
+| Bot ID | Trades | Wins | Win Rate | Total PnL |
+|--------|--------|------|----------|-----------|
+| focus-kelly | 2 | 2 | 100% | +$132.29 |
+| focus-excellent | 4 | 4 | 100% | +$41.68 |
+| focus-baseline | 6 | 5 | 83.3% | +$0.87 |
+| focus-conflict | 6 | 5 | 83.3% | +$0.87 |
+| focus-hybrid | 6 | 5 | 83.3% | +$0.87 |
+| focus-contrarian-only | 2 | 1 | 50% | -$35.84 |
+| focus-aggressive | 11 | 8 | 72.7% | -$132.04 |
+
+**Note:** Kelly bot showing recovery but small sample size. Monitoring continues.

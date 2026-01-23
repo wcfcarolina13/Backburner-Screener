@@ -191,6 +191,94 @@ Based on results, consider:
 
 ---
 
+---
+
+## 4. Experimental A/B Testing Bots
+
+These bots test different combinations of signal sources and bias filters. Created in Jan 2026 to A/B test regime systems.
+
+### exp-bb-sysB (TOP PERFORMER as of Jan 22, 2026)
+
+**Performance:** +$677.20 on Jan 22 (44 trades, 50% win rate, +$30.78 avg)
+
+**Configuration:**
+```typescript
+{
+  botId: 'exp-bb-sysB',
+  description: 'BB + System B bias filter',
+  initialBalance: 2000,
+  positionSizePercent: 10,
+  leverage: 20,
+  maxPositions: 10,
+  initialStopPercent: 8,
+  trailTriggerPercent: 10,
+  trailStepPercent: 5,
+  takeProfitPercent: 0,  // Trailing only
+  useBiasFilter: true,
+  biasSystem: 'B',       // Multi-indicator (NOT RSI-only)
+  useRegimeFilter: false,
+  longOnly: false,
+  feePercent: 0.04,
+  slippagePercent: 0.05,
+}
+```
+
+**Key Differentiators:**
+- Uses **System B** bias filter (multi-indicator: RSI + EMA + Volume + ATR)
+- System A uses RSI-only bias, System B is more sophisticated
+- NO regime quadrant filter - trades in ALL market conditions
+- Backburner signals as entry source (not GP)
+
+**Why It Works:**
+1. System B gives better directional bias than RSI-only
+2. No regime filter means more trade opportunities
+3. 8% stop is tight enough to limit losses
+4. 10% trail trigger captures runners
+
+### Other Experimental Bots
+
+| Bot ID | Signal Source | Bias System | Regime Filter | Status |
+|--------|--------------|-------------|---------------|--------|
+| exp-bb-sysB | Backburner | System B | None | ⭐ Best |
+| exp-bb-sysB-contrarian | Backburner | System B | Contrarian only | Testing |
+| exp-gp-regime | Golden Pocket | None | Contrarian only | Testing |
+| exp-gp-sysA | Golden Pocket | System A (RSI) | None | Testing |
+| exp-gp-sysB | Golden Pocket | System B | None | Testing |
+| exp-gp-sysB-contrarian | Golden Pocket | System B | Contrarian only | Testing |
+
+**Source:** `src/experimental-shadow-bots.ts`
+
+---
+
+## 5. Focus Mode Shadow Bots
+
+These simulate manual leveraged trading using Focus Mode quadrant guidance. Created Jan 21, 2026.
+
+### Performance Summary (Jan 22, 2026)
+
+| Bot ID | Win Rate | PnL | Strategy |
+|--------|----------|-----|----------|
+| focus-conservative | 81.8% | +$40.84 | 0.75x leverage, wider stops |
+| focus-contrarian-only | 100% | +$40.54 | NEU+BEAR, BEAR+BEAR only |
+| focus-excellent | 81.3% | +$10.51 | +2 positions for excellent setups |
+| focus-aggressive | 81.8% | -$21.34 | 1.5x leverage, 8 max positions |
+| focus-hybrid | 71.4% | -$39.27 | Conflict-close + excellent overflow |
+| focus-baseline | 73.9% | -$50.00 | Standard rules |
+| focus-conflict | 70.8% | -$53.65 | Closes on regime conflict |
+| focus-kelly | 66.7% | **-$1,321** | ⚠️ DANGEROUS - Kelly sizing |
+
+### New Bots Added (Jan 23, 2026)
+
+| Bot ID | Quadrants | Strategy |
+|--------|-----------|----------|
+| focus-euphoria-fade | BULL+BULL | SHORT when market euphoric |
+| focus-bull-dip | BULL+BEAR | BUY dips in macro bull |
+| focus-full-quadrant | ALL (except BEAR+BULL) | Comprehensive data collection |
+
+**Source:** `src/focus-mode-shadow-bot.ts`
+
+---
+
 ## Historical Context
 
 ### Why We Added These Bots (Jan 2026):

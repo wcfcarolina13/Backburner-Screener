@@ -48,3 +48,18 @@
 - **Instruction**: Test the `/events` SSE endpoint with `curl -s -N "http://localhost:3000/events" | head -50` to verify JSON events are being sent correctly
 - **Added after**: Iteration 15 - SSE connection appeared broken but was actually working; the client-side JS couldn't parse events due to HTML error
 
+### Sign: Verify Data Flow End-to-End
+- **Trigger**: When adding new data fields to track (especially for analytics)
+- **Instruction**: Trace the FULL data flow: source → intermediate processing → persistence layer → database insert. A field can exist in code but never reach the database if any step in the chain doesn't pass it along.
+- **Added after**: Iteration 28 - `entryQuadrant` field was being tracked in position objects and passed to `logTradeClose()`, but `insertTradeEvent()` wasn't including it in the SQL INSERT. Result: weeks of lost quadrant data.
+
+### Sign: Test Dashboard Claims Against Bot Configs
+- **Trigger**: When user-facing documentation/UI makes claims about strategy performance
+- **Instruction**: Verify that at least ONE bot is actually testing the claimed strategy. Dashboard can show recommendations that no automated system is validating.
+- **Added after**: Iteration 28 - Focus Mode dashboard said BULL+BULL shorts have "HIGH WIN RATE" but `allowedQuadrants` array excluded BULL+BULL from all 8 shadow bots. The claim was untested.
+
+### Sign: Check Kelly Criterion Bots Daily
+- **Trigger**: When any bot uses Kelly criterion or dynamic position sizing
+- **Instruction**: Kelly sizing amplifies variance enormously. A bot can have 66% win rate but still lose catastrophically if losses are larger than wins. Monitor daily and disable if drawdown exceeds 50%.
+- **Added after**: Iteration 28 - `focus-kelly` had 66.7% win rate but lost $1,321 in one day due to position sizing variance
+
