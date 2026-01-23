@@ -195,11 +195,34 @@ Based on results, consider:
 
 ## 4. Experimental A/B Testing Bots
 
-These bots test different combinations of signal sources and bias filters. Created in Jan 2026 to A/B test regime systems.
+These bots test different combinations of signal sources and bias filters. Created in Jan 2026 to A/B test:
+- **System A** (RSI-only bias) vs **System B** (multi-indicator bias)
+- **Backburner** vs **Golden Pocket** signal sources
+- **With/without** regime quadrant filters
 
-### exp-bb-sysB (TOP PERFORMER as of Jan 22, 2026)
+**Source:** `src/experimental-shadow-bots.ts`
 
-**Performance:** +$677.20 on Jan 22 (44 trades, 50% win rate, +$30.78 avg)
+---
+
+### exp-bb-sysB (TOP PERFORMER 🏆)
+
+**Performance History:**
+| Date | Trades | Win Rate | Daily PnL | Avg PnL |
+|------|--------|----------|-----------|---------|
+| Jan 23 (8h) | 62 | 50.0% | **+$1,534.32** | +$49.49 |
+| Jan 22 | 44 | 50.0% | **+$677.20** | +$30.78 |
+| **Total** | **106** | **50.0%** | **+$2,211.52** | **+$20.86** |
+
+**Top Trades (Jan 23):**
+| Symbol | Direction | PnL | Exit |
+|--------|-----------|-----|------|
+| WAXPUSDT | SHORT | +$215.75 | trailing_stop |
+| MBGUSDT | LONG | +$182.54 | trailing_stop |
+| ELSAUSDT | SHORT | +$93.64 | trailing_stop |
+| ACUUSDT | LONG | +$89.06 | trailing_stop |
+| XRDUSDT | LONG | +$65.49 | trailing_stop |
+
+**All 62 trades exited via trailing_stop** - no stop losses hit overnight!
 
 **Configuration:**
 ```typescript
@@ -207,46 +230,86 @@ These bots test different combinations of signal sources and bias filters. Creat
   botId: 'exp-bb-sysB',
   description: 'BB + System B bias filter',
   initialBalance: 2000,
-  positionSizePercent: 10,
-  leverage: 20,
-  maxPositions: 10,
-  initialStopPercent: 8,
-  trailTriggerPercent: 10,
-  trailStepPercent: 5,
-  takeProfitPercent: 0,  // Trailing only
-  useBiasFilter: true,
-  biasSystem: 'B',       // Multi-indicator (NOT RSI-only)
-  useRegimeFilter: false,
-  longOnly: false,
-  feePercent: 0.04,
-  slippagePercent: 0.05,
+  positionSizePercent: 10,     // 10% of balance per trade
+  leverage: 20,                 // 20x leverage
+  maxPositions: 10,             // Max 10 concurrent positions
+  initialStopPercent: 8,        // 8% initial stop loss
+  trailTriggerPercent: 10,      // Trail activates at +10% ROI
+  trailStepPercent: 5,          // Trail steps by 5%
+  takeProfitPercent: 0,         // NO fixed TP - trailing only
+  useBiasFilter: true,          // USE System B filter
+  biasSystem: 'B',              // Multi-indicator bias
+  useRegimeFilter: false,       // NO regime filter - trades ALL quadrants
+  longOnly: false,              // Both directions
+  feePercent: 0.04,             // 0.04% taker fee
+  slippagePercent: 0.05,        // 0.05% slippage
 }
 ```
 
-**Key Differentiators:**
-- Uses **System B** bias filter (multi-indicator: RSI + EMA + Volume + ATR)
-- System A uses RSI-only bias, System B is more sophisticated
-- NO regime quadrant filter - trades in ALL market conditions
-- Backburner signals as entry source (not GP)
+---
 
-**Why It Works:**
-1. System B gives better directional bias than RSI-only
-2. No regime filter means more trade opportunities
-3. 8% stop is tight enough to limit losses
-4. 10% trail trigger captures runners
+### System B Bias Filter (What Makes It Special)
 
-### Other Experimental Bots
+**Source:** `src/market-bias-system-b.ts`
 
-| Bot ID | Signal Source | Bias System | Regime Filter | Status |
-|--------|--------------|-------------|---------------|--------|
-| exp-bb-sysB | Backburner | System B | None | ⭐ Best |
-| exp-bb-sysB-contrarian | Backburner | System B | Contrarian only | Testing |
-| exp-gp-regime | Golden Pocket | None | Contrarian only | Testing |
-| exp-gp-sysA | Golden Pocket | System A (RSI) | None | Testing |
-| exp-gp-sysB | Golden Pocket | System B | None | Testing |
-| exp-gp-sysB-contrarian | Golden Pocket | System B | Contrarian only | Testing |
+System B uses **5 weighted indicators** to determine market bias:
 
-**Source:** `src/experimental-shadow-bots.ts`
+| Indicator | Weight | What It Measures |
+|-----------|--------|------------------|
+| RSI Multi-TF | 3x | RSI across 4h, 1h, 15m, 5m, 1m timeframes |
+| Funding Rate | 2x | Contrarian: extreme funding = reversal likely |
+| Open Interest | 2x | Rising OI + price direction = trend strength |
+| Premium/Discount | 1x | Futures vs index price spread |
+| Momentum | 1x | 24h price change |
+
+**Bias Thresholds:**
+- `strong_long`: score > 50 AND ≥60% indicators bullish
+- `long`: score > 25
+- `neutral`: -25 ≤ score ≤ 25
+- `short`: score < -25
+- `strong_short`: score < -50 AND ≥60% indicators bearish
+
+**Key Difference from System A:**
+- System A: RSI-only (simple but can be fooled by choppy markets)
+- System B: Multi-indicator consensus (more robust, fewer false signals)
+
+---
+
+### All Experimental Bots Performance (Jan 21-23)
+
+| Bot ID | Total Trades | Win Rate | Total PnL | Status |
+|--------|--------------|----------|-----------|--------|
+| **exp-bb-sysB** | 106 | 50.0% | **+$2,211.52** | ⭐ BEST |
+| exp-bb-sysB-contrarian | 12 | 50.0% | +$133.22 | ✅ Good |
+| exp-gp-sysB | 18 | 38.9% | +$79.78 | Testing |
+| exp-gp-sysA | 14 | 35.7% | +$27.55 | Testing |
+| exp-gp-regime | 6 | 16.7% | -$68.03 | ❌ Poor |
+| exp-gp-sysB-contrarian | 6 | 16.7% | -$68.03 | ❌ Poor |
+
+**Key Insights:**
+1. **Backburner + System B** beats all GP combinations
+2. **No regime filter** outperforms contrarian-only filtering
+3. **System B** consistently beats System A (multi-indicator > RSI-only)
+4. **Golden Pocket bots** underperform Backburner bots with same filters
+
+---
+
+### Bot Configuration Matrix
+
+| Bot ID | Signal | Bias | Regime | Leverage | Stop |
+|--------|--------|------|--------|----------|------|
+| exp-bb-sysB | Backburner | System B | None | 20x | 8% |
+| exp-bb-sysB-contrarian | Backburner | System B | NEU+BEAR, BEAR+BEAR | 20x | 8% |
+| exp-gp-sysA | Golden Pocket | System A (RSI) | None | 10x | GP stops |
+| exp-gp-sysB | Golden Pocket | System B | None | 10x | GP stops |
+| exp-gp-regime | Golden Pocket | None | NEU+BEAR, BEAR+BEAR | 10x | GP stops |
+| exp-gp-sysB-contrarian | Golden Pocket | System B | NEU+BEAR, BEAR+BEAR | 10x | GP stops |
+
+**Why exp-bb-sysB Wins:**
+1. **Higher leverage (20x)** - amplifies gains when direction is right
+2. **System B filter** - better directional accuracy
+3. **No regime filter** - more opportunities
+4. **Trailing-only exits** - lets winners run, 100% of Jan 23 exits were trail hits
 
 ---
 
