@@ -4,5 +4,5 @@
  */
 
 export { createSettingsRouter } from './settings.js';
-export { createFocusModeRouter } from './focus-mode.js';
+// createFocusModeRouter REMOVED - legacy trade copying feature removed
 export { createExecutionRouter, getExecutionBridge, initializeBridge } from './execution.js';

@@ -36,7 +36,7 @@ import type { BiasLevel } from './btc-bias-bot.js';  // Keep type for BTC bias f
 // createBtcBiasBotsV2 (V2) REMOVED - see V2 CHANGE note above
 import { createMexcSimulationBots } from './mexc-trailing-simulation.js';
 import { NotificationManager } from './notifications.js';
-import { FocusModeManager, getFocusModeManager } from './focus-mode.js';
+// FocusModeManager REMOVED - legacy trade copying feature removed, shadow bots remain for A/B testing
 import { BackburnerDetector } from './backburner-detector.js';
 import { GoldenPocketBot } from './golden-pocket-bot.js';
 import { GoldenPocketBotV2 } from './golden-pocket-bot-v2.js';
@@ -50,7 +50,7 @@ import { getDataPersistence } from './data-persistence.js';
 import { initSchema as initTursoSchema, isTursoConfigured, executeReadQuery, getDatabaseStats } from './turso-db.js';
 import { getFocusModeHtml, getFocusModeApiData, calculateSmartTradeSetup } from './focus-mode-dashboard.js';
 import type { BackburnerSetup, Timeframe } from './types.js';
-import { createSettingsRouter, createFocusModeRouter } from './routes/index.js';
+import { createSettingsRouter } from './routes/index.js';
 import type { ServerContext } from './server-context.js';
 import fs from 'fs';
 import path from 'path';
@@ -1149,46 +1149,6 @@ function checkDailyReset(): void {
   }
 }
 
-// Focus Mode - for manual trade copying with notifications
-const focusMode = getFocusModeManager();
-
-// Helper function to get positions from any target bot
-function getTargetBotPositions(targetBotId: string): any[] {
-  switch (targetBotId) {
-    case 'trailing10pct10x': return trailing10pct10xBot.getOpenPositions();
-    case 'trailing10pct20x': return trailing10pct20xBot.getOpenPositions();
-    case 'trailWide': return trailWideBot.getOpenPositions();
-    case 'trailing1pct': return trailing1pctBot.getOpenPositions();
-    case 'fixedTP': return fixedTPBot.getOpenPositions();
-    case 'confluence': return confluenceBot.getOpenPositions();
-    case 'trendOverride': return trendOverrideBot.getOpenPositions();
-    case 'trendFlip': return trendFlipBot.getOpenPositions();
-    case 'btcExtreme': {
-      const pos = btcExtremeBot.getPosition();
-      return pos ? [pos] : [];
-    }
-    case 'btcTrend': {
-      const pos = btcTrendBot.getPosition();
-      return pos ? [pos] : [];
-    }
-    case 'gp-conservative':
-    case 'gp-standard':
-    case 'gp-aggressive':
-    case 'gp-yolo': {
-      const gpBot = goldenPocketBots.get(targetBotId);
-      return gpBot ? gpBot.getOpenPositions() : [];
-    }
-    case 'gp2-conservative':
-    case 'gp2-standard':
-    case 'gp2-aggressive':
-    case 'gp2-yolo': {
-      const gpV2Bot = goldenPocketBotsV2.get(targetBotId);
-      return gpV2Bot ? gpV2Bot.getOpenPositions() : [];
-    }
-    default: return [];
-  }
-}
-
 // State
 let currentStatus = 'Starting...';
 let scanProgress = { completed: 0, total: 0, phase: '' };
@@ -1537,44 +1497,6 @@ async function handleNewSetup(setup: BackburnerSetup) {
     }
   }
 
-  // Focus Mode: Track positions from target bot
-  if (focusMode.isEnabled()) {
-    const targetBotId = focusMode.getConfig().targetBot;
-    let targetPosition = null;
-
-    // Match target bot to the newly created position
-    if (targetBotId === 'trailing10pct10x') targetPosition = trail10pct10xPosition;
-    else if (targetBotId === 'trailing10pct20x') targetPosition = trail10pct20xPosition;
-    else if (targetBotId === 'trailWide') targetPosition = trailWidePosition;
-    else if (targetBotId === 'trailing1pct') targetPosition = trail1pctPosition;
-    else if (targetBotId === 'fixedTP') targetPosition = fixedPosition;
-    else if (targetBotId === 'confluence') targetPosition = confluencePosition;
-    // GP V1 bots - find newly opened position for this setup
-    else if (targetBotId.startsWith('gp-') && !targetBotId.startsWith('gp2-')) {
-      const gpBot = goldenPocketBots.get(targetBotId);
-      if (gpBot) {
-        const gpPositions = gpBot.getOpenPositions();
-        targetPosition = gpPositions.find((p: any) =>
-          p.symbol === setup.symbol && p.direction === setup.direction
-        );
-      }
-    }
-    // GP V2 bots - find newly opened position for this setup
-    else if (targetBotId.startsWith('gp2-')) {
-      const gpV2Bot = goldenPocketBotsV2.get(targetBotId);
-      if (gpV2Bot) {
-        const gpV2Positions = gpV2Bot.getOpenPositions();
-        targetPosition = gpV2Positions.find((p: any) =>
-          p.symbol === setup.symbol && p.direction === setup.direction
-        );
-      }
-    }
-
-    if (targetPosition) {
-      await focusMode.onPositionOpened(targetPosition, setup);
-    }
-  }
-
   // Send notification (works for both regular and GP setups)
   if (isNotificationsEnabled()) {
     await notifier.notifyNewSetup(setup);
@@ -1780,57 +1702,6 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
     await notifier.notifyPlayedOut(setup);
   }
 
-  // Focus Mode: If a position was just opened in the target bot, track it
-  if (newlyOpened && focusMode.isEnabled()) {
-    const targetBotId = focusMode.getConfig().targetBot;
-    let targetPosition = null;
-
-    // Match target bot to the position
-    if (targetBotId === 'trailing10pct10x' && trail10pct10xPosition?.status === 'open') {
-      targetPosition = trail10pct10xPosition;
-    } else if (targetBotId === 'trailing10pct20x' && trail10pct20xPosition?.status === 'open') {
-      targetPosition = trail10pct20xPosition;
-    } else if (targetBotId === 'trailWide' && trailWidePosition?.status === 'open') {
-      targetPosition = trailWidePosition;
-    } else if (targetBotId === 'trailing1pct' && trail1pctPosition?.status === 'open') {
-      targetPosition = trail1pctPosition;
-    } else if (targetBotId === 'fixedTP' && fixedPosition?.status === 'open') {
-      targetPosition = fixedPosition;
-    } else if (targetBotId === 'confluence' && confluencePosition?.status === 'open') {
-      targetPosition = confluencePosition;
-    } else if (targetBotId.startsWith('gp-') && !targetBotId.startsWith('gp2-')) {
-      // GP V1 bots
-      const gpBot = goldenPocketBots.get(targetBotId);
-      if (gpBot) {
-        const gpPositions = gpBot.getOpenPositions();
-        targetPosition = gpPositions.find((p: any) =>
-          p.symbol === setup.symbol && p.direction === setup.direction && p.status === 'open'
-        );
-      }
-    } else if (targetBotId.startsWith('gp2-')) {
-      // GP V2 bots
-      const gpV2Bot = goldenPocketBotsV2.get(targetBotId);
-      if (gpV2Bot) {
-        const gpV2Positions = gpV2Bot.getOpenPositions();
-        targetPosition = gpV2Positions.find((p: any) =>
-          p.symbol === setup.symbol && p.direction === setup.direction && p.status === 'open'
-        );
-      }
-    }
-
-    if (targetPosition) {
-      // Check if Focus Mode is already tracking this position
-      const focusPositions = focusMode.getActivePositions();
-      const alreadyTracking = focusPositions.some(
-        p => p.symbol === setup.symbol && p.direction === setup.direction &&
-             p.timeframe === setup.timeframe && p.marketType === setup.marketType
-      );
-      if (!alreadyTracking) {
-        await focusMode.onPositionOpened(targetPosition, setup);
-      }
-    }
-  }
-
   if (fixedPosition) {
     if (fixedPosition.status !== 'open') {
       broadcast('position_closed', { bot: 'fixedTP', position: fixedPosition });
@@ -1901,51 +1772,6 @@ async function handleSetupUpdated(setup: BackburnerSetup) {
     );
     if (position) {
       broadcast('position_updated', { bot: botId, position });
-    }
-  }
-
-  // Focus Mode: Track trailing stop updates
-  if (focusMode.isEnabled()) {
-    const targetBotId = focusMode.getConfig().targetBot;
-    let targetPosition = null;
-    let positionClosed = false;
-
-    // Match target bot to position
-    if (targetBotId === 'trailing10pct10x' && trail10pct10xPosition) {
-      targetPosition = trail10pct10xPosition;
-      positionClosed = trail10pct10xPosition.status !== 'open';
-    } else if (targetBotId === 'trailing10pct20x' && trail10pct20xPosition) {
-      targetPosition = trail10pct20xPosition;
-      positionClosed = trail10pct20xPosition.status !== 'open';
-    } else if (targetBotId === 'trailWide' && trailWidePosition) {
-      targetPosition = trailWidePosition;
-      positionClosed = trailWidePosition.status !== 'open';
-    } else if (targetBotId === 'trailing1pct' && trail1pctPosition) {
-      targetPosition = trail1pctPosition;
-      positionClosed = trail1pctPosition.status !== 'open';
-    } else if (targetBotId === 'fixedTP' && fixedPosition) {
-      targetPosition = fixedPosition;
-      positionClosed = fixedPosition.status !== 'open';
-    } else if (targetBotId === 'confluence' && confluencePosition) {
-      targetPosition = confluencePosition;
-      positionClosed = confluencePosition.status !== 'open';
-    } else if (targetBotId.startsWith('gp-')) {
-      const gpBot = goldenPocketBots.get(targetBotId);
-      if (gpBot) {
-        const gpPositions = gpBot.getOpenPositions();
-        targetPosition = gpPositions.find((p: any) =>
-          p.symbol === setup.symbol && p.direction === setup.direction
-        );
-        positionClosed = !!(targetPosition && targetPosition.status !== 'open');
-      }
-    }
-
-    if (targetPosition) {
-      if (positionClosed) {
-        await focusMode.onPositionClosed(targetPosition, targetPosition.exitReason || 'Unknown');
-      } else {
-        await focusMode.onPositionUpdated(targetPosition);
-      }
     }
   }
 
@@ -2348,14 +2174,6 @@ function getFullState() {
       ])
     ),
     botVisibility,
-    // Focus Mode state - sync with target bot positions first
-    focusMode: (() => {
-      // Sync Focus Mode with current positions from target bot
-      const targetBotId = focusMode.getConfig().targetBot;
-      const targetBotPositions = getTargetBotPositions(targetBotId);
-      focusMode.syncWithBotPositions(targetBotPositions);
-      return focusMode.getState();
-    })(),
     meta: {
       eligibleSymbols: screener.getEligibleSymbolCount(),
       isRunning: screener.isActive(),
@@ -2394,13 +2212,11 @@ const serverContext: ServerContext = {
   gp2Bots: goldenPocketBotsV2,
   focusShadowBots,
   spotRegimeBots,
-  focusModeManager: focusMode,
   notificationManager: notifier,
 };
 
 // Mount extracted route modules
 app.use('/api', express.json(), createSettingsRouter(serverContext));
-app.use('/api/focus', express.json(), createFocusModeRouter(serverContext));
 
 // Serve static HTML - Screener (main page)
 app.get('/', (req, res) => {
@@ -2691,57 +2507,6 @@ app.post('/api/toggle-bot', express.json(), (req, res) => {
     return;
   }
   broadcastState();
-});
-
-// Focus Mode API endpoints
-app.get('/api/focus', (req, res) => {
-  res.json(focusMode.getState());
-});
-
-app.post('/api/focus/enable', express.json(), (req, res) => {
-  focusMode.setEnabled(true);
-  broadcastState();
-  res.json({ success: true, enabled: true });
-});
-
-app.post('/api/focus/disable', express.json(), (req, res) => {
-  focusMode.setEnabled(false);
-  broadcastState();
-  res.json({ success: true, enabled: false });
-});
-
-app.post('/api/focus/config', express.json(), (req, res) => {
-  const { accountBalance, maxPositionSizePercent, leverage, targetBot, maxOpenPositions } = req.body;
-  const config: any = {};
-  if (accountBalance !== undefined) config.accountBalance = accountBalance;
-  if (maxPositionSizePercent !== undefined) config.maxPositionSizePercent = maxPositionSizePercent;
-  if (leverage !== undefined) config.leverage = leverage;
-  if (maxOpenPositions !== undefined) config.maxOpenPositions = maxOpenPositions;
-
-  // If target bot changed, clear all tracked positions and re-sync
-  const currentConfig = focusMode.getConfig();
-  if (targetBot !== undefined && targetBot !== currentConfig.targetBot) {
-    config.targetBot = targetBot;
-    focusMode.updateConfig(config);
-    // Clear all positions and let sync re-import from new bot
-    focusMode.clearAllPositions();
-  } else {
-    focusMode.updateConfig(config);
-  }
-
-  broadcastState();
-  res.json({ success: true, config: focusMode.getConfig() });
-});
-
-app.post('/api/focus/test-notification', async (req, res) => {
-  await focusMode.testNotification();
-  res.json({ success: true });
-});
-
-app.post('/api/focus/clear-closed', (req, res) => {
-  focusMode.clearClosedPositions();
-  broadcastState();
-  res.json({ success: true });
 });
 
 // Check a specific symbol on demand
@@ -3809,87 +3574,6 @@ function getHtmlPage(): string {
         <span id="statusText">Connecting...</span>
       </div>
       <div id="symbolCount">-</div>
-    </div>
-
-    <!-- Focus Mode Panel -->
-    <div id="focusModePanel" class="card" style="margin-bottom: 16px; border-left: 3px solid #f0883e; display: none;">
-      <div class="card-header" style="background: linear-gradient(135deg, #21262d 0%, #161b22 100%); cursor: pointer;" onclick="toggleSection('focusMode')">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span class="section-toggle" id="focusModeToggle">▼</span>
-          <span class="card-title">🎯 Focus Mode - Trade Copying</span>
-        </div>
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <span id="focusPositionCount" style="font-size: 12px; color: #8b949e;">0/5 positions</span>
-          <button id="focusToggleBtn" onclick="event.stopPropagation(); toggleFocusMode()" style="padding: 4px 12px; border-radius: 4px; border: 1px solid #f0883e; background: #21262d; color: #f0883e; font-size: 11px; font-weight: 600; cursor: pointer;">
-            Enable
-          </button>
-          <button onclick="event.stopPropagation(); testFocusNotification()" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 11px; cursor: pointer;" title="Test notification">
-            🔔
-          </button>
-        </div>
-      </div>
-      <div id="focusModeContent" style="padding: 12px;">
-        <!-- Config row -->
-        <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #21262d;">
-          <div style="font-size: 11px; color: #8b949e;">
-            Sort by: <select id="focusSortBy" onchange="sortFocusBotOptions()" style="background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #c9d1d9; padding: 2px 8px; font-size: 11px;">
-              <option value="today">Today's P&L</option>
-              <option value="24h">24h P&L</option>
-              <option value="weekly">Weekly P&L</option>
-              <option value="winrate">Win Rate</option>
-            </select>
-          </div>
-          <div style="font-size: 11px; color: #8b949e;">
-            Mirror: <select id="focusTargetBot" onchange="updateFocusConfig()" style="background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #c9d1d9; padding: 2px 8px; font-size: 11px; min-width: 180px;">
-              <optgroup label="Trailing Stop Bots">
-                <option value="trailWide">🌊 Trail Wide</option>
-                <option value="trailing10pct10x">📈 Trail Standard (10x)</option>
-                <option value="trailing10pct20x">💀 Trail Aggressive (20x)</option>
-                <option value="trailing1pct">📉 Trail Light (1%)</option>
-              </optgroup>
-              <optgroup label="Backburner RSI Bots">
-                <option value="fixedTP">🎯 Fixed TP/SL</option>
-                <option value="confluence">🔗 Multi-TF Confluence</option>
-                <option value="trendOverride">↕ Trend Override</option>
-                <option value="trendFlip">🔄 Trend Flip</option>
-              </optgroup>
-              <optgroup label="Golden Pocket V1 (Strict)">
-                <option value="gp-conservative">🎯 GP-Conservative (5% 10x)</option>
-                <option value="gp-standard">🎯 GP-Standard (10% 10x)</option>
-                <option value="gp-aggressive">🎯 GP-Aggressive (10% 20x)</option>
-                <option value="gp-yolo">💀 GP-YOLO (15% 25x)</option>
-              </optgroup>
-              <optgroup label="Golden Pocket V2 (Loose)">
-                <option value="gp2-conservative">🎯 GP2-Conservative (5% 10x)</option>
-                <option value="gp2-standard">🎯 GP2-Standard (10% 10x)</option>
-                <option value="gp2-aggressive">🎯 GP2-Aggressive (10% 20x)</option>
-                <option value="gp2-yolo">💀 GP2-YOLO (15% 25x)</option>
-              </optgroup>
-              <optgroup label="BTC Bias Bots">
-                <option value="btcExtreme">₿ Contrarian</option>
-                <option value="btcTrend">₿ Momentum</option>
-              </optgroup>
-            </select>
-          </div>
-          <div style="font-size: 11px; color: #8b949e;">
-            Your Balance: $<input type="number" id="focusBalance" value="1000" onchange="updateFocusConfig()" style="width: 70px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #c9d1d9; padding: 2px 4px; font-size: 11px;">
-          </div>
-          <div id="focusBotInfo" style="font-size: 10px; color: #6e7681; margin-left: auto; text-align: right;">
-            Bot params: <span id="focusBotParams">-</span>
-          </div>
-        </div>
-        <!-- Active positions -->
-        <div id="focusPositions" style="font-size: 12px;">
-          <div style="color: #6e7681; text-align: center; padding: 16px;">
-            Enable Focus Mode to receive trade copy notifications
-          </div>
-        </div>
-        <!-- Recent actions -->
-        <div id="focusActions" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #21262d; display: none;">
-          <div style="font-size: 11px; color: #8b949e; margin-bottom: 8px;">Recent Actions:</div>
-          <div id="focusActionsList" style="font-size: 11px; max-height: 100px; overflow-y: auto;"></div>
-        </div>
-      </div>
     </div>
 
     <!-- Bot Control Panel -->
