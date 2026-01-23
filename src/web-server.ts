@@ -22,6 +22,9 @@ import {
   createConservativeBot as createFocusConservativeBot,
   createKellySizingBot,
   createContrarianOnlyBot as createFocusContrarianBot,
+  createEuphoriaFadeBot,
+  createBullDipBuyerBot,
+  createFullQuadrantBot,
   type FocusModeSignal,
   type SetupQuality,
   type Quadrant,
@@ -830,6 +833,15 @@ const focusShadowBots = new Map<string, FocusModeShadowBot>([
 
   // CONTRARIAN_ONLY: Only trades in NEU+BEAR and BEAR+BEAR quadrants
   ['focus-contrarian-only', createFocusContrarianBot()],
+
+  // EUPHORIA_FADE: Fades BULL+BULL (short when market is euphoric) - testing "high win rate" claim
+  ['focus-euphoria-fade', createEuphoriaFadeBot()],
+
+  // BULL_DIP: Buys BULL+BEAR (dips in macro bull market)
+  ['focus-bull-dip', createBullDipBuyerBot()],
+
+  // FULL_QUADRANT: Trades ALL quadrants except BEAR+BULL - comprehensive data collection
+  ['focus-full-quadrant', createFullQuadrantBot()],
 ]);
 
 // Experimental Shadow Bots - Testing different bias system combinations
@@ -2271,7 +2283,11 @@ function getFullState() {
                 key === 'focus-aggressive' ? 'Focus Aggressive' :
                 key === 'focus-conservative' ? 'Focus Conservative' :
                 key === 'focus-kelly' ? 'Focus Kelly Sizing' :
-                'Focus Contrarian-Only',
+                key === 'focus-contrarian-only' ? 'Focus Contrarian-Only' :
+                key === 'focus-euphoria-fade' ? 'Focus Euphoria Fade' :
+                key === 'focus-bull-dip' ? 'Focus Bull Dip Buyer' :
+                key === 'focus-full-quadrant' ? 'Focus Full Quadrant' :
+                key,
           description: key === 'focus-baseline' ? 'Standard rules, 5 max positions' :
                        key === 'focus-conflict' ? 'Closes on regime conflict' :
                        key === 'focus-excellent' ? '+2 positions for excellent setups' :
@@ -2279,7 +2295,11 @@ function getFullState() {
                        key === 'focus-aggressive' ? '1.5x leverage, 8 max positions' :
                        key === 'focus-conservative' ? '0.75x leverage, strict entries' :
                        key === 'focus-kelly' ? 'Kelly criterion sizing' :
-                       'NEU+BEAR & BEAR+BEAR only',
+                       key === 'focus-contrarian-only' ? 'NEU+BEAR & BEAR+BEAR only' :
+                       key === 'focus-euphoria-fade' ? 'BULL+BULL shorts - fade euphoria' :
+                       key === 'focus-bull-dip' ? 'BULL+BEAR longs - buy dips in uptrend' :
+                       key === 'focus-full-quadrant' ? 'ALL quadrants (except BEAR+BULL)' :
+                       'Unknown variant',
           regime: bot.getCurrentRegime(),
           balance: bot.getBalance(),
           unrealizedPnl: bot.getUnrealizedPnl(),

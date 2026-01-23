@@ -77,6 +77,24 @@ export async function initSchema(): Promise<void> {
       )
     `);
 
+    // Add new columns for regime analysis (will silently fail if already exist)
+    const newColumns = [
+      'entry_quadrant TEXT',
+      'entry_quality TEXT',
+      'entry_bias TEXT',
+      'trail_activated INTEGER',
+      'highest_pnl_percent REAL',
+      'entry_time TEXT',
+      'duration_ms INTEGER',
+    ];
+    for (const col of newColumns) {
+      try {
+        await client.execute(`ALTER TABLE trade_events ADD COLUMN ${col}`);
+      } catch {
+        // Column already exists, ignore
+      }
+    }
+
     // Signal events table
     await client.execute(`
       CREATE TABLE IF NOT EXISTS signal_events (
@@ -179,6 +197,14 @@ export async function insertTradeEvent(event: {
   signalRsi?: number;
   signalState?: string;
   impulsePercent?: number;
+  // New regime analysis fields
+  entryQuadrant?: string;
+  entryQuality?: string;
+  entryBias?: string;
+  trailActivated?: boolean;
+  highestPnlPercent?: number;
+  entryTime?: string;
+  durationMs?: number;
   [key: string]: unknown;
 }): Promise<void> {
   const client = getTurso();
@@ -192,8 +218,10 @@ export async function insertTradeEvent(event: {
         timestamp, date, event_type, bot_id, position_id, symbol, direction,
         timeframe, market_type, entry_price, exit_price, margin_used,
         notional_size, leverage, realized_pnl, realized_pnl_percent,
-        exit_reason, signal_rsi, signal_state, impulse_percent, data_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        exit_reason, signal_rsi, signal_state, impulse_percent,
+        entry_quadrant, entry_quality, entry_bias, trail_activated,
+        highest_pnl_percent, entry_time, duration_ms, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         event.timestamp,
         date,
@@ -215,6 +243,13 @@ export async function insertTradeEvent(event: {
         event.signalRsi || null,
         event.signalState || null,
         event.impulsePercent || null,
+        event.entryQuadrant || null,
+        event.entryQuality || null,
+        event.entryBias || null,
+        event.trailActivated ? 1 : 0,
+        event.highestPnlPercent || null,
+        event.entryTime || null,
+        event.durationMs || null,
         JSON.stringify(event),
       ],
     });

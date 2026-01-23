@@ -796,3 +796,61 @@ export function createContrarianOnlyBot(): FocusModeShadowBot {
     conflictGracePeriodMs: 3 * 60 * 1000,
   });
 }
+
+/**
+ * EUPHORIA_FADE: Fades bullish euphoria in BULL+BULL quadrant
+ * - Dashboard says this is "HIGH WIN RATE" for shorts
+ * - Only trades SHORT signals when macro AND micro are bullish
+ * - Contrarian "sell the top" strategy
+ * - Closes when regime becomes less bullish
+ */
+export function createEuphoriaFadeBot(): FocusModeShadowBot {
+  return new FocusModeShadowBot({
+    botId: 'focus-euphoria-fade',
+    maxPositions: 4,
+    maxExcellentOverflow: 1,
+    allowedQuadrants: ['BULL+BULL'],
+    closeOnConflict: true,
+    conflictGracePeriodMs: 3 * 60 * 1000,
+    minQualityScore: 55,  // Slightly higher bar for contrarian shorts
+    leverageMultiplier: 0.8,  // Conservative leverage for fighting the trend
+    maxLeverage: 15,
+  });
+}
+
+/**
+ * BULL_DIP_BUYER: Buys dips in macro bull markets
+ * - BULL+BEAR quadrant: macro bullish but micro bearish
+ * - Buy the dip in an uptrend
+ */
+export function createBullDipBuyerBot(): FocusModeShadowBot {
+  return new FocusModeShadowBot({
+    botId: 'focus-bull-dip',
+    maxPositions: 5,
+    maxExcellentOverflow: 2,
+    allowedQuadrants: ['BULL+BEAR'],
+    closeOnConflict: true,
+    conflictGracePeriodMs: 5 * 60 * 1000,
+    minQualityScore: 50,
+  });
+}
+
+/**
+ * FULL_QUADRANT: Trades ALL quadrants except BEAR+BULL (bull trap)
+ * - Comprehensive testing of all regime combinations
+ * - Used to collect data on which quadrants actually perform
+ */
+export function createFullQuadrantBot(): FocusModeShadowBot {
+  return new FocusModeShadowBot({
+    botId: 'focus-full-quadrant',
+    maxPositions: 6,
+    maxExcellentOverflow: 2,
+    allowedQuadrants: [
+      'NEU+BEAR', 'NEU+BULL', 'BEAR+BEAR', 'NEU+NEU',  // Original allowed
+      'BULL+BULL', 'BULL+BEAR', 'BULL+NEU', 'BEAR+NEU', // Add trend quadrants
+      // Note: BEAR+BULL (bull trap) is still excluded
+    ],
+    closeOnConflict: false,  // Don't close - we want to see how all quadrants perform
+    minQualityScore: 50,
+  });
+}

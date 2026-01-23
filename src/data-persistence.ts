@@ -87,6 +87,13 @@ export interface TradeEvent {
   signalRsi?: number;
   signalState?: string;
   impulsePercent?: number;
+
+  // Regime analysis fields (for Focus Mode / Experimental bots)
+  entryQuadrant?: string;
+  entryQuality?: string;
+  entryBias?: string;
+  trailActivated?: boolean;
+  highestPnlPercent?: number;
 }
 
 // Market conditions snapshot (logged periodically)
@@ -504,6 +511,14 @@ export class DataPersistence {
       realizedPnL: event.realizedPnL,
       realizedPnLPercent: event.realizedPnLPercent,
       exitReason: event.exitReason,
+      // Regime analysis fields
+      entryQuadrant: (position as any).entryQuadrant,
+      entryQuality: (position as any).entryQuality,
+      entryBias: (position as any).entryBias,
+      trailActivated: (position as any).trailActivated,
+      highestPnlPercent: (position as any).highestPnlPercent,
+      entryTime: event.entryTime,
+      durationMs: event.durationMs,
     }).catch(() => {}); // Fire and forget
   }
 
