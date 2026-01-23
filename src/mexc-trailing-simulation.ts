@@ -124,7 +124,13 @@ export class MexcTrailingSimulation {
   }
 
   private calculatePositionSize(): { margin: number; notional: number } {
-    const margin = this.balance * (this.config.positionSizePercent / 100);
+    // Calculate AVAILABLE balance (total minus capital in open positions)
+    const allocatedCapital = Array.from(this.positions.values())
+      .reduce((sum, p) => sum + p.marginUsed, 0);
+    const availableBalance = Math.max(0, this.balance - allocatedCapital);
+
+    // Calculate position size from AVAILABLE balance
+    const margin = availableBalance * (this.config.positionSizePercent / 100);
     const notional = margin * this.config.leverage;
     return { margin, notional };
   }

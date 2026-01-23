@@ -218,7 +218,10 @@ export class BtcBiasBot {
     currentPrice: number,
     bias: BiasLevel
   ): BtcBiasPosition {
-    const marginAmount = this.balance * (this.config.positionSizePercent / 100);
+    // For single-position bot, available = balance when no position open
+    const availableBalance = this.position ? 0 : this.balance;
+
+    const marginAmount = availableBalance * (this.config.positionSizePercent / 100);
     const notionalSize = marginAmount * this.config.leverage;
 
     // Calculate execution costs

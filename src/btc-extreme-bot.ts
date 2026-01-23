@@ -176,10 +176,13 @@ export class BTCExtremeBot {
   }
 
   /**
-   * Calculate position size
+   * Calculate position size from AVAILABLE balance
    */
   private calculatePositionSize(): { margin: number; notional: number } {
-    const margin = this.balance * (this.config.positionSizePercent / 100);
+    // For single-position bot, available = balance when no position open
+    const availableBalance = this.position ? 0 : this.balance;
+
+    const margin = availableBalance * (this.config.positionSizePercent / 100);
     const notional = margin * this.config.leverage;
     return { margin, notional };
   }
