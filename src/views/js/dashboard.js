@@ -455,8 +455,8 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Section collapse/expand state
-const sectionState = {
+// Section collapse/expand state - defaults (all expanded)
+const defaultSectionState = {
   altcoinBots: true,
   // btcBiasBots V1 REMOVED - see data/archived/BTC_BIAS_V1_EXPERIMENT.md
   mexcSim: true,
@@ -479,7 +479,36 @@ const sectionState = {
   gpStandard: true,
   gpAggressive: true,
   gpYolo: true,
+  // Experimental Bots
+  expBots: true,
 };
+
+// Load section state from localStorage, falling back to defaults
+function loadSectionState() {
+  try {
+    const saved = localStorage.getItem('backburner_sectionState');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Merge with defaults to handle new sections
+      return { ...defaultSectionState, ...parsed };
+    }
+  } catch (e) {
+    console.warn('[loadSectionState] Failed to load from localStorage:', e);
+  }
+  return { ...defaultSectionState };
+}
+
+// Save section state to localStorage
+function saveSectionState() {
+  try {
+    localStorage.setItem('backburner_sectionState', JSON.stringify(sectionState));
+  } catch (e) {
+    console.warn('[saveSectionState] Failed to save to localStorage:', e);
+  }
+}
+
+// Initialize section state from localStorage
+const sectionState = loadSectionState();
 
 function toggleSection(sectionId) {
   console.log('[toggleSection] Called for: ' + sectionId);
@@ -497,6 +526,8 @@ function toggleSection(sectionId) {
   } else {
     console.warn('[toggleSection] Elements not found for ' + sectionId + '. Content: ' + !!content + ', Toggle: ' + !!toggle);
   }
+  // Persist state to localStorage
+  saveSectionState();
 }
 
 function collapseAllSections() {
@@ -509,6 +540,7 @@ function collapseAllSections() {
       toggle.style.transform = 'rotate(-90deg)';
     }
   });
+  saveSectionState();
 }
 
 function expandAllSections() {
@@ -521,6 +553,28 @@ function expandAllSections() {
       toggle.style.transform = 'rotate(0deg)';
     }
   });
+  saveSectionState();
+}
+
+// Apply saved section states to DOM (call on page load)
+function applySectionStates() {
+  Object.keys(sectionState).forEach(id => {
+    const isExpanded = sectionState[id];
+    const content = document.getElementById(id + 'Content');
+    const toggle = document.getElementById(id + 'Toggle');
+    if (content && toggle) {
+      content.style.display = isExpanded ? 'block' : 'none';
+      toggle.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)';
+    }
+  });
+}
+
+// Apply section states once DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', applySectionStates);
+} else {
+  // DOM already loaded
+  applySectionStates();
 }
 
 function renderCheckResults(data) {
