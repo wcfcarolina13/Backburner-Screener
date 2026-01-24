@@ -4,10 +4,89 @@
 
 ## Summary
 
-- Iterations completed: 28
-- Current status: Turso Data Logging Enhanced + New Quadrant Test Bots
+- Iterations completed: 29
+- Current status: MEXC Futures Trading Client Complete
 
-## Current Task: Database Analysis & Data Collection Improvements
+## Current Task: MEXC Live Execution Integration
+
+### Iteration 29 - MEXC Futures API Client (Cookie Bypass)
+**Date**: 2026-01-24
+**Status**: ✅ Complete
+
+**Goal**: Implement automated trading capability on MEXC Futures using the cookie bypass method (since official API has been "under maintenance" since July 2022).
+
+**Key Accomplishments**:
+
+1. **MEXC Futures Client** (`src/mexc-futures-client.ts`):
+   - Cookie-based authentication using `u_id` browser cookie
+   - MD5-based signature algorithm for request signing
+   - Full order management: create, cancel, cancel all
+   - Position management: get positions, close positions
+   - Plan orders (SL/TP): create, modify, cancel
+   - Helper methods: `setStopLoss()`, `setTakeProfit()`, `closePosition()`
+   - Auto-cancels plan orders when closing positions
+
+2. **Successful Test Trade**:
+   - Opened DOGE_USDT LONG, 1 contract, 2x leverage
+   - Set stop-loss at 2% below entry
+   - Set take-profit at 5% above entry
+   - Adjusted stop-loss to 1% below entry
+   - Closed position successfully
+   - Final balance: $120.02 (started with $120.00)
+
+3. **Cookie Refresh Daemon** (`scripts/mexc-cookie-daemon.ts`):
+   - Uses Playwright for persistent browser context
+   - Saves browser state to `.mexc-browser-state.json`
+   - `--setup` mode for initial login
+   - `--once` mode for cron/single refresh
+   - Daemon mode checks every 30 minutes
+   - macOS LaunchAgent plist for background execution
+
+**API Endpoints Implemented**:
+- `GET /private/account/assets` - Balance
+- `GET /private/position/open_positions` - Positions
+- `POST /private/order/create` - Place order
+- `POST /private/order/cancel` - Cancel order
+- `POST /private/planorder/place` - Create SL/TP trigger
+- `POST /private/planorder/cancel` - Cancel trigger
+- `POST /private/planorder/cancel_all` - Cancel all triggers
+- `GET /contract/ticker` - Get price
+
+**Plan Order Parameters** (discovered via testing):
+- `triggerType`: 1 = >=, 2 = <=
+- `trend`: 1 = latest price, 2 = fair price, 3 = index price
+- `executeCycle`: 1 = 24 hours, 2 = 7 days
+- `orderType`: 1 = limit, 5 = market
+- `openType`: 1 = isolated, 2 = cross
+
+**Files Created**:
+- `src/mexc-futures-client.ts` - Main API client
+- `scripts/test-mexc-connection.ts` - Connection test
+- `scripts/test-trade.ts` - Trade execution test
+- `scripts/test-sltp.ts` - SL/TP and close test
+- `scripts/cleanup-orders.ts` - Cancel orphaned orders
+- `scripts/mexc-cookie-daemon.ts` - Cookie refresh daemon
+- `scripts/install-mexc-daemon.sh` - macOS service installer
+- `scripts/com.backburner.mexc-cookie.plist` - LaunchAgent config
+
+**Files Modified**:
+- `.gitignore` - Added browser state files
+- `package.json` - Added Playwright dependency
+
+**Commits**:
+- `09525ee` "feat: Add stop-loss/take-profit and position management for MEXC"
+- `925f262` "feat: Add MEXC cookie refresh daemon with Playwright"
+
+**Next Steps** (for future iterations):
+1. Wire MEXC client into execution bridge (`src/execution-bridge.ts`)
+2. Connect bots to live trading via the bridge
+3. Add position reconciliation with MEXC
+4. Test shadow mode (log trades but don't execute)
+5. Implement circuit breakers for safety
+
+---
+
+## Previous Task: Database Analysis & Data Collection Improvements
 
 ### Iteration 28 - Turso Database Analysis & Quadrant Data Logging
 **Date**: 2026-01-23
