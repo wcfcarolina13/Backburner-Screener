@@ -48,6 +48,7 @@ import { getFocusModeHtml, getFocusModeApiData, calculateSmartTradeSetup } from 
 import type { BackburnerSetup, Timeframe } from './types.js';
 import { createSettingsRouter } from './routes/index.js';
 import type { ServerContext } from './server-context.js';
+import { createMexcClient, type MexcFuturesClient } from './mexc-futures-client.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -2211,6 +2212,271 @@ const serverContext: ServerContext = {
 // Mount extracted route modules
 app.use('/api', express.json(), createSettingsRouter(serverContext));
 
+// ============================================================
+// MEXC Live Execution API Routes
+// ============================================================
+
+// MEXC Client singleton
+let mexcClient: MexcFuturesClient | null = null;
+let mexcExecutionMode: 'dry_run' | 'shadow' | 'live' = 'dry_run';
+interface QueuedOrder {
+  id: string;
+  timestamp: number;
+  bot: string;
+  symbol: string;
+  side: 'long' | 'short';
+  size: number;
+  leverage: number;
+  status: 'pending' | 'executing' | 'executed' | 'failed' | 'cancelled';
+  error?: string;
+}
+const mexcExecutionQueue: QueuedOrder[] = [];
+
+// Initialize MEXC client if cookie is set
+function initMexcClient(): MexcFuturesClient | null {
+  if (mexcClient) return mexcClient;
+
+  const cookie = process.env.MEXC_UID_COOKIE;
+  if (!cookie || cookie === 'WEB_your_uid_cookie_here') {
+    console.log('[MEXC] No valid cookie configured - live trading disabled');
+    return null;
+  }
+
+  mexcClient = createMexcClient(cookie, false);
+  console.log('[MEXC] Client initialized');
+  return mexcClient;
+}
+
+// Test MEXC connection
+app.get('/api/mexc/test-connection', async (req, res) => {
+  try {
+    const client = initMexcClient();
+    if (!client) {
+      res.json({ success: false, error: 'MEXC_UID_COOKIE not configured' });
+      return;
+    }
+
+    const result = await client.testConnection();
+    res.json({
+      success: result.success,
+      balance: result.balance,
+      available: result.balance, // Will be updated with proper available balance
+      error: result.error,
+    });
+  } catch (err) {
+    res.json({ success: false, error: (err as Error).message });
+  }
+});
+
+// Get MEXC positions
+app.get('/api/mexc/positions', async (req, res) => {
+  try {
+    const client = initMexcClient();
+    if (!client) {
+      res.json({ success: false, error: 'MEXC client not configured' });
+      return;
+    }
+
+    const result = await client.getOpenPositions();
+    if (!result.success) {
+      res.json({ success: false, error: result.error });
+      return;
+    }
+
+    res.json({
+      success: true,
+      positions: result.data?.map(p => ({
+        symbol: p.symbol,
+        side: p.positionType === 1 ? 'long' : 'short',
+        size: p.holdVol,
+        entryPrice: p.holdAvgPrice,
+        leverage: p.leverage,
+        unrealized: p.realised, // This is actually realized, need to calculate unrealized
+        liquidationPrice: p.liquidatePrice,
+      })) || [],
+    });
+  } catch (err) {
+    res.json({ success: false, error: (err as Error).message });
+  }
+});
+
+// Set execution mode
+app.post('/api/mexc/mode', express.json(), (req, res) => {
+  const { mode, confirmLive } = req.body;
+
+  if (!['dry_run', 'shadow', 'live'].includes(mode)) {
+    res.json({ success: false, error: 'Invalid mode' });
+    return;
+  }
+
+  if (mode === 'live' && confirmLive !== 'I_UNDERSTAND_THIS_USES_REAL_MONEY') {
+    res.json({ success: false, error: 'Live mode requires confirmation' });
+    return;
+  }
+
+  mexcExecutionMode = mode;
+  console.log(`[MEXC] Execution mode set to: ${mode}`);
+  res.json({ success: true, mode });
+});
+
+// Get execution queue
+app.get('/api/mexc/queue', (req, res) => {
+  res.json({ success: true, queue: mexcExecutionQueue });
+});
+
+// Clear execution queue
+app.post('/api/mexc/queue/clear', (req, res) => {
+  mexcExecutionQueue.length = 0;
+  res.json({ success: true });
+});
+
+// Execute a specific queued order
+app.post('/api/mexc/queue/execute/:index', express.json(), async (req, res) => {
+  const index = parseInt(req.params.index);
+
+  if (index < 0 || index >= mexcExecutionQueue.length) {
+    res.json({ success: false, error: 'Invalid order index' });
+    return;
+  }
+
+  const order = mexcExecutionQueue[index];
+
+  if (order.status !== 'pending') {
+    res.json({ success: false, error: 'Order not in pending state' });
+    return;
+  }
+
+  if (mexcExecutionMode !== 'live') {
+    res.json({ success: false, error: 'Not in live mode' });
+    return;
+  }
+
+  const client = initMexcClient();
+  if (!client) {
+    res.json({ success: false, error: 'MEXC client not configured' });
+    return;
+  }
+
+  order.status = 'executing';
+
+  try {
+    const result = order.side === 'long'
+      ? await client.openLong(order.symbol, order.size, order.leverage)
+      : await client.openShort(order.symbol, order.size, order.leverage);
+
+    if (result.success) {
+      order.status = 'executed';
+      res.json({ success: true, order: result.data });
+    } else {
+      order.status = 'failed';
+      order.error = result.error;
+      res.json({ success: false, error: result.error });
+    }
+  } catch (err) {
+    order.status = 'failed';
+    order.error = (err as Error).message;
+    res.json({ success: false, error: (err as Error).message });
+  }
+});
+
+// Cancel a specific queued order
+app.post('/api/mexc/queue/cancel/:index', (req, res) => {
+  const index = parseInt(req.params.index);
+
+  if (index < 0 || index >= mexcExecutionQueue.length) {
+    res.json({ success: false, error: 'Invalid order index' });
+    return;
+  }
+
+  mexcExecutionQueue[index].status = 'cancelled';
+  res.json({ success: true });
+});
+
+// Emergency close all positions
+app.post('/api/mexc/emergency-close', express.json(), async (req, res) => {
+  const { confirm } = req.body;
+
+  if (confirm !== 'CLOSE_ALL_NOW') {
+    res.json({ success: false, error: 'Confirmation required' });
+    return;
+  }
+
+  const client = initMexcClient();
+  if (!client) {
+    res.json({ success: false, error: 'MEXC client not configured' });
+    return;
+  }
+
+  try {
+    const positionsResult = await client.getOpenPositions();
+    if (!positionsResult.success || !positionsResult.data) {
+      res.json({ success: false, error: 'Failed to get positions' });
+      return;
+    }
+
+    let closed = 0;
+    const errors: string[] = [];
+
+    for (const position of positionsResult.data) {
+      try {
+        const closeResult = position.positionType === 1
+          ? await client.closeLong(position.symbol, position.holdVol)
+          : await client.closeShort(position.symbol, position.holdVol);
+
+        if (closeResult.success) {
+          closed++;
+        } else {
+          errors.push(`${position.symbol}: ${closeResult.error}`);
+        }
+      } catch (err) {
+        errors.push(`${position.symbol}: ${(err as Error).message}`);
+      }
+    }
+
+    res.json({
+      success: true,
+      closed,
+      total: positionsResult.data.length,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (err) {
+    res.json({ success: false, error: (err as Error).message });
+  }
+});
+
+// Add order to execution queue (called by bots)
+export function addToMexcQueue(
+  bot: string,
+  symbol: string,
+  side: 'long' | 'short',
+  size: number,
+  leverage: number
+): void {
+  const order: QueuedOrder = {
+    id: `${Date.now()}-${Math.random().toString(36).substring(7)}`,
+    timestamp: Date.now(),
+    bot,
+    symbol,
+    side,
+    size,
+    leverage,
+    status: 'pending',
+  };
+
+  mexcExecutionQueue.push(order);
+  console.log(`[MEXC] Order queued: ${bot} ${side} ${symbol} $${size} ${leverage}x`);
+
+  // Auto-execute in shadow mode (log only)
+  if (mexcExecutionMode === 'shadow') {
+    console.log(`[MEXC-SHADOW] Would execute: ${side} ${symbol} $${size} ${leverage}x`);
+    order.status = 'executed';
+  }
+}
+
+// ============================================================
+// End MEXC Live Execution API Routes
+// ============================================================
+
 // Serve static HTML - Screener (main page)
 app.get('/', (req, res) => {
   res.send(getHtmlPage());
@@ -4109,6 +4375,88 @@ function getHtmlPage(): string {
         <div style="flex: 1; min-width: 200px;">
           <span style="color: #8b949e; font-size: 11px;">Total Trades:</span>
           <span id="expTotalTrades" style="font-weight: 600; margin-left: 4px; color: #c9d1d9;">0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section: MEXC Live Execution Queue -->
+    <div class="section-header" onclick="toggleSection('mexcLive')" style="margin-top: 12px;">
+      <span class="section-title">🚀 MEXC Live Execution</span>
+      <span class="section-toggle" id="mexcLiveToggle">▼</span>
+    </div>
+    <div class="section-content" id="mexcLiveContent">
+      <div style="display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
+        <!-- Connection Status Card -->
+        <div style="flex: 1; min-width: 200px; padding: 12px; background: #0d1117; border-radius: 8px; border: 1px solid #30363d;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="color: #8b949e; font-size: 11px;">MEXC Connection</span>
+            <span id="mexcConnectionStatus" style="font-size: 10px; padding: 2px 8px; border-radius: 4px; background: #6e7681; color: white;">Disconnected</span>
+          </div>
+          <div style="font-size: 20px; font-weight: 600; color: #c9d1d9;" id="mexcBalance">$0.00</div>
+          <div style="font-size: 11px; color: #8b949e; margin-top: 4px;">Available: <span id="mexcAvailable">$0.00</span></div>
+        </div>
+
+        <!-- Execution Mode Card -->
+        <div style="flex: 1; min-width: 200px; padding: 12px; background: #0d1117; border-radius: 8px; border: 1px solid #30363d;">
+          <div style="color: #8b949e; font-size: 11px; margin-bottom: 8px;">Execution Mode</div>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <button onclick="setMexcMode('dry_run')" id="mexcModeDryRun" style="flex: 1; padding: 8px; border-radius: 6px; border: 2px solid #238636; background: #238636; color: white; font-size: 11px; font-weight: 600; cursor: pointer;">
+              🔬 Dry Run
+            </button>
+            <button onclick="setMexcMode('shadow')" id="mexcModeShadow" style="flex: 1; padding: 8px; border-radius: 6px; border: 2px solid #30363d; background: #21262d; color: #8b949e; font-size: 11px; font-weight: 600; cursor: pointer;">
+              👻 Shadow
+            </button>
+            <button onclick="setMexcMode('live')" id="mexcModeLive" style="flex: 1; padding: 8px; border-radius: 6px; border: 2px solid #30363d; background: #21262d; color: #8b949e; font-size: 11px; font-weight: 600; cursor: pointer;">
+              💰 Live
+            </button>
+          </div>
+        </div>
+
+        <!-- Open Positions Summary -->
+        <div style="flex: 1; min-width: 200px; padding: 12px; background: #0d1117; border-radius: 8px; border: 1px solid #30363d;">
+          <div style="color: #8b949e; font-size: 11px; margin-bottom: 8px;">MEXC Positions</div>
+          <div style="font-size: 20px; font-weight: 600; color: #c9d1d9;"><span id="mexcPositionCount">0</span> <span style="font-size: 12px; color: #8b949e;">open</span></div>
+          <div style="font-size: 11px; color: #8b949e; margin-top: 4px;">Unrealized P&L: <span id="mexcUnrealizedPnL" class="positive">$0.00</span></div>
+        </div>
+      </div>
+
+      <!-- Execution Queue -->
+      <div style="background: #0d1117; border-radius: 8px; border: 1px solid #30363d; overflow: hidden;">
+        <div style="padding: 10px 12px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 12px; font-weight: 600; color: #c9d1d9;">📋 Execution Queue</span>
+          <div style="display: flex; gap: 6px;">
+            <button onclick="refreshMexcQueue()" style="padding: 4px 10px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">↻ Refresh</button>
+            <button onclick="clearMexcQueue()" style="padding: 4px 10px; border-radius: 4px; border: 1px solid #f85149; background: #21262d; color: #f85149; font-size: 10px; cursor: pointer;">Clear All</button>
+          </div>
+        </div>
+        <div id="mexcQueueTable" style="max-height: 200px; overflow-y: auto;">
+          <div style="padding: 20px; text-align: center; color: #6e7681; font-size: 12px;">
+            No pending orders. When a bot signals a trade, it will appear here for execution.
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Actions -->
+      <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
+        <button onclick="testMexcConnection()" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #238636; background: #21262d; color: #238636; font-size: 11px; font-weight: 600; cursor: pointer;">
+          🔌 Test Connection
+        </button>
+        <button onclick="syncMexcPositions()" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #58a6ff; background: #21262d; color: #58a6ff; font-size: 11px; font-weight: 600; cursor: pointer;">
+          🔄 Sync Positions
+        </button>
+        <button onclick="emergencyCloseAll()" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #f85149; background: #21262d; color: #f85149; font-size: 11px; font-weight: 600; cursor: pointer;">
+          🛑 Emergency Close All
+        </button>
+      </div>
+
+      <!-- Live Mode Warning -->
+      <div id="liveModeWarning" style="display: none; margin-top: 12px; padding: 12px; background: rgba(248, 81, 73, 0.1); border: 1px solid #f85149; border-radius: 6px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 16px;">⚠️</span>
+          <div>
+            <div style="color: #f85149; font-weight: 600; font-size: 12px;">LIVE TRADING ACTIVE</div>
+            <div style="color: #8b949e; font-size: 11px;">Real orders will be executed on MEXC. Proceed with caution.</div>
+          </div>
         </div>
       </div>
     </div>

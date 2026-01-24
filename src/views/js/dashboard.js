@@ -2614,3 +2614,321 @@ setTimeout(refreshBtcRsi, 1000);
 
 // Auto-refresh every 30 seconds (faster for BTC bots)
 setInterval(refreshBtcRsi, 30000);
+
+// ============================================================
+// MEXC Live Execution Queue Functions
+// ============================================================
+
+let mexcCurrentMode = 'dry_run';
+let mexcConnectionActive = false;
+
+// Test MEXC API connection
+async function testMexcConnection() {
+  const statusEl = document.getElementById('mexcConnectionStatus');
+  const balanceEl = document.getElementById('mexcBalance');
+  const availableEl = document.getElementById('mexcAvailable');
+
+  statusEl.textContent = 'Testing...';
+  statusEl.style.background = '#d29922';
+
+  try {
+    const response = await fetch('/api/mexc/test-connection');
+    const data = await response.json();
+
+    if (data.success) {
+      mexcConnectionActive = true;
+      statusEl.textContent = 'Connected';
+      statusEl.style.background = '#238636';
+      balanceEl.textContent = '$' + (data.balance || 0).toFixed(2);
+      availableEl.textContent = '$' + (data.available || 0).toFixed(2);
+      showToast('MEXC connection successful!', 'success');
+    } else {
+      mexcConnectionActive = false;
+      statusEl.textContent = 'Error';
+      statusEl.style.background = '#f85149';
+      showToast('MEXC connection failed: ' + (data.error || 'Unknown error'), 'error');
+    }
+  } catch (err) {
+    mexcConnectionActive = false;
+    statusEl.textContent = 'Offline';
+    statusEl.style.background = '#6e7681';
+    showToast('MEXC API error: ' + err.message, 'error');
+  }
+}
+
+// Sync positions from MEXC
+async function syncMexcPositions() {
+  const posCountEl = document.getElementById('mexcPositionCount');
+  const unrealEl = document.getElementById('mexcUnrealizedPnL');
+
+  try {
+    const response = await fetch('/api/mexc/positions');
+    const data = await response.json();
+
+    if (data.success) {
+      const positions = data.positions || [];
+      posCountEl.textContent = positions.length;
+
+      let totalUnreal = 0;
+      positions.forEach(p => totalUnreal += p.unrealized || 0);
+
+      unrealEl.textContent = '$' + totalUnreal.toFixed(2);
+      unrealEl.className = totalUnreal >= 0 ? 'positive' : 'negative';
+
+      showToast('Synced ' + positions.length + ' positions from MEXC', 'success');
+    } else {
+      showToast('Failed to sync positions: ' + (data.error || 'Unknown error'), 'error');
+    }
+  } catch (err) {
+    showToast('Error syncing positions: ' + err.message, 'error');
+  }
+}
+
+// Set execution mode
+async function setMexcMode(mode) {
+  if (mode === 'live' && !confirm('⚠️ WARNING: Live mode will execute REAL trades with REAL money on MEXC!\\n\\nAre you absolutely sure you want to enable live trading?')) {
+    return;
+  }
+
+  const buttons = {
+    dry_run: document.getElementById('mexcModeDryRun'),
+    shadow: document.getElementById('mexcModeShadow'),
+    live: document.getElementById('mexcModeLive')
+  };
+
+  const warningEl = document.getElementById('liveModeWarning');
+
+  // Reset all buttons
+  Object.values(buttons).forEach(btn => {
+    btn.style.background = '#21262d';
+    btn.style.borderColor = '#30363d';
+    btn.style.color = '#8b949e';
+  });
+
+  // Highlight selected
+  const selectedBtn = buttons[mode];
+  if (mode === 'dry_run') {
+    selectedBtn.style.background = '#238636';
+    selectedBtn.style.borderColor = '#238636';
+    selectedBtn.style.color = 'white';
+  } else if (mode === 'shadow') {
+    selectedBtn.style.background = '#6e40c9';
+    selectedBtn.style.borderColor = '#6e40c9';
+    selectedBtn.style.color = 'white';
+  } else if (mode === 'live') {
+    selectedBtn.style.background = '#f85149';
+    selectedBtn.style.borderColor = '#f85149';
+    selectedBtn.style.color = 'white';
+  }
+
+  // Show/hide live warning
+  warningEl.style.display = mode === 'live' ? 'block' : 'none';
+
+  mexcCurrentMode = mode;
+
+  // Notify server
+  try {
+    const body = { mode };
+    if (mode === 'live') {
+      body.confirmLive = 'I_UNDERSTAND_THIS_USES_REAL_MONEY';
+    }
+
+    const response = await fetch('/api/mexc/mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    const data = await response.json();
+    if (data.success) {
+      const modeNames = { dry_run: 'Dry Run', shadow: 'Shadow', live: 'LIVE' };
+      showToast('Execution mode set to ' + modeNames[mode], mode === 'live' ? 'warning' : 'success');
+    }
+  } catch (err) {
+    console.error('Failed to set MEXC mode:', err);
+  }
+}
+
+// Refresh execution queue
+async function refreshMexcQueue() {
+  const queueTable = document.getElementById('mexcQueueTable');
+
+  try {
+    const response = await fetch('/api/mexc/queue');
+    const data = await response.json();
+
+    if (!data.queue || data.queue.length === 0) {
+      queueTable.innerHTML = '<div style="padding: 20px; text-align: center; color: #6e7681; font-size: 12px;">No pending orders. When a bot signals a trade, it will appear here for execution.</div>';
+      return;
+    }
+
+    let html = '<table style="width: 100%; font-size: 11px;">';
+    html += '<thead style="background: #161b22;"><tr>';
+    html += '<th style="padding: 6px 8px; text-align: left; color: #8b949e;">Time</th>';
+    html += '<th style="padding: 6px 8px; text-align: left; color: #8b949e;">Bot</th>';
+    html += '<th style="padding: 6px 8px; text-align: left; color: #8b949e;">Symbol</th>';
+    html += '<th style="padding: 6px 8px; text-align: left; color: #8b949e;">Side</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: #8b949e;">Size</th>';
+    html += '<th style="padding: 6px 8px; text-align: center; color: #8b949e;">Status</th>';
+    html += '<th style="padding: 6px 8px; text-align: center; color: #8b949e;">Actions</th>';
+    html += '</tr></thead><tbody>';
+
+    data.queue.forEach((order, idx) => {
+      const sideColor = order.side === 'long' ? '#3fb950' : '#f85149';
+      const sideIcon = order.side === 'long' ? '🟢' : '🔴';
+      const statusColors = {
+        pending: '#d29922',
+        executing: '#58a6ff',
+        executed: '#238636',
+        failed: '#f85149',
+        cancelled: '#6e7681'
+      };
+
+      html += '<tr style="border-bottom: 1px solid #21262d;">';
+      html += '<td style="padding: 6px 8px; color: #8b949e;">' + new Date(order.timestamp).toLocaleTimeString() + '</td>';
+      html += '<td style="padding: 6px 8px; color: #c9d1d9;">' + order.bot + '</td>';
+      html += '<td style="padding: 6px 8px; color: #58a6ff; font-weight: 600;">' + order.symbol + '</td>';
+      html += '<td style="padding: 6px 8px; color: ' + sideColor + ';">' + sideIcon + ' ' + order.side.toUpperCase() + '</td>';
+      html += '<td style="padding: 6px 8px; text-align: right; color: #c9d1d9;">$' + order.size.toFixed(0) + '</td>';
+      html += '<td style="padding: 6px 8px; text-align: center;"><span style="padding: 2px 6px; border-radius: 4px; background: ' + statusColors[order.status] + '; color: white; font-size: 10px;">' + order.status + '</span></td>';
+      html += '<td style="padding: 6px 8px; text-align: center;">';
+      if (order.status === 'pending') {
+        html += '<button onclick="executeQueuedOrder(' + idx + ')" style="padding: 2px 8px; border-radius: 4px; border: none; background: #238636; color: white; font-size: 10px; cursor: pointer; margin-right: 4px;">Execute</button>';
+        html += '<button onclick="cancelQueuedOrder(' + idx + ')" style="padding: 2px 8px; border-radius: 4px; border: none; background: #f85149; color: white; font-size: 10px; cursor: pointer;">Cancel</button>';
+      }
+      html += '</td>';
+      html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+    queueTable.innerHTML = html;
+
+  } catch (err) {
+    queueTable.innerHTML = '<div style="padding: 20px; text-align: center; color: #f85149; font-size: 12px;">Error loading queue: ' + err.message + '</div>';
+  }
+}
+
+// Clear all queued orders
+async function clearMexcQueue() {
+  if (!confirm('Clear all pending orders from the queue?')) {
+    return;
+  }
+
+  try {
+    await fetch('/api/mexc/queue/clear', { method: 'POST' });
+    showToast('Queue cleared', 'success');
+    refreshMexcQueue();
+  } catch (err) {
+    showToast('Error clearing queue: ' + err.message, 'error');
+  }
+}
+
+// Execute a specific queued order
+async function executeQueuedOrder(index) {
+  if (mexcCurrentMode !== 'live') {
+    showToast('Cannot execute - not in live mode', 'warning');
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/mexc/queue/execute/' + index, { method: 'POST' });
+    const data = await response.json();
+
+    if (data.success) {
+      showToast('Order executed successfully!', 'success');
+    } else {
+      showToast('Execution failed: ' + (data.error || 'Unknown error'), 'error');
+    }
+
+    refreshMexcQueue();
+  } catch (err) {
+    showToast('Error executing order: ' + err.message, 'error');
+  }
+}
+
+// Cancel a specific queued order
+async function cancelQueuedOrder(index) {
+  try {
+    await fetch('/api/mexc/queue/cancel/' + index, { method: 'POST' });
+    showToast('Order cancelled', 'success');
+    refreshMexcQueue();
+  } catch (err) {
+    showToast('Error cancelling order: ' + err.message, 'error');
+  }
+}
+
+// Emergency close all positions
+async function emergencyCloseAll() {
+  if (!confirm('⚠️ EMERGENCY CLOSE\\n\\nThis will close ALL open positions on MEXC immediately.\\n\\nAre you sure?')) {
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/mexc/emergency-close', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: 'CLOSE_ALL_NOW' })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      showToast('Emergency close executed: ' + data.closed + ' positions closed', 'warning');
+      syncMexcPositions();
+    } else {
+      showToast('Emergency close failed: ' + (data.error || 'Unknown error'), 'error');
+    }
+  } catch (err) {
+    showToast('Error during emergency close: ' + err.message, 'error');
+  }
+}
+
+// Helper: show toast notification
+function showToast(message, type = 'info') {
+  // Check if toast container exists, create if not
+  let container = document.getElementById('toastContainer');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toastContainer';
+    container.style.cssText = 'position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px;';
+    document.body.appendChild(container);
+  }
+
+  const colors = {
+    success: '#238636',
+    error: '#f85149',
+    warning: '#d29922',
+    info: '#58a6ff'
+  };
+
+  const toast = document.createElement('div');
+  toast.style.cssText = 'padding: 12px 16px; border-radius: 6px; background: #161b22; border: 1px solid ' + colors[type] + '; color: #c9d1d9; font-size: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); animation: slideIn 0.3s ease;';
+  toast.innerHTML = '<span style="color: ' + colors[type] + '; margin-right: 8px;">' + (type === 'success' ? '✓' : type === 'error' ? '✗' : type === 'warning' ? '⚠' : 'ℹ') + '</span>' + message;
+
+  container.appendChild(toast);
+
+  // Auto-remove after 4 seconds
+  setTimeout(() => {
+    toast.style.animation = 'slideOut 0.3s ease';
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
+}
+
+// Add CSS animation for toasts
+const toastStyles = document.createElement('style');
+toastStyles.textContent = '@keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } } @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }';
+document.head.appendChild(toastStyles);
+
+// Initialize MEXC section on page load
+setTimeout(() => {
+  testMexcConnection();
+  refreshMexcQueue();
+}, 2000);
+
+// Auto-refresh MEXC data every 30 seconds
+setInterval(() => {
+  if (mexcConnectionActive) {
+    syncMexcPositions();
+    refreshMexcQueue();
+  }
+}, 30000);
