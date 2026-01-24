@@ -346,6 +346,193 @@ export class MexcFuturesClient {
     });
   }
 
+  // ============ Stop Order / Plan Order Endpoints ============
+
+  /**
+   * Get stop orders (SL/TP orders) for a position
+   */
+  async getStopOrders(symbol: string, pageNum = 1, pageSize = 20): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    return this.makeRequest<any[]>('GET', `/private/stoporder/list/orders/${symbol}`, {
+      page_num: pageNum.toString(),
+      page_size: pageSize.toString(),
+    });
+  }
+
+  /**
+   * Create a stop order (SL or TP) for a position
+   * This creates a trigger order that executes when price hits the specified level
+   *
+   * @param symbol - Contract symbol (e.g., 'DOGE_USDT')
+   * @param vol - Volume to close
+   * @param side - 1=open long, 2=close short, 3=open short, 4=close long
+   * @param triggerPrice - Price that triggers the order
+   * @param triggerType - Comparison: 1=greater than or equal, 2=less than or equal
+   * @param trend - Price type: 1=latest price, 2=fair price, 3=index price
+   * @param executeCycle - Duration: 1=24 hours, 2=7 days
+   * @param orderType - 1=limit, 5=market
+   * @param openType - 1=isolated, 2=cross
+   */
+  async createStopOrder(params: {
+    symbol: string;
+    vol: number;
+    side: OrderSide; // CLOSE_LONG (4) for long SL/TP, CLOSE_SHORT (2) for short SL/TP
+    triggerPrice: number;
+    triggerType: number; // 1=>=, 2=<=
+    trend?: number; // 1=latest, 2=fair, 3=index (default: 1)
+    executeCycle?: number; // 1=24h, 2=7d (default: 2)
+    orderType?: number; // 1=limit, 5=market (default: 5)
+    openType?: number; // 1=isolated, 2=cross (default: 1)
+    price?: number; // Required for limit orders
+    leverage?: number; // Required for isolated margin
+  }): Promise<{ success: boolean; data?: any; error?: string }> {
+    const payload: Record<string, unknown> = {
+      symbol: params.symbol,
+      vol: params.vol,
+      side: params.side,
+      triggerPrice: params.triggerPrice,
+      triggerType: params.triggerType,
+      trend: params.trend || 1, // Default: latest price
+      executeCycle: params.executeCycle || 2, // Default: 7 days
+      orderType: params.orderType || 5, // Default: market
+      openType: params.openType || 1, // Default: isolated
+    };
+
+    // Add price for limit orders
+    if (params.orderType === 1 && params.price !== undefined) {
+      payload.price = params.price;
+    }
+
+    // Add leverage for isolated margin
+    if (params.leverage !== undefined) {
+      payload.leverage = params.leverage;
+    }
+
+    console.log('[MEXC] Creating plan order:', payload);
+    return this.makeRequest<any>('POST', '/private/planorder/place', payload);
+  }
+
+  /**
+   * Cancel a stop order
+   */
+  async cancelStopOrder(orderId: string): Promise<{ success: boolean; error?: string }> {
+    return this.makeRequest('POST', '/private/stoporder/cancel', { orderId });
+  }
+
+  /**
+   * Modify stop order prices
+   * Note: This is for modifying an existing stop order's trigger price
+   */
+  async modifyStopOrder(params: {
+    stopPlanOrderId: string;
+    stopLossPrice?: number;
+    takeProfitPrice?: number;
+  }): Promise<{ success: boolean; error?: string }> {
+    const payload: Record<string, unknown> = {
+      stopPlanOrderId: params.stopPlanOrderId,
+    };
+    if (params.stopLossPrice !== undefined) payload.stopLossPrice = params.stopLossPrice;
+    if (params.takeProfitPrice !== undefined) payload.takeProfitPrice = params.takeProfitPrice;
+
+    return this.makeRequest('POST', '/private/stoporder/change_plan_price', payload);
+  }
+
+  /**
+   * Get plan orders (trigger orders)
+   */
+  async getPlanOrders(symbol: string): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    return this.makeRequest<any[]>('GET', `/private/planorder/list/orders/${symbol}`);
+  }
+
+  /**
+   * Cancel a plan order
+   */
+  async cancelPlanOrder(orderId: string): Promise<{ success: boolean; error?: string }> {
+    return this.makeRequest('POST', '/private/planorder/cancel', { orderId });
+  }
+
+  /**
+   * Cancel all plan orders for a symbol
+   */
+  async cancelAllPlanOrders(symbol: string): Promise<{ success: boolean; error?: string }> {
+    return this.makeRequest('POST', '/private/planorder/cancel_all', { symbol });
+  }
+
+  /**
+   * Helper: Set stop-loss for an existing position
+   * Creates a market order that triggers when price drops to stopPrice (for longs)
+   * or rises to stopPrice (for shorts)
+   */
+  async setStopLoss(
+    symbol: string,
+    stopPrice: number,
+    volume?: number // If not provided, uses full position
+  ): Promise<{ success: boolean; data?: any; error?: string }> {
+    // Get the position info
+    const posResult = await this.getPosition(symbol);
+    if (!posResult.success || !posResult.data) {
+      return { success: false, error: posResult.error || 'No position found' };
+    }
+
+    const position = posResult.data;
+    const vol = volume || position.holdVol;
+    const isLong = position.positionType === 1;
+    const side = isLong ? OrderSide.CLOSE_LONG : OrderSide.CLOSE_SHORT;
+
+    // For stop-loss:
+    // - Long position: trigger when price <= stopPrice (falling)
+    // - Short position: trigger when price >= stopPrice (rising)
+    const triggerType = isLong ? 2 : 1; // 2=<=, 1=>=
+
+    return this.createStopOrder({
+      symbol,
+      vol,
+      side,
+      triggerPrice: stopPrice,
+      triggerType,
+      trend: 1, // Use latest price
+      openType: position.openType || 1,
+      leverage: position.leverage,
+    });
+  }
+
+  /**
+   * Helper: Set take-profit for an existing position
+   * Creates a market order that triggers when price rises to targetPrice (for longs)
+   * or drops to targetPrice (for shorts)
+   */
+  async setTakeProfit(
+    symbol: string,
+    targetPrice: number,
+    volume?: number // If not provided, uses full position
+  ): Promise<{ success: boolean; data?: any; error?: string }> {
+    // Get the position info
+    const posResult = await this.getPosition(symbol);
+    if (!posResult.success || !posResult.data) {
+      return { success: false, error: posResult.error || 'No position found' };
+    }
+
+    const position = posResult.data;
+    const vol = volume || position.holdVol;
+    const isLong = position.positionType === 1;
+    const side = isLong ? OrderSide.CLOSE_LONG : OrderSide.CLOSE_SHORT;
+
+    // For take-profit:
+    // - Long position: trigger when price >= targetPrice (rising)
+    // - Short position: trigger when price <= targetPrice (falling)
+    const triggerType = isLong ? 1 : 2; // 1=>=, 2=<=
+
+    return this.createStopOrder({
+      symbol,
+      vol,
+      side,
+      triggerPrice: targetPrice,
+      triggerType,
+      trend: 1, // Use latest price
+      openType: position.openType || 1,
+      leverage: position.leverage,
+    });
+  }
+
   // ============ Leverage Endpoints ============
 
   /**
@@ -509,11 +696,17 @@ export class MexcFuturesClient {
 
   /**
    * Close a long position
+   * Also cancels any associated plan orders (SL/TP) for clean exit
    */
-  async closeLong(symbol: string, volume: number): Promise<{ success: boolean; data?: MexcOrder; error?: string }> {
+  async closeLong(symbol: string, volume: number, cancelPlanOrders = true): Promise<{ success: boolean; data?: MexcOrder; error?: string }> {
     const position = await this.getPosition(symbol);
     if (!position.success || !position.data) {
       return { success: false, error: position.error || 'No position to close' };
+    }
+
+    // Cancel associated plan orders first to avoid orphaned SL/TP
+    if (cancelPlanOrders) {
+      await this.cancelAllPlanOrders(symbol);
     }
 
     return this.createOrder({
@@ -527,11 +720,17 @@ export class MexcFuturesClient {
 
   /**
    * Close a short position
+   * Also cancels any associated plan orders (SL/TP) for clean exit
    */
-  async closeShort(symbol: string, volume: number): Promise<{ success: boolean; data?: MexcOrder; error?: string }> {
+  async closeShort(symbol: string, volume: number, cancelPlanOrders = true): Promise<{ success: boolean; data?: MexcOrder; error?: string }> {
     const position = await this.getPosition(symbol);
     if (!position.success || !position.data) {
       return { success: false, error: position.error || 'No position to close' };
+    }
+
+    // Cancel associated plan orders first to avoid orphaned SL/TP
+    if (cancelPlanOrders) {
+      await this.cancelAllPlanOrders(symbol);
     }
 
     return this.createOrder({
@@ -541,6 +740,24 @@ export class MexcFuturesClient {
       vol: volume,
       leverage: position.data.leverage,
     });
+  }
+
+  /**
+   * Close any position (auto-detects long/short)
+   * Also cancels any associated plan orders
+   */
+  async closePosition(symbol: string, volume?: number): Promise<{ success: boolean; data?: MexcOrder; error?: string }> {
+    const position = await this.getPosition(symbol);
+    if (!position.success || !position.data) {
+      return { success: false, error: position.error || 'No position to close' };
+    }
+
+    const vol = volume || position.data.holdVol;
+    const isLong = position.data.positionType === 1;
+
+    return isLong
+      ? this.closeLong(symbol, vol)
+      : this.closeShort(symbol, vol);
   }
 }
 
