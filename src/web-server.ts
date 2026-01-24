@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import 'dotenv/config';
 import express from 'express';
 import { BackburnerScreener } from './screener.js';
 import { PaperTradingEngine } from './paper-trading.js';
