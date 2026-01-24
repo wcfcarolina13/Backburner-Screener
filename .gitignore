@@ -24,3 +24,7 @@ data/**/*.json
 
 # PM2 logs
 logs/
+
+# MEXC session state (contains auth tokens)
+.mexc-browser-state.json
+.mexc-daemon.log
