@@ -2,6 +2,10 @@
 
 This project uses the **Ralph autonomous development methodology**. Ralph treats LLM context like memory - it cannot be freed, only rotated. State persists in files and git, not in conversation context.
 
+## Quick Commands
+
+- **`/performance`** - Run full Turso database analysis to check bot performance, shadow bots, quadrant data, and data collection health. Use this at the start of sessions or when discussing trading results.
+
 ## Before Every Action
 
 **ALWAYS read these files first:**
@@ -40,3 +44,13 @@ When something fails, add a Sign to `.ralph/guardrails.md`:
 - **Instruction**: What to do instead
 - **Added after**: What happened
 ```
+
+## When to Suggest /performance
+
+Proactively suggest running `/performance` when:
+- Starting a new session (to check current bot status)
+- User asks about bot results, PnL, or trading performance
+- Discussing shadow bots or focus mode strategies
+- Before making changes to bot configurations
+- Debugging why bots aren't trading or logging data
+- Analyzing which quadrants or strategies are working
