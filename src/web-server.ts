@@ -4693,52 +4693,63 @@ function getHtmlPage(): string {
 
     <!-- Section: MEXC Live Execution Queue -->
     <div class="section-header" onclick="toggleSection('mexcLive')" style="margin-top: 12px;">
-      <span class="section-title">🚀 MEXC Live Execution</span>
+      <span class="section-title" title="Bridge between bot signals and real MEXC futures trading. Requires MEXC_UID_COOKIE environment variable to connect.">🚀 MEXC Live Execution</span>
       <span class="section-toggle" id="mexcLiveToggle">▼</span>
     </div>
     <div class="section-content" id="mexcLiveContent">
+      <!-- Safety Notice -->
+      <div style="margin-bottom: 12px; padding: 10px 12px; background: rgba(56, 139, 253, 0.08); border: 1px solid #1f6feb33; border-radius: 6px;">
+        <div style="color: #58a6ff; font-size: 11px; font-weight: 600; margin-bottom: 4px;">How this works</div>
+        <div style="color: #8b949e; font-size: 10px; line-height: 1.5;">
+          When a paper-trading bot signals a trade, it gets added to the <strong style="color: #c9d1d9;">Execution Queue</strong> below.
+          What happens next depends on the <strong style="color: #c9d1d9;">Execution Mode</strong>:
+          Dry Run = queue only (no action), Shadow = log only (no real orders), Live = real MEXC orders (real money).
+          Orders in the queue can be individually approved, executed, or cancelled.
+        </div>
+      </div>
+
       <div style="display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
         <!-- Connection Status Card -->
-        <div style="flex: 1; min-width: 200px; padding: 12px; background: #0d1117; border-radius: 8px; border: 1px solid #30363d;">
+        <div style="flex: 1; min-width: 200px; padding: 12px; background: #0d1117; border-radius: 8px; border: 1px solid #30363d;" title="Shows whether the server can communicate with MEXC Futures API using your session cookie. If disconnected, check that MEXC_UID_COOKIE is set in your environment variables.">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
             <span style="color: #8b949e; font-size: 11px;">MEXC Connection</span>
-            <span id="mexcConnectionStatus" style="font-size: 10px; padding: 2px 8px; border-radius: 4px; background: #6e7681; color: white;">Disconnected</span>
+            <span id="mexcConnectionStatus" style="font-size: 10px; padding: 2px 8px; border-radius: 4px; background: #6e7681; color: white;" title="Green = connected to MEXC API. Red = cookie missing or expired. Grey = not tested yet.">Disconnected</span>
           </div>
-          <div style="font-size: 20px; font-weight: 600; color: #c9d1d9;" id="mexcBalance">$0.00</div>
-          <div style="font-size: 11px; color: #8b949e; margin-top: 4px;">Available: <span id="mexcAvailable">$0.00</span></div>
+          <div style="font-size: 20px; font-weight: 600; color: #c9d1d9;" id="mexcBalance" title="Total USDT balance in your MEXC Futures account">$0.00</div>
+          <div style="font-size: 11px; color: #8b949e; margin-top: 4px;" title="Balance not locked in open positions — this is what's available for new trades">Available: <span id="mexcAvailable">$0.00</span></div>
         </div>
 
         <!-- Execution Mode Card -->
-        <div style="flex: 1; min-width: 200px; padding: 12px; background: #0d1117; border-radius: 8px; border: 1px solid #30363d;">
+        <div style="flex: 1; min-width: 200px; padding: 12px; background: #0d1117; border-radius: 8px; border: 1px solid #30363d;" title="Controls what happens when a bot signals a new trade. Only 'Live' mode places real orders on MEXC.">
           <div style="color: #8b949e; font-size: 11px; margin-bottom: 8px;">Execution Mode</div>
           <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-            <button onclick="setMexcMode('dry_run')" id="mexcModeDryRun" style="flex: 1; padding: 8px; border-radius: 6px; border: 2px solid #238636; background: #238636; color: white; font-size: 11px; font-weight: 600; cursor: pointer;">
+            <button onclick="setMexcMode('dry_run')" id="mexcModeDryRun" style="flex: 1; padding: 8px; border-radius: 6px; border: 2px solid #238636; background: #238636; color: white; font-size: 11px; font-weight: 600; cursor: pointer;" title="DRY RUN (Default — Safe)\nBot signals are added to the queue but NO action is taken.\nYou can manually review and execute individual orders from the queue.\nNo connection to MEXC needed. No real money involved.">
               🔬 Dry Run
             </button>
-            <button onclick="setMexcMode('shadow')" id="mexcModeShadow" style="flex: 1; padding: 8px; border-radius: 6px; border: 2px solid #30363d; background: #21262d; color: #8b949e; font-size: 11px; font-weight: 600; cursor: pointer;">
+            <button onclick="setMexcMode('shadow')" id="mexcModeShadow" style="flex: 1; padding: 8px; border-radius: 6px; border: 2px solid #30363d; background: #21262d; color: #8b949e; font-size: 11px; font-weight: 600; cursor: pointer;" title="SHADOW MODE (Logging Only)\nBot signals are added to the queue AND auto-marked as 'executed' in logs.\nNO real orders are placed on MEXC — this only simulates execution for logging.\nUseful to see what WOULD have been traded without risking real money.">
               👻 Shadow
             </button>
-            <button onclick="setMexcMode('live')" id="mexcModeLive" style="flex: 1; padding: 8px; border-radius: 6px; border: 2px solid #30363d; background: #21262d; color: #8b949e; font-size: 11px; font-weight: 600; cursor: pointer;">
+            <button onclick="setMexcMode('live')" id="mexcModeLive" style="flex: 1; padding: 8px; border-radius: 6px; border: 2px solid #30363d; background: #21262d; color: #8b949e; font-size: 11px; font-weight: 600; cursor: pointer;" title="LIVE MODE (Real Money!)\nBot signals are added to the queue. You must manually click 'Execute' on each order to place it.\nOrders are sent to MEXC Futures API and REAL positions are opened with REAL money.\nRequires active MEXC connection. Double confirmation required to enable.">
               💰 Live
             </button>
           </div>
         </div>
 
         <!-- Open Positions Summary -->
-        <div style="flex: 1; min-width: 200px; padding: 12px; background: #0d1117; border-radius: 8px; border: 1px solid #30363d;">
+        <div style="flex: 1; min-width: 200px; padding: 12px; background: #0d1117; border-radius: 8px; border: 1px solid #30363d;" title="Shows open positions on your actual MEXC Futures account. Click 'Sync Positions' to refresh this data from MEXC.">
           <div style="color: #8b949e; font-size: 11px; margin-bottom: 8px;">MEXC Positions</div>
           <div style="font-size: 20px; font-weight: 600; color: #c9d1d9;"><span id="mexcPositionCount">0</span> <span style="font-size: 12px; color: #8b949e;">open</span></div>
-          <div style="font-size: 11px; color: #8b949e; margin-top: 4px;">Unrealized P&L: <span id="mexcUnrealizedPnL" class="positive">$0.00</span></div>
+          <div style="font-size: 11px; color: #8b949e; margin-top: 4px;">Unrealized P&L: <span id="mexcUnrealizedPnL" class="positive" title="Combined unrealized profit/loss across all open MEXC positions">$0.00</span></div>
         </div>
       </div>
 
       <!-- Execution Queue -->
       <div style="background: #0d1117; border-radius: 8px; border: 1px solid #30363d; overflow: hidden;">
         <div style="padding: 10px 12px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; justify-content: space-between; align-items: center;">
-          <span style="font-size: 12px; font-weight: 600; color: #c9d1d9;">📋 Execution Queue</span>
+          <span style="font-size: 12px; font-weight: 600; color: #c9d1d9;" title="Orders generated by paper-trading bots appear here. In Dry Run mode, you review and execute them manually. In Live mode, click 'Execute' to send a real order to MEXC.">📋 Execution Queue</span>
           <div style="display: flex; gap: 6px;">
-            <button onclick="refreshMexcQueue()" style="padding: 4px 10px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">↻ Refresh</button>
-            <button onclick="clearMexcQueue()" style="padding: 4px 10px; border-radius: 4px; border: 1px solid #f85149; background: #21262d; color: #f85149; font-size: 10px; cursor: pointer;">Clear All</button>
+            <button onclick="refreshMexcQueue()" style="padding: 4px 10px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;" title="Reload the queue from the server">↻ Refresh</button>
+            <button onclick="clearMexcQueue()" style="padding: 4px 10px; border-radius: 4px; border: 1px solid #f85149; background: #21262d; color: #f85149; font-size: 10px; cursor: pointer;" title="Remove ALL orders from the queue (pending, executed, failed). Does NOT close any open MEXC positions.">Clear All</button>
           </div>
         </div>
         <div id="mexcQueueTable" style="max-height: 200px; overflow-y: auto;">
@@ -4750,13 +4761,13 @@ function getHtmlPage(): string {
 
       <!-- Quick Actions -->
       <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
-        <button onclick="testMexcConnection()" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #238636; background: #21262d; color: #238636; font-size: 11px; font-weight: 600; cursor: pointer;">
+        <button onclick="testMexcConnection()" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #238636; background: #21262d; color: #238636; font-size: 11px; font-weight: 600; cursor: pointer;" title="Test API connection to MEXC Futures using your session cookie. Shows your account balance if successful. Safe — does not place any orders.">
           🔌 Test Connection
         </button>
-        <button onclick="syncMexcPositions()" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #58a6ff; background: #21262d; color: #58a6ff; font-size: 11px; font-weight: 600; cursor: pointer;">
+        <button onclick="syncMexcPositions()" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #58a6ff; background: #21262d; color: #58a6ff; font-size: 11px; font-weight: 600; cursor: pointer;" title="Fetch current open positions from your MEXC Futures account. Safe — read-only, does not modify any positions.">
           🔄 Sync Positions
         </button>
-        <button onclick="emergencyCloseAll()" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #f85149; background: #21262d; color: #f85149; font-size: 11px; font-weight: 600; cursor: pointer;">
+        <button onclick="emergencyCloseAll()" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #f85149; background: #21262d; color: #f85149; font-size: 11px; font-weight: 600; cursor: pointer;" title="DANGER: Immediately closes ALL open positions on your MEXC Futures account at market price. This is irreversible — all positions will be liquidated. Use only in emergencies. Requires double confirmation.">
           🛑 Emergency Close All
         </button>
       </div>
@@ -4767,7 +4778,8 @@ function getHtmlPage(): string {
           <span style="font-size: 16px;">⚠️</span>
           <div>
             <div style="color: #f85149; font-weight: 600; font-size: 12px;">LIVE TRADING ACTIVE</div>
-            <div style="color: #8b949e; font-size: 11px;">Real orders will be executed on MEXC. Proceed with caution.</div>
+            <div style="color: #f85149; font-size: 11px;">Real orders will be executed on MEXC Futures with REAL money when you click 'Execute' on queued orders.</div>
+            <div style="color: #8b949e; font-size: 10px; margin-top: 4px;">Orders still require manual approval — they won't execute automatically. Switch back to Dry Run to disable.</div>
           </div>
         </div>
       </div>
