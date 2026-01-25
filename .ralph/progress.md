@@ -4,10 +4,54 @@
 
 ## Summary
 
-- Iterations completed: 30
-- Current status: Cookie Auto-Refresh System Complete
+- Iterations completed: 31
+- Current status: Momentum Exhaustion Filter In Progress
 
-## Current Task: MEXC Live Execution Integration
+## Current Task: Momentum Exhaustion Signal Classification & Filter
+
+### Iteration 31 - Momentum Exhaustion Filter
+**Date**: 2026-01-25
+**Status**: 🔶 Core Complete, UI Deferred
+
+**Goal**: Fix false positives where coins that pump hard (e.g., INIT +21%) and become overbought are incorrectly classified as backburner shorts. These are "momentum exhaustion" signals, not true backburners.
+
+**Key Accomplishments**:
+
+1. **Signal Classification** (`src/types.ts`, `src/backburner-detector.ts`):
+   - Added `SignalClassification` type: 'backburner' | 'momentum_exhaustion'
+   - Added `ExhaustionDirection` type: 'extended_long' | 'extended_short'
+   - Added retracement detection: if counter-move retraces >61.8% → momentum_exhaustion
+   - Added price check: if price beyond impulse start → not a pullback, it's a reversal
+
+2. **Exhaustion Tracker** (`src/web-server.ts`):
+   - `momentumExhaustionMap` - tracks extended coins by symbol-timeframe
+   - `updateMomentumExhaustion()` - populates tracker from 4H/1H setups
+   - `checkMomentumExhaustion()` - checks if symbol has exhaustion for direction
+   - `cleanupStaleExhaustion()` - removes signals older than 4 hours
+   - Cleanup runs every 5 minutes automatically
+
+3. **Trade Filter**:
+   - Added exhaustion check to `shouldTradeSetup()`
+   - Blocks LONG trades on coins with `extended_long` (pumped too hard)
+   - Blocks SHORT trades on coins with `extended_short` (dumped too hard)
+   - Logs when filter blocks trades with full details
+
+4. **API Endpoints**:
+   - `GET /api/exhaustion` - returns all extended coins sorted by impulse%
+   - `GET /api/exhaustion/:symbol` - check specific symbol for blocking
+
+**Deferred to Follow-up**:
+- Dashboard "Extended Coins" section UI
+- Turso logging for historical analysis
+
+**Problem Solved**: INITUSDT 4H was showing as "backburner short" because the 50-candle lookback saw old dump + current pump as "down impulse with bounce". Now correctly classified as `momentum_exhaustion (extended_long)` - the filter prevents bad 5m long trades on such coins.
+
+**Commits**:
+- `34b23df` "feat: Add momentum exhaustion signal classification"
+- `df6ae93` "feat: Add momentum exhaustion tracker and filter"
+- `4de8b33` "feat: Add exhaustion API endpoints for Focus Mode integration"
+
+---
 
 ### Iteration 30 - Chrome Extension Cookie Auto-Refresh
 **Date**: 2026-01-24

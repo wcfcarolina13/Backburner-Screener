@@ -34,6 +34,16 @@ export type SetupState =
   | 'reversing'       // Price reversing from extreme
   | 'played_out';     // Setup completed or invalidated
 
+// Signal classification - distinguishes true backburner from momentum exhaustion
+export type SignalClassification =
+  | 'backburner'           // True backburner: impulse opposite to RSI extreme (buy dips, fade bounces)
+  | 'momentum_exhaustion'; // False positive: impulse same direction as RSI extreme (extended move)
+
+// Momentum exhaustion direction
+export type ExhaustionDirection =
+  | 'extended_long'   // Pumped hard + overbought = extended to upside
+  | 'extended_short'; // Dumped hard + oversold = extended to downside
+
 // Quality tier based on 24h volume
 export type QualityTier = 'bluechip' | 'midcap' | 'shitcoin';
 
@@ -112,6 +122,27 @@ export interface BackburnerSetup {
     strength: 'strong' | 'moderate' | 'weak';
     description: string;
   };
+
+  // Signal classification - distinguishes true backburner from momentum exhaustion
+  // True backburner: impulse OPPOSITE to RSI extreme (buy dips after pump, fade bounces after dump)
+  // Momentum exhaustion: impulse SAME direction as RSI extreme (coin is just extended)
+  signalClassification?: SignalClassification;
+  exhaustionDirection?: ExhaustionDirection;  // Only set if signalClassification === 'momentum_exhaustion'
+}
+
+// Momentum exhaustion signal - tracked separately for filtering
+// These are NOT trade signals, they're warnings that a coin is extended
+export interface MomentumExhaustionSignal {
+  symbol: string;
+  timeframe: Timeframe;
+  direction: ExhaustionDirection;  // extended_long or extended_short
+  impulsePercent: number;          // How much the coin moved
+  currentRSI: number;              // Current RSI value
+  currentPrice: number;
+  detectedAt: number;              // When we first detected this
+  lastUpdated: number;             // When we last confirmed it's still valid
+  impulseStartPrice: number;       // Where the move started
+  impulseEndPrice: number;         // Where the move ended (the extreme)
 }
 
 // Symbol info from MEXC

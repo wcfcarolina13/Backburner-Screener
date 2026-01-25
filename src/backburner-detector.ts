@@ -1,4 +1,4 @@
-import type { Candle, Timeframe, BackburnerSetup, SetupState, SetupDirection } from './types.js';
+import type { Candle, Timeframe, BackburnerSetup, SetupState, SetupDirection, SignalClassification, ExhaustionDirection } from './types.js';
 import { DEFAULT_CONFIG } from './config.js';
 import {
   calculateRSI,
@@ -371,6 +371,50 @@ export class BackburnerDetector {
       }
     }
 
+    // ==========================================================================
+    // SIGNAL CLASSIFICATION: Backburner vs Momentum Exhaustion
+    // ==========================================================================
+    // True Backburner: Impulse is OPPOSITE to the RSI extreme
+    //   - LONG: impulse UP → pullback → RSI oversold → buy the dip
+    //   - SHORT: impulse DOWN → bounce → RSI overbought → fade the bounce
+    //
+    // Momentum Exhaustion: The "counter-move" has retraced too much of the impulse,
+    // indicating it's actually a new trend, not a pullback/bounce.
+    //
+    // Detection: If current price has retraced >61.8% of the impulse, classify as
+    // momentum_exhaustion. This means the "pullback" is actually a reversal.
+    // ==========================================================================
+    let signalClassification: SignalClassification = 'backburner';
+    let exhaustionDirection: ExhaustionDirection | undefined;
+
+    const impulseRange = Math.abs(impulse.endPrice - impulse.startPrice);
+    const retracementFromEnd = Math.abs(currentPrice - impulse.endPrice);
+    const retracementPercent = impulseRange > 0 ? (retracementFromEnd / impulseRange) * 100 : 0;
+
+    if (direction === 'short') {
+      // For SHORT setup: impulse was DOWN, we're looking for a bounce to fade
+      // If the "bounce" has retraced >61.8% of the down move, it's not a bounce - it's a reversal
+      // Also check: if price is ABOVE where the impulse started, it's definitely not a backburner
+      const priceAboveImpulseStart = currentPrice > impulse.startPrice;
+      const excessiveRetracement = retracementPercent > 61.8;
+
+      if (priceAboveImpulseStart || excessiveRetracement) {
+        signalClassification = 'momentum_exhaustion';
+        exhaustionDirection = 'extended_long';  // Coin pumped too hard, extended to upside
+      }
+    } else {
+      // For LONG setup: impulse was UP, we're looking for a pullback to buy
+      // If the "pullback" has retraced >61.8% of the up move, it's not a pullback - it's a reversal
+      // Also check: if price is BELOW where the impulse started, it's definitely not a backburner
+      const priceBelowImpulseStart = currentPrice < impulse.startPrice;
+      const excessiveRetracement = retracementPercent > 61.8;
+
+      if (priceBelowImpulseStart || excessiveRetracement) {
+        signalClassification = 'momentum_exhaustion';
+        exhaustionDirection = 'extended_short';  // Coin dumped too hard, extended to downside
+      }
+    }
+
     const setup: BackburnerSetup = {
       symbol,
       timeframe,
@@ -411,6 +455,10 @@ export class BackburnerDetector {
       // These will be set by the screener with actual values
       marketType: 'spot',
       liquidityRisk: 'medium',
+
+      // Signal classification
+      signalClassification,
+      exhaustionDirection,
     };
 
     this.activeSetups.set(this.getSetupKey(symbol, timeframe, direction), setup);

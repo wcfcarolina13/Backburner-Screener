@@ -46,7 +46,7 @@ import { DEFAULT_CONFIG } from './config.js';
 import { getDataPersistence } from './data-persistence.js';
 import { initSchema as initTursoSchema, isTursoConfigured, executeReadQuery, getDatabaseStats } from './turso-db.js';
 import { getFocusModeHtml, getFocusModeApiData, calculateSmartTradeSetup } from './focus-mode-dashboard.js';
-import type { BackburnerSetup, Timeframe } from './types.js';
+import type { BackburnerSetup, Timeframe, MomentumExhaustionSignal } from './types.js';
 import { createSettingsRouter } from './routes/index.js';
 import type { ServerContext } from './server-context.js';
 import { createMexcClient, type MexcFuturesClient } from './mexc-futures-client.js';
@@ -74,6 +74,91 @@ app.use('/static', express.static(path.join(__dirname, 'views')));
 // Analysis showed 5m had best performance, 15m was marginal, 1h was terrible
 const ALLOWED_TIMEFRAMES: Timeframe[] = ['5m'];  // V2: 5m only (was: 5m, 15m)
 
+// ============================================================================
+// MOMENTUM EXHAUSTION TRACKER
+// Tracks coins that are "extended" on higher timeframes (4H, 1H)
+// Used to filter out bad 5m trades in the direction of exhaustion
+// ============================================================================
+const momentumExhaustionMap = new Map<string, MomentumExhaustionSignal>();
+
+/**
+ * Update momentum exhaustion tracker when we see momentum_exhaustion signals
+ */
+function updateMomentumExhaustion(setup: BackburnerSetup): void {
+  if (setup.signalClassification !== 'momentum_exhaustion') return;
+  if (!setup.exhaustionDirection) return;
+
+  // Only track higher timeframes (1h, 4h) - these filter lower timeframe trades
+  if (setup.timeframe !== '1h' && setup.timeframe !== '4h') return;
+
+  const key = `${setup.symbol}-${setup.timeframe}`;
+  const signal: MomentumExhaustionSignal = {
+    symbol: setup.symbol,
+    timeframe: setup.timeframe,
+    direction: setup.exhaustionDirection,
+    impulsePercent: setup.impulsePercentMove,
+    currentRSI: setup.currentRSI,
+    currentPrice: setup.currentPrice,
+    detectedAt: setup.detectedAt,
+    lastUpdated: Date.now(),
+    impulseStartPrice: setup.impulseLow,  // For DOWN impulse, low is start
+    impulseEndPrice: setup.impulseHigh,   // For DOWN impulse, high is end
+  };
+
+  momentumExhaustionMap.set(key, signal);
+  console.log(`[EXHAUSTION] ${setup.symbol} ${setup.timeframe} marked as ${setup.exhaustionDirection} (RSI: ${setup.currentRSI.toFixed(1)}, impulse: ${setup.impulsePercentMove.toFixed(1)}%)`);
+}
+
+/**
+ * Clean up stale exhaustion signals (older than 4 hours)
+ */
+function cleanupStaleExhaustion(): void {
+  const staleThreshold = 4 * 60 * 60 * 1000; // 4 hours
+  const now = Date.now();
+
+  for (const [key, signal] of momentumExhaustionMap.entries()) {
+    if (now - signal.lastUpdated > staleThreshold) {
+      momentumExhaustionMap.delete(key);
+      console.log(`[EXHAUSTION] Cleaned up stale signal: ${key}`);
+    }
+  }
+}
+
+/**
+ * Check if a symbol has momentum exhaustion on a higher timeframe
+ * Returns the exhaustion signal if found, null otherwise
+ */
+function checkMomentumExhaustion(symbol: string, direction: 'long' | 'short'): MomentumExhaustionSignal | null {
+  // Check 4H exhaustion first (stronger signal)
+  const key4h = `${symbol}-4h`;
+  const key1h = `${symbol}-1h`;
+
+  const signal4h = momentumExhaustionMap.get(key4h);
+  const signal1h = momentumExhaustionMap.get(key1h);
+
+  // For LONG trades, check if coin is extended_long (pumped too hard)
+  if (direction === 'long') {
+    if (signal4h?.direction === 'extended_long') return signal4h;
+    if (signal1h?.direction === 'extended_long') return signal1h;
+  }
+
+  // For SHORT trades, check if coin is extended_short (dumped too hard)
+  if (direction === 'short') {
+    if (signal4h?.direction === 'extended_short') return signal4h;
+    if (signal1h?.direction === 'extended_short') return signal1h;
+  }
+
+  return null;
+}
+
+/**
+ * Get all current momentum exhaustion signals (for dashboard)
+ */
+function getAllExhaustionSignals(): MomentumExhaustionSignal[] {
+  return Array.from(momentumExhaustionMap.values())
+    .sort((a, b) => b.impulsePercent - a.impulsePercent);  // Sort by impulse size
+}
+
 /**
  * Check if a setup should be traded based on TCG methodology
  * Returns false to skip setups that don't meet quality criteria
@@ -100,6 +185,17 @@ function shouldTradeSetup(setup: BackburnerSetup, btcBias: string): boolean {
   // ==========================================================================
   if (setup.rsiCrossedThreshold === false) {
     console.log(`[FILTER] Skip ${setup.symbol} ${setup.timeframe} ${setup.direction} - no RSI cross detected`);
+    return false;
+  }
+
+  // ==========================================================================
+  // MOMENTUM EXHAUSTION FILTER
+  // Skip trades if the coin is "extended" on a higher timeframe
+  // e.g., Don't go LONG on 5m if 4H shows extended_long (pumped too hard)
+  // ==========================================================================
+  const exhaustionSignal = checkMomentumExhaustion(setup.symbol, setup.direction);
+  if (exhaustionSignal) {
+    console.log(`[FILTER] Skip ${setup.symbol} ${setup.timeframe} ${setup.direction.toUpperCase()} - ${exhaustionSignal.timeframe} shows ${exhaustionSignal.direction} (RSI: ${exhaustionSignal.currentRSI.toFixed(1)}, impulse: ${exhaustionSignal.impulsePercent.toFixed(1)}%)`);
     return false;
   }
 
@@ -1163,6 +1259,9 @@ function broadcast(event: string, data: any) {
 
 // Event handlers
 async function handleNewSetup(setup: BackburnerSetup) {
+  // Update momentum exhaustion tracker (for higher timeframe filtering)
+  updateMomentumExhaustion(setup);
+
   // Log signal to Turso
   getDataPersistence().logSignal(setup, 'new');
   if (setup.state === 'triggered') {
@@ -1515,6 +1614,9 @@ async function handleNewSetup(setup: BackburnerSetup) {
 }
 
 async function handleSetupUpdated(setup: BackburnerSetup) {
+  // Update momentum exhaustion tracker (for higher timeframe filtering)
+  updateMomentumExhaustion(setup);
+
   // Log state changes to Turso
   getDataPersistence().logSignal(setup, 'updated');
   if (setup.state === 'triggered') {
@@ -2637,6 +2739,52 @@ app.get('/focus', (req, res) => {
 app.get('/api/focus-mode', (req, res) => {
   const configKey = req.query.config as string;
   res.json(getFocusModeApiData(configKey));
+});
+
+// Momentum Exhaustion API - returns all extended coins
+app.get('/api/exhaustion', (req, res) => {
+  const signals = getAllExhaustionSignals();
+  res.json({
+    timestamp: new Date().toISOString(),
+    count: signals.length,
+    signals: signals.map(s => ({
+      symbol: s.symbol,
+      timeframe: s.timeframe,
+      direction: s.direction,
+      impulsePercent: s.impulsePercent,
+      currentRSI: s.currentRSI,
+      currentPrice: s.currentPrice,
+      detectedAt: new Date(s.detectedAt).toISOString(),
+      lastUpdated: new Date(s.lastUpdated).toISOString(),
+      ageMinutes: Math.round((Date.now() - s.detectedAt) / 60000),
+    })),
+  });
+});
+
+// Check exhaustion for a specific symbol
+app.get('/api/exhaustion/:symbol', (req, res) => {
+  const symbol = req.params.symbol.toUpperCase();
+  const longExhaustion = checkMomentumExhaustion(symbol, 'long');
+  const shortExhaustion = checkMomentumExhaustion(symbol, 'short');
+
+  res.json({
+    symbol,
+    timestamp: new Date().toISOString(),
+    longBlocked: !!longExhaustion,
+    shortBlocked: !!shortExhaustion,
+    longExhaustion: longExhaustion ? {
+      timeframe: longExhaustion.timeframe,
+      direction: longExhaustion.direction,
+      impulsePercent: longExhaustion.impulsePercent,
+      currentRSI: longExhaustion.currentRSI,
+    } : null,
+    shortExhaustion: shortExhaustion ? {
+      timeframe: shortExhaustion.timeframe,
+      direction: shortExhaustion.direction,
+      impulsePercent: shortExhaustion.impulsePercent,
+      currentRSI: shortExhaustion.currentRSI,
+    } : null,
+  });
 });
 
 // API endpoints
@@ -5364,6 +5512,7 @@ async function main() {
   // Periodic daily reset check (every 5 minutes)
   setInterval(() => {
     checkDailyReset();
+    cleanupStaleExhaustion();  // Also clean up stale momentum exhaustion signals
   }, 5 * 60 * 1000);
 
   // Position persistence DISABLED - start fresh each time
