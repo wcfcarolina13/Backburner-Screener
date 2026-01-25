@@ -28,3 +28,7 @@ logs/
 # MEXC session state (contains auth tokens)
 .mexc-browser-state.json
 .mexc-daemon.log
+.mexc-cookie-refresh.log
+
+# Chrome extension native messaging (contains extension ID)
+tools/cookie-exporter/com.backburner.cookie_exporter.json

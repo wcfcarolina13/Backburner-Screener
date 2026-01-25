@@ -114,6 +114,31 @@ The system runs multiple paper trading strategies simultaneously:
 ### Archived Bots
 **BTC Bias V1** (8 variants with 100% position sizing, 50x leverage) - **DISABLED** due to catastrophic losses (-$12k in Jan 2026). Data preserved for analysis but no longer trading.
 
+## MEXC Cookie Auto-Refresh
+
+For live trading, the system needs fresh MEXC authentication cookies. A Chrome extension automatically refreshes these.
+
+### Setup
+
+1. **Load the extension in Chrome:**
+   - Go to `chrome://extensions/`
+   - Enable "Developer mode"
+   - Click "Load unpacked" and select `tools/cookie-exporter/`
+
+2. **Install the native messaging host:**
+   ```bash
+   cd tools/cookie-exporter
+   ./install.sh <your-extension-id>
+   ```
+
+3. **Verify it works:**
+   - Go to `https://futures.mexc.com` and log in
+   - Click the extension icon
+   - Click "Refresh Now"
+   - Should show "Sent to trading system"
+
+The extension auto-refreshes cookies every 30 minutes while Chrome is open.
+
 ## Environment Variables
 
 For Render deployment with persistent storage:
@@ -121,6 +146,14 @@ For Render deployment with persistent storage:
 ```
 TURSO_DATABASE_URL=libsql://your-db.turso.io
 TURSO_AUTH_TOKEN=your-token
+```
+
+For live MEXC trading (auto-populated by cookie extension):
+
+```
+MEXC_UC_TOKEN=...
+MEXC_U_ID=...
+MEXC_FINGERPRINT=...
 ```
 
 ## Data Storage
