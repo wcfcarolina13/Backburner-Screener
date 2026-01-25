@@ -2475,6 +2475,149 @@ export function addToMexcQueue(
 }
 
 // ============================================================
+// MEXC Cookie Health Monitoring
+// ============================================================
+
+interface CookieHealthState {
+  lastCheck: Date | null;
+  lastSuccess: Date | null;
+  lastFailure: Date | null;
+  consecutiveFailures: number;
+  isHealthy: boolean;
+  lastError: string | null;
+}
+
+const cookieHealth: CookieHealthState = {
+  lastCheck: null,
+  lastSuccess: null,
+  lastFailure: null,
+  consecutiveFailures: 0,
+  isHealthy: true,
+  lastError: null,
+};
+
+// Send notification when cookie fails
+async function notifyCookieFailure(error: string): Promise<void> {
+  try {
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
+
+    // Try terminal-notifier first (most reliable on macOS)
+    try {
+      await execAsync(`terminal-notifier -title '🔴 MEXC Cookie Expired' -message '${error.replace(/'/g, "\\'")}' -subtitle 'Live trading disabled' -sound 'Basso'`);
+    } catch {
+      // Fall back to osascript
+      await execAsync(`osascript -e 'display notification "${error.replace(/"/g, '\\"')}" with title "MEXC Cookie Expired" subtitle "Live trading disabled" sound name "Basso"'`);
+    }
+  } catch (err) {
+    console.error('[MEXC-HEALTH] Failed to send notification:', err);
+  }
+}
+
+// Check MEXC cookie health
+async function checkCookieHealth(): Promise<boolean> {
+  cookieHealth.lastCheck = new Date();
+
+  const cookie = process.env.MEXC_UID_COOKIE;
+  if (!cookie || cookie === 'WEB_your_uid_cookie_here') {
+    // No cookie configured - not an error, just not set up
+    cookieHealth.isHealthy = false;
+    cookieHealth.lastError = 'Cookie not configured';
+    return false;
+  }
+
+  try {
+    const client = initMexcClient();
+    if (!client) {
+      cookieHealth.isHealthy = false;
+      cookieHealth.lastError = 'Client initialization failed';
+      return false;
+    }
+
+    const result = await client.testConnection();
+
+    if (result.success) {
+      // Reset failure count on success
+      if (cookieHealth.consecutiveFailures > 0) {
+        console.log(`[MEXC-HEALTH] Connection restored after ${cookieHealth.consecutiveFailures} failures`);
+      }
+      cookieHealth.lastSuccess = new Date();
+      cookieHealth.consecutiveFailures = 0;
+      cookieHealth.isHealthy = true;
+      cookieHealth.lastError = null;
+      return true;
+    } else {
+      cookieHealth.consecutiveFailures++;
+      cookieHealth.lastFailure = new Date();
+      cookieHealth.isHealthy = false;
+      cookieHealth.lastError = result.error || 'Connection test failed';
+
+      // Notify on first failure or every 3rd consecutive failure
+      if (cookieHealth.consecutiveFailures === 1 || cookieHealth.consecutiveFailures % 3 === 0) {
+        console.log(`[MEXC-HEALTH] Cookie failed (${cookieHealth.consecutiveFailures}x): ${cookieHealth.lastError}`);
+        await notifyCookieFailure(cookieHealth.lastError);
+      }
+      return false;
+    }
+  } catch (err) {
+    cookieHealth.consecutiveFailures++;
+    cookieHealth.lastFailure = new Date();
+    cookieHealth.isHealthy = false;
+    cookieHealth.lastError = (err as Error).message;
+
+    if (cookieHealth.consecutiveFailures === 1 || cookieHealth.consecutiveFailures % 3 === 0) {
+      console.log(`[MEXC-HEALTH] Cookie check error (${cookieHealth.consecutiveFailures}x): ${cookieHealth.lastError}`);
+      await notifyCookieFailure(cookieHealth.lastError);
+    }
+    return false;
+  }
+}
+
+// Cookie health check endpoint
+app.get('/api/mexc/cookie-health', async (req, res) => {
+  // Run a fresh check if requested
+  if (req.query.refresh === 'true') {
+    await checkCookieHealth();
+  }
+
+  res.json({
+    success: true,
+    health: {
+      isHealthy: cookieHealth.isHealthy,
+      lastCheck: cookieHealth.lastCheck?.toISOString() || null,
+      lastSuccess: cookieHealth.lastSuccess?.toISOString() || null,
+      lastFailure: cookieHealth.lastFailure?.toISOString() || null,
+      consecutiveFailures: cookieHealth.consecutiveFailures,
+      lastError: cookieHealth.lastError,
+      cookieConfigured: !!process.env.MEXC_UID_COOKIE && process.env.MEXC_UID_COOKIE !== 'WEB_your_uid_cookie_here',
+    },
+  });
+});
+
+// Start periodic cookie health check (every 30 minutes)
+// Only runs in production to avoid unnecessary API calls during dev
+if (process.env.NODE_ENV === 'production') {
+  // Initial check after 1 minute (give server time to start)
+  setTimeout(() => {
+    checkCookieHealth().then(healthy => {
+      console.log(`[MEXC-HEALTH] Initial check: ${healthy ? 'healthy' : 'unhealthy'}`);
+    });
+  }, 60 * 1000);
+
+  // Then check every 30 minutes
+  setInterval(() => {
+    checkCookieHealth().then(healthy => {
+      if (!healthy) {
+        console.log(`[MEXC-HEALTH] Periodic check failed - cookie may need refresh`);
+      }
+    });
+  }, 30 * 60 * 1000);
+
+  console.log('[MEXC-HEALTH] Cookie health monitoring enabled (30min interval)');
+}
+
+// ============================================================
 // End MEXC Live Execution API Routes
 // ============================================================
 
