@@ -3171,9 +3171,18 @@ app.get('/api/prices', async (req, res) => {
   }
 });
 
+// BTC RSI cache to avoid rate limiter contention
+let btcRsiCache: { data: unknown; timestamp: number } | null = null;
+const BTC_RSI_CACHE_MS = 30000; // Cache for 30 seconds
+
 // BTC RSI multi-timeframe endpoint for chart
 app.get('/api/btc-rsi', async (req, res) => {
   try {
+    // Return cached data if fresh enough
+    if (btcRsiCache && Date.now() - btcRsiCache.timestamp < BTC_RSI_CACHE_MS) {
+      return res.json(btcRsiCache.data);
+    }
+
     const timeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h'];
     const rsiPeriod = 14;
     const smaPeriod = 9; // SMA of RSI for crossover signals
@@ -3437,7 +3446,7 @@ app.get('/api/btc-rsi', async (req, res) => {
       console.error('Error calculating momentum:', err);
     }
 
-    res.json({
+    const responseData = {
       symbol: 'BTCUSDT',
       timestamp: Date.now(),
       timeframes: results,
@@ -3455,8 +3464,19 @@ app.get('/api/btc-rsi', async (req, res) => {
         },
       },
       momentum,
-    });
+    };
+
+    // Cache the response
+    btcRsiCache = { data: responseData, timestamp: Date.now() };
+
+    res.json(responseData);
   } catch (error) {
+    console.error('[BTC RSI] Error:', (error as Error).message);
+    // On error, return cached data if available (even if stale)
+    if (btcRsiCache) {
+      console.log('[BTC RSI] Returning stale cache due to error');
+      return res.json(btcRsiCache.data);
+    }
     res.status(500).json({ error: (error as Error).message });
   }
 });
@@ -4787,6 +4807,13 @@ function getHtmlPage(): string {
         <button onclick="addSelectedToList()" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #3fb950; background: #21262d; color: #3fb950; font-size: 10px; cursor: pointer;">+ Add to List</button>
         <button onclick="removeSelectedFromList()" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #f85149; background: #21262d; color: #f85149; font-size: 10px; cursor: pointer;">- Remove</button>
         <span style="color: #6e7681; font-size: 10px; margin-left: 8px;" id="selectionStatus">0 selected</span>
+        <span style="color: #30363d; margin: 0 8px;">|</span>
+        <span style="color: #8b949e; font-size: 11px;">Market:</span>
+        <select id="marketFilter" onchange="setMarketFilter(this.value)" style="padding: 3px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #c9d1d9; font-size: 10px; cursor: pointer;">
+          <option value="all">All</option>
+          <option value="spot">Spot Only</option>
+          <option value="futures">Futures Only</option>
+        </select>
       </div>
       <div id="setupsTable">
         <div class="empty-state">Scanning for setups...</div>

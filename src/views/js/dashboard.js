@@ -822,6 +822,7 @@ let selectedSetups = new Set();  // Currently selected in UI
 // Settings state (persisted to localStorage)
 let appSettings = {
   linkDestination: 'bots',  // 'bots' or 'futures'
+  marketFilter: 'all',      // 'all', 'spot', or 'futures'
 };
 
 // Load saved list and settings from localStorage on startup
@@ -837,6 +838,11 @@ function loadPersistedData() {
     if (settingsData) {
       appSettings = { ...appSettings, ...JSON.parse(settingsData) };
       console.log('[Settings] Loaded settings:', appSettings);
+    }
+    // Update market filter dropdown to match saved setting
+    const marketFilterEl = document.getElementById('marketFilter');
+    if (marketFilterEl && appSettings.marketFilter) {
+      marketFilterEl.value = appSettings.marketFilter;
     }
   } catch (e) {
     console.error('[Settings] Failed to load persisted data:', e);
@@ -966,18 +972,36 @@ function getCrossStrategySignal(setup, isGP) {
 }
 
 function getCurrentDisplayedSetups() {
-  if (currentSetupsTab === 'active') return allSetupsData.active || [];
-  if (currentSetupsTab === 'playedOut') return allSetupsData.playedOut || [];
-  if (currentSetupsTab === 'history') return allSetupsData.history || [];
-  if (currentSetupsTab === 'goldenPocket') {
-    return (allSetupsData.goldenPocket || []).filter(s => gpStateFilters[s.state]);
+  let setups = [];
+  if (currentSetupsTab === 'active') setups = allSetupsData.active || [];
+  else if (currentSetupsTab === 'playedOut') setups = allSetupsData.playedOut || [];
+  else if (currentSetupsTab === 'history') setups = allSetupsData.history || [];
+  else if (currentSetupsTab === 'goldenPocket') {
+    setups = (allSetupsData.goldenPocket || []).filter(s => gpStateFilters[s.state]);
   }
-  if (currentSetupsTab === 'savedList') {
+  else if (currentSetupsTab === 'savedList') {
     // Collect all setups that are in saved list
     const all = [...(allSetupsData.all || []), ...(allSetupsData.goldenPocket || [])];
-    return all.filter(s => savedList.has(getSetupKey(s)));
+    setups = all.filter(s => savedList.has(getSetupKey(s)));
   }
-  return allSetupsData.all || [];
+  else setups = allSetupsData.all || [];
+
+  // Apply market filter
+  if (appSettings.marketFilter === 'spot') {
+    setups = setups.filter(s => s.marketType === 'spot');
+  } else if (appSettings.marketFilter === 'futures') {
+    setups = setups.filter(s => s.marketType === 'futures');
+  }
+
+  return setups;
+}
+
+// Market filter function
+function setMarketFilter(filter) {
+  appSettings.marketFilter = filter;
+  persistSettings();
+  renderSetupsWithTab();
+  console.log('[Settings] Market filter changed to:', filter);
 }
 
 // GP filter state - which states to show
@@ -1962,15 +1986,24 @@ function renderSetupsTable(setups, tabType) {
           divHtml = '<span style="color: ' + cfg.color + '; cursor: help;" title="' + (s.divergence.description || s.divergence.type) + '">' + cfg.label + ' ' + strengthDots + '</span>';
         }
       }
-      // Cross-strategy signal
-      const xSig = getCrossStrategySignal(s, false);
+      // Exhaustion classification (momentum exhaustion signals)
       let xSigHtml = '-';
-      if (xSig === 'align') {
-        xSigHtml = '<span style="color: #3fb950; cursor: help;" title="GP signal aligns (same direction)">🎯✓</span>';
-      } else if (xSig === 'conflict') {
-        xSigHtml = '<span style="color: #f85149; cursor: help;" title="GP signal conflicts (opposite direction)">🎯✗</span>';
-      } else if (xSig === 'mixed') {
-        xSigHtml = '<span style="color: #d29922; cursor: help;" title="GP has both aligned and conflicting signals">🎯⚠</span>';
+      if (s.signalClassification === 'momentum_exhaustion') {
+        if (s.exhaustionDirection === 'extended_long') {
+          xSigHtml = '<span style="color: #f85149; cursor: help; font-weight: bold;" title="Extended Long - coin pumped hard, watch for reversal SHORT setup">⚠️ EXT↑</span>';
+        } else if (s.exhaustionDirection === 'extended_short') {
+          xSigHtml = '<span style="color: #3fb950; cursor: help; font-weight: bold;" title="Extended Short - coin dumped hard, watch for reversal LONG setup">⚠️ EXT↓</span>';
+        }
+      } else {
+        // Fall back to cross-strategy signal for backburner setups
+        const xSig = getCrossStrategySignal(s, false);
+        if (xSig === 'align') {
+          xSigHtml = '<span style="color: #3fb950; cursor: help;" title="GP signal aligns (same direction)">🎯✓</span>';
+        } else if (xSig === 'conflict') {
+          xSigHtml = '<span style="color: #f85149; cursor: help;" title="GP signal conflicts (opposite direction)">🎯✗</span>';
+        } else if (xSig === 'mixed') {
+          xSigHtml = '<span style="color: #d29922; cursor: help;" title="GP has both aligned and conflicting signals">🎯⚠</span>';
+        }
       }
       const mexcUrl = getMexcUrl(s.symbol);
       const linkTitle = appSettings.linkDestination === 'bots' ? 'Open MEXC Trading Bots' : 'Open MEXC Futures';
