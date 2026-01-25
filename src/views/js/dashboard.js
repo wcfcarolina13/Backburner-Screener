@@ -1411,7 +1411,7 @@ function updateUI(state) {
     history: state.setups.history || [],
     goldenPocket: state.setups.goldenPocket || [],
   };
-  document.getElementById('activeCount').textContent = state.setups.active.length;
+  document.getElementById('activeCount').textContent = state.setups.active.filter(s => s.signalClassification !== 'momentum_exhaustion').length;
   document.getElementById('playedOutCount').textContent = state.setups.playedOut.length;
   document.getElementById('historyCount').textContent = (state.setups.history || []).length;
   document.getElementById('allCount').textContent = state.setups.all.length;
