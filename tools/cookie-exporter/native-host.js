@@ -66,9 +66,66 @@ function updateEnvFile(cookies) {
   if (updated) {
     writeFileSync(ENV_PATH, envContent);
     log(`Updated .env with cookies: ${Object.keys(updates).filter(k => updates[k]).join(', ')}`);
+
+    // Also push cookie to Render if configured
+    pushCookieToRender(envContent, updates['MEXC_UID_COOKIE']);
   }
 
   return updated;
+}
+
+// Push the updated cookie to Render deployment via API
+function pushCookieToRender(envContent, cookieValue) {
+  if (!cookieValue) return;
+
+  // Read RENDER_API_KEY and RENDER_SERVICE_ID from the .env content
+  const apiKeyMatch = envContent.match(/^RENDER_API_KEY=(.+)$/m);
+  const serviceIdMatch = envContent.match(/^RENDER_SERVICE_ID=(.+)$/m);
+
+  const apiKey = apiKeyMatch?.[1]?.trim();
+  const serviceId = serviceIdMatch?.[1]?.trim();
+
+  if (!apiKey || !serviceId) {
+    log('Render push skipped: RENDER_API_KEY or RENDER_SERVICE_ID not configured');
+    return;
+  }
+
+  log(`Pushing cookie to Render service ${serviceId}...`);
+
+  // Use dynamic import for https (ESM compatible)
+  import('https').then(({ default: https }) => {
+    const data = JSON.stringify({ value: cookieValue });
+
+    const req = https.request({
+      hostname: 'api.render.com',
+      path: `/v1/services/${serviceId}/env-vars/MEXC_UID_COOKIE`,
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(data),
+      },
+    }, (res) => {
+      let body = '';
+      res.on('data', (chunk) => body += chunk);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          log(`Render push success (${res.statusCode}): cookie updated`);
+        } else {
+          log(`Render push failed (${res.statusCode}): ${body}`);
+        }
+      });
+    });
+
+    req.on('error', (err) => {
+      log(`Render push error: ${err.message}`);
+    });
+
+    req.write(data);
+    req.end();
+  }).catch((err) => {
+    log(`Render push import error: ${err.message}`);
+  });
 }
 
 function processMessage(buffer) {
