@@ -63,3 +63,13 @@
 - **Instruction**: Kelly sizing amplifies variance enormously. A bot can have 66% win rate but still lose catastrophically if losses are larger than wins. Monitor daily and disable if drawdown exceeds 50%.
 - **Added after**: Iteration 28 - `focus-kelly` had 66.7% win rate but lost $1,321 in one day due to position sizing variance
 
+### Sign: Playwright Gets Detected as Bot
+- **Trigger**: When needing to automate login or interact with sites that have bot detection (MEXC, Google, etc.)
+- **Instruction**: Don't use Playwright/Puppeteer/headless browsers for login flows. They get blocked by "Chrome for Testing" detection. Instead, use the real browser via Chrome extension + native messaging, or manual cookie export.
+- **Added after**: Iteration 30 - MEXC blocked Playwright login with "This browser or app may not be secure"
+
+### Sign: Chrome Native Messaging Needs Shell Wrapper on macOS
+- **Trigger**: When implementing Chrome native messaging host
+- **Instruction**: On macOS, Chrome requires the native host path to be a shell script, not a direct Node.js file. Use a `.sh` wrapper that calls `node script.js`. Also use `stdin.on('readable')` not `stdin.on('end')` for reading - Chrome keeps the pipe open.
+- **Added after**: Iteration 30 - Native host kept timing out because it waited for stdin 'end' which Chrome doesn't send until after response
+

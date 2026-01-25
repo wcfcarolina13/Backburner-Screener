@@ -4,10 +4,58 @@
 
 ## Summary
 
-- Iterations completed: 29
-- Current status: MEXC Futures Trading Client Complete
+- Iterations completed: 30
+- Current status: Cookie Auto-Refresh System Complete
 
 ## Current Task: MEXC Live Execution Integration
+
+### Iteration 30 - Chrome Extension Cookie Auto-Refresh
+**Date**: 2026-01-24
+**Status**: ✅ Complete
+
+**Goal**: Replace Playwright-based cookie daemon (blocked by bot detection) with a Chrome extension that can export cookies from the real browser.
+
+**Key Accomplishments**:
+
+1. **Chrome Extension** (`tools/cookie-exporter/`):
+   - Manifest V3 with nativeMessaging, alarms, storage permissions
+   - Background service worker auto-refreshes every 30 minutes
+   - Popup UI shows status, last refresh, manual refresh button
+   - Exports all MEXC cookies (uc_token, u_id, x-mxc-fingerprint)
+
+2. **Native Messaging Host**:
+   - Node.js script receives cookies from Chrome extension
+   - Updates `.env` file with fresh cookie values
+   - Shell wrapper for macOS compatibility with Chrome
+   - Logs to `.mexc-cookie-refresh.log`
+
+3. **Cleanup**:
+   - Removed Playwright-based daemon scripts
+   - Removed playwright from package.json
+   - Cleaned up worktrees (angry-hugle)
+   - Updated .gitignore for security
+
+**Problem Solved**: Playwright's "Chrome for Testing" is detected as a bot by MEXC/Google, preventing login. The Chrome extension uses the real browser where the user is already logged in.
+
+**Files Created**:
+- `tools/cookie-exporter/manifest.json`
+- `tools/cookie-exporter/background.js`
+- `tools/cookie-exporter/popup.html`
+- `tools/cookie-exporter/popup.js`
+- `tools/cookie-exporter/native-host.js`
+- `tools/cookie-exporter/native-host.sh`
+- `tools/cookie-exporter/install.sh`
+- `tools/cookie-exporter/icon.png`
+
+**Files Removed**:
+- `scripts/mexc-cookie-daemon.ts`
+- `scripts/install-mexc-daemon.sh`
+- `scripts/com.backburner.mexc-cookie.plist`
+
+**Commits**:
+- `bce4def` "feat: Replace Playwright cookie daemon with Chrome extension"
+
+---
 
 ### Iteration 29 - MEXC Futures API Client (Cookie Bypass)
 **Date**: 2026-01-24
