@@ -1094,7 +1094,8 @@ function setSetupsTab(tab) {
 function renderSetupsWithTab() {
   let setups;
   if (currentSetupsTab === 'active') {
-    setups = allSetupsData.active;
+    // Filter out momentum_exhaustion — these are NOT real backburner setups
+    setups = (allSetupsData.active || []).filter(s => s.signalClassification !== 'momentum_exhaustion');
   } else if (currentSetupsTab === 'playedOut') {
     setups = allSetupsData.playedOut;
   } else if (currentSetupsTab === 'history') {
@@ -1120,6 +1121,14 @@ function renderSetupsWithTab() {
   } else {
     setups = allSetupsData.all;
   }
+
+  // Apply market filter (spot/futures/all)
+  if (setups && appSettings.marketFilter === 'spot') {
+    setups = setups.filter(s => s.marketType === 'spot');
+  } else if (setups && appSettings.marketFilter === 'futures') {
+    setups = setups.filter(s => s.marketType === 'futures');
+  }
+
   document.getElementById('setupsTable').innerHTML = renderSetupsTable(setups, currentSetupsTab);
 }
 
@@ -1963,7 +1972,9 @@ function renderSetupsTable(setups, tabType) {
   return '<table><thead><tr><th style="width: 30px;"></th><th>Mkt</th><th>Symbol</th><th>Dir</th><th>TF</th><th>State</th><th>RSI</th><th>HTF</th><th>Stop</th><th>Tier</th><th>Div</th><th>X-Sig</th><th>Price</th><th>Impulse</th><th>Triggered</th><th>' + lastColHeader + '</th></tr></thead><tbody>' +
     setups.map(s => {
       const stateClass = s.state === 'deep_extreme' ? 'deep' : s.state;
-      const rowStyle = tabType === 'history' || s.state === 'played_out' ? 'opacity: 0.7;' : '';
+      const isExhaustion = s.signalClassification === 'momentum_exhaustion';
+      const rowStyle = isExhaustion ? 'opacity: 0.45; background: #1c1c1c;' :
+                        tabType === 'history' || s.state === 'played_out' ? 'opacity: 0.7;' : '';
       const impulseColor = s.impulsePercentMove >= 0 ? '#3fb950' : '#f85149';
       const impulseSign = s.impulsePercentMove >= 0 ? '+' : '';
       const rsiColor = s.currentRSI < 30 ? '#f85149' : s.currentRSI > 70 ? '#3fb950' : s.currentRSI < 40 ? '#d29922' : s.currentRSI > 60 ? '#58a6ff' : '#c9d1d9';
@@ -1990,9 +2001,9 @@ function renderSetupsTable(setups, tabType) {
       let xSigHtml = '-';
       if (s.signalClassification === 'momentum_exhaustion') {
         if (s.exhaustionDirection === 'extended_long') {
-          xSigHtml = '<span style="color: #f85149; cursor: help; font-weight: bold;" title="Extended Long - coin pumped hard, watch for reversal SHORT setup">⚠️ EXT↑</span>';
+          xSigHtml = '<span style="color: #f85149; cursor: help; font-weight: bold;" title="NOT A BACKBURNER — Momentum Exhaustion (Extended Long).\nCoin pumped hard and is now overbought. This is NOT a \'bounce to fade\' — it\'s a strong uptrend that\'s overextended.\nBots will NOT trade this. Watch for reversal SHORT when momentum fades.">⚠️ EXT↑</span>';
         } else if (s.exhaustionDirection === 'extended_short') {
-          xSigHtml = '<span style="color: #3fb950; cursor: help; font-weight: bold;" title="Extended Short - coin dumped hard, watch for reversal LONG setup">⚠️ EXT↓</span>';
+          xSigHtml = '<span style="color: #3fb950; cursor: help; font-weight: bold;" title="NOT A BACKBURNER — Momentum Exhaustion (Extended Short).\nCoin dumped hard and is now oversold. This is NOT a \'dip to buy\' — it\'s a strong downtrend that\'s overextended.\nBots will NOT trade this. Watch for reversal LONG when selling exhausts.">⚠️ EXT↓</span>';
         }
       } else {
         // Fall back to cross-strategy signal for backburner setups
@@ -2008,9 +2019,9 @@ function renderSetupsTable(setups, tabType) {
       const mexcUrl = getMexcUrl(s.symbol);
       const linkTitle = appSettings.linkDestination === 'bots' ? 'Open MEXC Trading Bots' : 'Open MEXC Futures';
       // TCG-compliant columns
-      const htfHtml = s.htfConfirmed === undefined ? '<span style="color: #6e7681;">-</span>' :
-                      s.htfConfirmed ? '<span style="color: #3fb950;" title="Higher timeframe aligned">✓</span>' :
-                      '<span style="color: #f85149;" title="Higher timeframe NOT aligned">✗</span>';
+      const htfHtml = s.htfConfirmed === undefined ? '<span style="color: #6e7681;" title="No HTF data available (e.g., 4H has no daily context). Bots will NOT auto-trade this.">?</span>' :
+                      s.htfConfirmed ? '<span style="color: #3fb950;" title="Higher timeframe trend CONFIRMS this setup direction.\nTCG: 5m oversold marks hourly higher low; 1h oversold marks daily higher low.\nBots CAN trade this.">✓</span>' :
+                      '<span style="color: #f85149;" title="Higher timeframe trend OPPOSES this setup direction.\nTCG requires HTF alignment. Bots will NOT trade this.">✗</span>';
       const stopHtml = s.structureStopPrice ? '<span style="font-family: monospace; font-size: 11px; color: #d29922;" title="Structure-based stop (below pullback low)">' + formatPrice(s.structureStopPrice) + '</span>' : '<span style="color: #6e7681;">-</span>';
       const tierLabel = s.positionTier === 2 ? 'T2' : 'T1';
       const tierColor = s.positionTier === 2 ? '#a371f7' : '#8b949e';
@@ -2020,7 +2031,7 @@ function renderSetupsTable(setups, tabType) {
         <td><input type="checkbox" data-setup-key="${key}" onclick="toggleSetupSelection('${key}')" ${isSelected ? 'checked' : ''} style="cursor: pointer;">${inList ? '<span title="In list" style="color: #58a6ff; margin-left: 4px;">📋</span>' : ''}</td>
         <td><span class="badge badge-${s.marketType}">${s.marketType === 'futures' ? 'F' : 'S'}</span></td>
         <td><a href="${mexcUrl}" target="_blank" style="color: #58a6ff; text-decoration: none;" title="${linkTitle}"><strong>${s.symbol.replace('USDT', '')}</strong></a><br><span style="font-size: 10px; color: #6e7681;">${s.coinName || ''}</span></td>
-        <td><span class="badge badge-${s.direction}">${s.direction.toUpperCase()}</span></td>
+        <td>${isExhaustion ? '<span style="color: #6e7681; font-size: 9px; text-decoration: line-through;" title="Not a real setup — momentum exhaustion">' + s.direction.toUpperCase() + '</span>' : '<span class="badge badge-' + s.direction + '">' + s.direction.toUpperCase() + '</span>'}</td>
         <td>${s.timeframe}</td>
         <td><span class="badge badge-${stateClass}">${s.state.replace('_', ' ')}</span></td>
         <td style="font-weight: 600; color: ${rsiColor}">${s.currentRSI.toFixed(1)}</td>

@@ -152,7 +152,10 @@ export class BackburnerDetector {
     higherTFBullish?: boolean
   ): BackburnerSetup | null {
     // Look for an impulse move
-    const impulse = detectImpulseMove(candles, this.config.minImpulsePercent);
+    // TCG: Use shorter lookback for higher timeframes to avoid stale impulses
+    // 5m: 50 candles = 4.2 hours, 15m: 50 = 12.5 hours, 1h: 50 = 2 days, 4h: 30 = 5 days
+    const lookback = timeframe === '4h' ? 30 : 50;
+    const impulse = detectImpulseMove(candles, this.config.minImpulsePercent, lookback);
 
     if (!impulse) {
       return null;
@@ -180,7 +183,7 @@ export class BackburnerDetector {
     // FIX 1: TIMEFRAME HIERARCHY
     // TCG: "5m signal marks hourly higher low; 1h signal marks daily higher low"
     // ==========================================================================
-    let htfConfirmed = true; // Default to true if no HTF data
+    let htfConfirmed = false; // Default to false — TCG requires HTF trend alignment
 
     if (higherTFBullish !== undefined) {
       // For LONG setups: HTF must be bullish
@@ -188,18 +191,21 @@ export class BackburnerDetector {
       // TCG principle: "5m signal marks hourly higher low, 1h signal marks daily higher low"
       // Setups MUST align with higher timeframe trend
       if (direction === 'long' && !higherTFBullish) {
-        htfConfirmed = false;
         // REJECT long setups when HTF is bearish
         // This prevents buying dips in downtrending coins
         return null;
       }
       if (direction === 'short' && higherTFBullish) {
-        htfConfirmed = false;
         // REJECT short setups when HTF is bullish
         // This prevents calling shorts on uptrending coins
         return null;
       }
+      // HTF data available and aligned — confirmed
+      htfConfirmed = true;
     }
+    // When higherTFBullish === undefined (no HTF data, e.g., 4H timeframe):
+    // htfConfirmed stays false — setup is still detected for dashboard visibility
+    // but bots should NOT auto-trade unconfirmed setups
 
     // ==========================================================================
     // FIX 3: ENTRY ON RSI TRANSITION (not just "is below")
