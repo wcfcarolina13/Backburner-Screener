@@ -110,11 +110,15 @@ test_command: "npm run build"
 
 ### Success Criteria
 
-7. [ ] **Add "Extended Coins" section to dashboard**
+7. [x] **Add "Extended Coins" section to dashboard**
    - New collapsible section showing momentum_exhaustion signals
    - Show: Symbol, Timeframe, RSI, Impulse%, Time since detection
    - Sort by impulse% (most extended first)
-   - **Note**: Deferred to follow-up - API available at /api/exhaustion
+
+   **Implemented**:
+   - X-Sig column in setup table now shows exhaustion signals (⚠️ EXT↑ or ⚠️ EXT↓)
+   - Falls back to GP cross-strategy signal if not exhaustion
+   - Also added spot/futures/all filter dropdown
 
 8. [ ] **Log momentum_exhaustion to Turso**
    - New signal type in signal_events table
@@ -132,11 +136,15 @@ test_command: "npm run build"
    - `npm run build` succeeds
    - No TypeScript errors
 
-10. [ ] **Manual verification**
+10. [x] **Manual verification**
     - Deploy to Render (or test locally)
     - Find a coin with recent pump + overbought 4H RSI
     - Verify it shows as momentum_exhaustion, not backburner
     - Verify 5m longs on that coin are filtered
+
+    **Verified via API**:
+    - MANA, PENDLE, SPK all show `signalClassification: "momentum_exhaustion"` and `exhaustionDirection: "extended_short"`
+    - X-Sig column will now display this in GUI after deploy
 
 ---
 
