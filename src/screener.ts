@@ -213,35 +213,36 @@ export class BackburnerScreener {
 
       this.eligibleSymbols = [];
 
-      // Process spot symbols
+      // Process spot symbols — only include those with MEXC futures contracts.
+      // Spot-only symbols are skipped entirely since we trade on futures.
+      // Only add the futures entry to avoid scanning each symbol twice.
+      let skippedNoFutures = 0;
       for (const info of exchangeInfo) {
         const volume24h = spotVolumeMap.get(info.symbol) || 0;
         if (!this.isEligibleSymbol(info, volume24h)) continue;
 
-        // Check if also available on futures
+        // Must have a futures contract to be tradeable
         const hasFutures = futuresSymbolSet.has(info.symbol);
         const futuresSymbol = futuresSymbolMap.get(info.symbol);
-        const futuresVolume = futuresSymbol ? (futuresVolumeMap.get(futuresSymbol) || 0) : 0;
+        if (!hasFutures || !futuresSymbol) {
+          skippedNoFutures++;
+          continue;
+        }
 
-        // Add spot entry
+        const futuresVolume = futuresVolumeMap.get(futuresSymbol) || 0;
+
+        // Add futures entry only — this is what we actually trade on
         this.eligibleSymbols.push({
           symbol: info.symbol,
-          marketType: 'spot',
-          volume24h,
-          liquidityRisk: this.getLiquidityRisk(volume24h),
+          futuresSymbol,
+          marketType: 'futures',
+          volume24h: futuresVolume,
+          liquidityRisk: this.getLiquidityRisk(futuresVolume),
         });
-
-        // Add futures entry if available (with higher volume typically)
-        if (hasFutures && futuresSymbol) {
-          this.eligibleSymbols.push({
-            symbol: info.symbol,
-            futuresSymbol,
-            marketType: 'futures',
-            volume24h: futuresVolume,
-            liquidityRisk: this.getLiquidityRisk(futuresVolume),
-          });
-          this.symbolVolumes.set(`futures:${info.symbol}`, futuresVolume);
-        }
+        this.symbolVolumes.set(`futures:${info.symbol}`, futuresVolume);
+      }
+      if (skippedNoFutures > 0) {
+        console.log(`[Screener] Skipped ${skippedNoFutures} spot-only symbols (no futures contract)`);
       }
 
       // Also add futures-only symbols (not on spot but on futures)
