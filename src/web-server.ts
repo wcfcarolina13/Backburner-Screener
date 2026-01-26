@@ -279,6 +279,8 @@ interface ServerSettings {
   mexcMaxPositionSizeUsd: number;     // Safety cap on position size
   mexcPositionSizeMode: 'fixed' | 'percent';  // Fixed USD or % of available balance
   mexcPositionSizePct: number;        // Percentage of available balance per trade
+  mexcMaxLeverage: number;            // Override: cap leverage at this value
+  mexcAutoExecute: boolean;           // Full automation: auto-execute in live mode
 }
 
 // Default bot notification settings - top performers enabled by default
@@ -317,6 +319,8 @@ const serverSettings: ServerSettings = {
   mexcMaxPositionSizeUsd: 50,
   mexcPositionSizeMode: 'fixed',
   mexcPositionSizePct: 5,
+  mexcMaxLeverage: 20,
+  mexcAutoExecute: false,
 };
 
 // Load server settings from disk (uses fs/path imported via data-persistence)
@@ -2679,6 +2683,13 @@ export function addToMexcQueue(
     size = maxSize;
   }
 
+  // Enforce leverage cap
+  const maxLev = serverSettings.mexcMaxLeverage;
+  if (leverage > maxLev) {
+    console.log(`[MEXC] Capping leverage: ${leverage}x → ${maxLev}x`);
+    leverage = maxLev;
+  }
+
   const order: QueuedOrder = {
     id: `${Date.now()}-${Math.random().toString(36).substring(7)}`,
     timestamp: Date.now(),
@@ -2703,6 +2714,46 @@ export function addToMexcQueue(
   if (mexcExecutionMode === 'shadow') {
     console.log(`[MEXC-SHADOW] Would execute: ${side} ${symbol} $${size} ${leverage}x${slStr}${tpStr}`);
     order.status = 'executed';
+  }
+
+  // Auto-execute in live mode when full automation is enabled
+  if (mexcExecutionMode === 'live' && serverSettings.mexcAutoExecute) {
+    console.log(`[MEXC-AUTO] Auto-executing: ${side} ${symbol} $${size} ${leverage}x${slStr}${tpStr}`);
+    autoExecuteOrder(order);
+  }
+}
+
+// Auto-execute a queued order on MEXC (used by full automation mode)
+async function autoExecuteOrder(order: QueuedOrder): Promise<void> {
+  const client = initMexcClient();
+  if (!client) {
+    order.status = 'failed';
+    order.error = 'MEXC client not available';
+    console.log(`[MEXC-AUTO] Failed: client not available for ${order.symbol}`);
+    return;
+  }
+
+  order.status = 'executing';
+
+  try {
+    const result = order.side === 'long'
+      ? await client.openLong(order.symbol, order.size, order.leverage, order.stopLossPrice, order.takeProfitPrice)
+      : await client.openShort(order.symbol, order.size, order.leverage, order.stopLossPrice, order.takeProfitPrice);
+
+    if (result.success) {
+      order.status = 'executed';
+      console.log(`[MEXC-AUTO] Executed: ${order.side} ${order.symbol} $${order.size} ${order.leverage}x`);
+      // Refresh balance after execution
+      fetchMexcBalance();
+    } else {
+      order.status = 'failed';
+      order.error = result.error;
+      console.log(`[MEXC-AUTO] Failed: ${order.symbol} — ${result.error}`);
+    }
+  } catch (err) {
+    order.status = 'failed';
+    order.error = (err as Error).message;
+    console.log(`[MEXC-AUTO] Error: ${order.symbol} — ${(err as Error).message}`);
   }
 }
 
@@ -2748,6 +2799,8 @@ app.get('/api/mexc/bot-selection', (req, res) => {
     maxPositionSizeUsd: serverSettings.mexcMaxPositionSizeUsd,
     positionSizeMode: serverSettings.mexcPositionSizeMode,
     positionSizePct: serverSettings.mexcPositionSizePct,
+    maxLeverage: serverSettings.mexcMaxLeverage,
+    autoExecute: serverSettings.mexcAutoExecute,
     cachedAvailableBalance: cachedMexcAvailableBalance,
     available: [...focusAvailable, ...expAvailable],
   });
@@ -2755,7 +2808,8 @@ app.get('/api/mexc/bot-selection', (req, res) => {
 
 // Update bot selection
 app.post('/api/mexc/bot-selection', express.json(), (req, res) => {
-  const { selectedBots, positionSizeUsd, positionSizeMode, positionSizePct } = req.body;
+  const { selectedBots, positionSizeUsd, positionSizeMode, positionSizePct,
+          maxPositionSizeUsd, maxLeverage, autoExecute } = req.body;
 
   if (Array.isArray(selectedBots)) {
     // Validate all IDs exist in focusShadowBots or experimentalBots
@@ -2775,18 +2829,42 @@ app.post('/api/mexc/bot-selection', express.json(), (req, res) => {
     serverSettings.mexcPositionSizePct = positionSizePct;
   }
 
+  if (typeof maxPositionSizeUsd === 'number' && maxPositionSizeUsd > 0) {
+    serverSettings.mexcMaxPositionSizeUsd = maxPositionSizeUsd;
+    // Re-cap current size if needed
+    if (serverSettings.mexcPositionSizeUsd > maxPositionSizeUsd) {
+      serverSettings.mexcPositionSizeUsd = maxPositionSizeUsd;
+    }
+  }
+
+  if (typeof maxLeverage === 'number' && maxLeverage >= 1 && maxLeverage <= 200) {
+    serverSettings.mexcMaxLeverage = maxLeverage;
+  }
+
+  if (typeof autoExecute === 'boolean') {
+    serverSettings.mexcAutoExecute = autoExecute;
+    if (autoExecute) {
+      console.log(`[MEXC] ⚠️ AUTO-EXECUTE ENABLED — orders will execute automatically in live mode`);
+    } else {
+      console.log(`[MEXC] Auto-execute disabled — manual execution required`);
+    }
+  }
+
   saveServerSettings();
   const sizeDesc = serverSettings.mexcPositionSizeMode === 'percent'
     ? `${serverSettings.mexcPositionSizePct}% of balance`
     : `$${serverSettings.mexcPositionSizeUsd}`;
-  console.log(`[MEXC] Bot selection updated: ${serverSettings.mexcSelectedBots.join(', ') || '(none)'} | Size: ${sizeDesc}`);
+  console.log(`[MEXC] Bot selection updated: ${serverSettings.mexcSelectedBots.join(', ') || '(none)'} | Size: ${sizeDesc} | MaxLev: ${serverSettings.mexcMaxLeverage}x | Auto: ${serverSettings.mexcAutoExecute}`);
 
   res.json({
     success: true,
     selected: serverSettings.mexcSelectedBots,
     positionSizeUsd: serverSettings.mexcPositionSizeUsd,
+    maxPositionSizeUsd: serverSettings.mexcMaxPositionSizeUsd,
     positionSizeMode: serverSettings.mexcPositionSizeMode,
     positionSizePct: serverSettings.mexcPositionSizePct,
+    maxLeverage: serverSettings.mexcMaxLeverage,
+    autoExecute: serverSettings.mexcAutoExecute,
   });
 });
 
@@ -4955,7 +5033,7 @@ function getHtmlPage(): string {
               title="Use a percentage of your MEXC available balance per trade">% Balance</button>
           </div>
           <div id="mexcSizeFixedGroup" style="display: flex; gap: 4px; align-items: center;">
-            <input type="number" id="mexcPositionSize" value="10" min="1" max="500"
+            <input type="number" id="mexcPositionSize" value="10" min="1" max="10000"
               style="width: 70px; padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d; background: #161b22; color: #c9d1d9; font-size: 12px;">
             <span style="color: #6e7681; font-size: 10px;">USD</span>
           </div>
@@ -4966,7 +5044,28 @@ function getHtmlPage(): string {
             <span id="mexcPctPreview" style="color: #58a6ff; font-size: 10px;" title="Estimated trade size based on current available balance"></span>
           </div>
           <button onclick="saveMexcBotSelection()" style="padding: 4px 12px; border-radius: 4px; border: none; background: #238636; color: white; font-size: 11px; cursor: pointer;">Save</button>
-          <span style="color: #6e7681; font-size: 10px; margin-left: auto;" title="Maximum allowed position size as a safety cap">Max: $<span id="mexcMaxSize">50</span></span>
+        </div>
+        <div style="display: flex; gap: 12px; align-items: center; padding-top: 8px; margin-top: 8px; border-top: 1px solid #21262d; flex-wrap: wrap;">
+          <label style="color: #8b949e; font-size: 11px; white-space: nowrap;" title="Safety cap: orders exceeding this USD amount will be clamped">Max Size:</label>
+          <div style="display: flex; gap: 4px; align-items: center;">
+            <span style="color: #6e7681; font-size: 11px;">$</span>
+            <input type="number" id="mexcMaxPositionSize" value="50" min="5" max="10000"
+              style="width: 70px; padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d; background: #161b22; color: #c9d1d9; font-size: 12px;"
+              onchange="saveMexcBotSelection()">
+          </div>
+          <label style="color: #8b949e; font-size: 11px; white-space: nowrap; margin-left: 8px;" title="Safety cap: leverage will be capped at this value regardless of what the bot suggests">Max Leverage:</label>
+          <div style="display: flex; gap: 4px; align-items: center;">
+            <input type="number" id="mexcMaxLeverage" value="20" min="1" max="200"
+              style="width: 55px; padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d; background: #161b22; color: #c9d1d9; font-size: 12px;"
+              onchange="saveMexcBotSelection()">
+            <span style="color: #6e7681; font-size: 11px;">x</span>
+          </div>
+          <div style="margin-left: auto; display: flex; align-items: center; gap: 6px;">
+            <label style="color: #f85149; font-size: 10px; font-weight: 600; white-space: nowrap; cursor: pointer;" title="DANGEROUS: When enabled AND in Live mode, orders will be executed automatically without manual approval. Requires double confirmation to enable."
+              for="mexcAutoExecuteToggle">Auto-Execute</label>
+            <input type="checkbox" id="mexcAutoExecuteToggle" onchange="toggleAutoExecute(this.checked)"
+              style="accent-color: #f85149; cursor: pointer;">
+          </div>
         </div>
       </div>
 
