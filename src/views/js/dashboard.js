@@ -1,3 +1,6 @@
+// Cached MEXC available balance for % position sizing preview
+var _mexcCachedAvailableBalance = 0;
+
 const eventSource = new EventSource('/events');
 
 eventSource.onopen = () => {
@@ -2685,6 +2688,11 @@ async function testMexcConnection() {
       statusEl.style.background = '#238636';
       balanceEl.textContent = '$' + (data.balance || 0).toFixed(2);
       availableEl.textContent = '$' + (data.available || 0).toFixed(2);
+      // Cache balance for % sizing preview
+      if (data.available > 0) {
+        _mexcCachedAvailableBalance = data.available;
+        updatePctPreview(data.available);
+      }
       showToast('MEXC connection successful!', 'success');
     } else {
       mexcConnectionActive = false;
@@ -2952,18 +2960,30 @@ async function loadMexcBotSelection() {
     const container = document.getElementById('mexcBotCheckboxes');
     const statusEl = document.getElementById('mexcBotFeederStatus');
     const sizeInput = document.getElementById('mexcPositionSize');
+    const pctInput = document.getElementById('mexcPositionPct');
     const maxSizeEl = document.getElementById('mexcMaxSize');
 
     if (sizeInput) sizeInput.value = data.positionSizeUsd;
+    if (pctInput) pctInput.value = data.positionSizePct || 5;
     if (maxSizeEl) maxSizeEl.textContent = data.maxPositionSizeUsd;
+
+    // Set sizing mode toggle state
+    const mode = data.positionSizeMode || 'fixed';
+    setMexcSizeMode(mode, false);
+
+    // Update % preview with cached balance
+    if (data.cachedAvailableBalance > 0) {
+      updatePctPreview(data.cachedAvailableBalance);
+    }
 
     if (!container) return;
 
-    // Sort by PnL (best first)
-    const sorted = (data.available || []).sort((a, b) => parseFloat(b.totalPnl) - parseFloat(a.totalPnl));
+    // Separate focus and experimental bots, sort each by PnL
+    const allBots = data.available || [];
+    const focusBots = allBots.filter(b => b.group === 'focus' || !b.group).sort((a, b) => parseFloat(b.totalPnl) - parseFloat(a.totalPnl));
+    const expBots = allBots.filter(b => b.group === 'experimental').sort((a, b) => parseFloat(b.totalPnl) - parseFloat(a.totalPnl));
 
-    let html = '';
-    sorted.forEach(bot => {
+    function renderBotRow(bot) {
       const checked = data.selected.includes(bot.id) ? 'checked' : '';
       const pnl = parseFloat(bot.totalPnl);
       const pnlColor = pnl >= 0 ? '#3fb950' : '#f85149';
@@ -2971,21 +2991,35 @@ async function loadMexcBotSelection() {
       const trades = bot.totalTrades + ' trades';
       const wr = bot.winRate + '%';
       const open = bot.openPositions > 0 ? ' | ' + bot.openPositions + ' open' : '';
+      const label = bot.description || bot.id;
 
-      html += '<label style="display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 4px; background: #161b22; cursor: pointer; font-size: 11px;">'
+      return '<label style="display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 4px; background: #161b22; cursor: pointer; font-size: 11px;">'
         + '<input type="checkbox" value="' + bot.id + '" ' + checked
         + ' onchange="saveMexcBotSelection()"'
         + ' style="accent-color: #238636;">'
-        + '<span style="color: #c9d1d9;">' + bot.id + '</span>'
+        + '<span style="color: #c9d1d9;" title="' + bot.id + '">' + label + '</span>'
         + '<span style="color: #6e7681; font-size: 10px; margin-left: auto;">' + trades + ' ' + wr + open + '</span>'
         + '<span style="color: ' + pnlColor + '; font-size: 10px; font-weight: 600; min-width: 40px; text-align: right;">' + pnlStr + '</span>'
         + '</label>';
-    });
+    }
+
+    let html = '';
+    if (focusBots.length > 0) {
+      html += '<div style="color: #8b949e; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 8px; margin-top: 2px;">Focus Bots</div>';
+      focusBots.forEach(bot => { html += renderBotRow(bot); });
+    }
+    if (expBots.length > 0) {
+      html += '<div style="color: #8b949e; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 8px; margin-top: 8px;">Experimental Bots</div>';
+      expBots.forEach(bot => { html += renderBotRow(bot); });
+    }
     container.innerHTML = html;
 
     if (statusEl) {
       if (data.selected.length > 0) {
-        statusEl.textContent = data.selected.length + ' bot(s) feeding queue | $' + data.positionSizeUsd + '/trade';
+        const sizeDesc = (data.positionSizeMode === 'percent')
+          ? data.positionSizePct + '% of balance'
+          : '$' + data.positionSizeUsd;
+        statusEl.textContent = data.selected.length + ' bot(s) feeding queue | ' + sizeDesc + '/trade';
         statusEl.style.color = '#3fb950';
       } else {
         statusEl.textContent = 'No bots selected';
@@ -3005,23 +3039,95 @@ async function saveMexcBotSelection() {
   });
 
   const sizeInput = document.getElementById('mexcPositionSize');
+  const pctInput = document.getElementById('mexcPositionPct');
   const positionSizeUsd = sizeInput ? parseFloat(sizeInput.value) || 10 : 10;
+  const positionSizePct = pctInput ? parseFloat(pctInput.value) || 5 : 5;
+
+  // Determine current mode from toggle state
+  const fixedBtn = document.getElementById('mexcSizeModeFixed');
+  const positionSizeMode = (fixedBtn && fixedBtn.style.background === 'transparent') ? 'percent' : 'fixed';
 
   try {
     const response = await fetch('/api/mexc/bot-selection', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ selectedBots, positionSizeUsd })
+      body: JSON.stringify({ selectedBots, positionSizeUsd, positionSizeMode, positionSizePct })
     });
     const data = await response.json();
     if (data.success) {
-      showToast('Bot selection saved: ' + (selectedBots.length || 'none') + ' bot(s), $' + data.positionSizeUsd + '/trade', 'success');
+      const sizeDesc = data.positionSizeMode === 'percent'
+        ? data.positionSizePct + '% of balance'
+        : '$' + data.positionSizeUsd;
+      showToast('Bot selection saved: ' + (selectedBots.length || 'none') + ' bot(s), ' + sizeDesc + '/trade', 'success');
       loadMexcBotSelection();
     }
   } catch (err) {
     showToast('Error saving bot selection: ' + err.message, 'error');
   }
 }
+
+// Toggle position size mode between fixed USD and % of balance
+function setMexcSizeMode(mode, save) {
+  const fixedBtn = document.getElementById('mexcSizeModeFixed');
+  const pctBtn = document.getElementById('mexcSizeModePct');
+  const fixedGroup = document.getElementById('mexcSizeFixedGroup');
+  const pctGroup = document.getElementById('mexcSizePctGroup');
+
+  if (!fixedBtn || !pctBtn || !fixedGroup || !pctGroup) return;
+
+  if (mode === 'percent') {
+    fixedBtn.style.background = 'transparent';
+    fixedBtn.style.color = '#8b949e';
+    pctBtn.style.background = '#238636';
+    pctBtn.style.color = 'white';
+    fixedGroup.style.display = 'none';
+    pctGroup.style.display = 'flex';
+    // Fetch fresh balance for preview
+    refreshMexcBalanceForSizing();
+  } else {
+    fixedBtn.style.background = '#238636';
+    fixedBtn.style.color = 'white';
+    pctBtn.style.background = 'transparent';
+    pctBtn.style.color = '#8b949e';
+    fixedGroup.style.display = 'flex';
+    pctGroup.style.display = 'none';
+  }
+
+  if (save !== false) {
+    saveMexcBotSelection();
+  }
+}
+
+async function refreshMexcBalanceForSizing() {
+  try {
+    const response = await fetch('/api/mexc/balance');
+    const data = await response.json();
+    if (data.success && data.available > 0) {
+      _mexcCachedAvailableBalance = data.available;
+      updatePctPreview(data.available);
+    }
+  } catch (err) {
+    console.error('Failed to fetch MEXC balance for sizing:', err);
+  }
+}
+
+function updatePctPreview(availableBalance) {
+  _mexcCachedAvailableBalance = availableBalance;
+  const pctInput = document.getElementById('mexcPositionPct');
+  const previewEl = document.getElementById('mexcPctPreview');
+  if (!pctInput || !previewEl) return;
+
+  const pct = parseFloat(pctInput.value) || 5;
+  const est = availableBalance * (pct / 100);
+  previewEl.textContent = '≈ $' + est.toFixed(2) + ' (of $' + availableBalance.toFixed(2) + ')';
+}
+
+// Update preview when % input changes
+document.addEventListener('input', function(e) {
+  if (e.target && e.target.id === 'mexcPositionPct' && _mexcCachedAvailableBalance > 0) {
+    updatePctPreview(_mexcCachedAvailableBalance);
+  }
+});
 
 // Helper: show toast notification
 function showToast(message, type = 'info') {
