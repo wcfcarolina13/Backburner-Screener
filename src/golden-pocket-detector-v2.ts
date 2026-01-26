@@ -51,11 +51,12 @@ const DEFAULT_V2_CONFIG: GoldenPocketV2Config = {
   goldenPocketBottom: 0.65,
   invalidationLevel: 0.786,
 
-  // RSI thresholds - LOOSENED for more signals
-  longTriggeredRSI: 50,           // v1: 40 - now triggers at RSI < 50
-  longDeepExtremeRSI: 35,         // v1: 30 - now deep at RSI < 35
-  shortTriggeredRSI: 50,          // v1: 60 - now triggers at RSI > 50
-  shortDeepExtremeRSI: 65,        // v1: 70 - now deep at RSI > 65
+  // RSI thresholds - require actual oversold/overbought for quality signals
+  // Golden pocket (price structure) + RSI extreme = high-conviction entry
+  longTriggeredRSI: 35,           // RSI < 35 for long trigger (was 50 - too loose)
+  longDeepExtremeRSI: 25,         // RSI < 25 for deep extreme long
+  shortTriggeredRSI: 65,          // RSI > 65 for short trigger (was 50 - too loose)
+  shortDeepExtremeRSI: 75,        // RSI > 75 for deep extreme short
 
   // Take profit unchanged
   tp1Level: 0.382,
@@ -174,10 +175,12 @@ export class GoldenPocketDetectorV2 {
       return null;
     }
 
-    const currentRSI = getCurrentRSI(candles, 14) || 50;
+    // Use CLOSED candles only for RSI (exclude forming candle from MEXC API)
+    const closedCandles = candles.slice(0, -1);
+    const currentRSI = getCurrentRSI(closedCandles, 14) || 50;
 
     // Check for divergence
-    const rsiValues = calculateRSI(candles, 14);
+    const rsiValues = calculateRSI(closedCandles, 14);
     const rsiResultsForDivergence = rsiValues.map(r => ({
       value: r.value,
       timestamp: r.timestamp,
@@ -198,11 +201,10 @@ export class GoldenPocketDetectorV2 {
       }
     }
 
-    // V2: LOOSENED RSI thresholds
+    // Golden pocket + RSI extreme = high-conviction entry
     let state: SetupState;
     if (inGoldenPocket) {
       if (direction === 'long') {
-        // V2: RSI < 50 for triggered (v1: < 40), < 35 for deep (v1: < 30)
         if (currentRSI < this.config.longDeepExtremeRSI) {
           state = 'deep_extreme';
         } else if (currentRSI < this.config.longTriggeredRSI) {
@@ -211,7 +213,6 @@ export class GoldenPocketDetectorV2 {
           state = 'watching';
         }
       } else {
-        // V2: RSI > 50 for triggered (v1: > 60), > 65 for deep (v1: > 70)
         if (currentRSI > this.config.shortDeepExtremeRSI) {
           state = 'deep_extreme';
         } else if (currentRSI > this.config.shortTriggeredRSI) {
@@ -337,7 +338,9 @@ export class GoldenPocketDetectorV2 {
     candles: Candle[]
   ): GoldenPocketV2Setup | null {
     const currentPrice = candles[candles.length - 1].close;
-    const currentRSI = getCurrentRSI(candles, 14) || 50;
+    // Use CLOSED candles only for RSI (exclude forming candle)
+    const closedCandles = candles.slice(0, -1);
+    const currentRSI = getCurrentRSI(closedCandles, 14) || 50;
 
     setup.currentPrice = currentPrice;
     setup.currentRSI = currentRSI;
@@ -372,13 +375,23 @@ export class GoldenPocketDetectorV2 {
     const inGoldenPocket = isInGoldenPocket(currentPrice, setup.fibLevels);
 
     if (inGoldenPocket) {
-      // V2 thresholds
+      // Require RSI to be in extreme zone — don't trigger on neutral RSI
       if (setup.direction === 'long') {
-        setup.state = currentRSI < this.config.longDeepExtremeRSI ? 'deep_extreme' : 'triggered';
+        if (currentRSI < this.config.longDeepExtremeRSI) {
+          setup.state = 'deep_extreme';
+        } else if (currentRSI < this.config.longTriggeredRSI) {
+          setup.state = 'triggered';
+        }
+        // else: keep current state (watching/reversing) — RSI not extreme enough
       } else {
-        setup.state = currentRSI > this.config.shortDeepExtremeRSI ? 'deep_extreme' : 'triggered';
+        if (currentRSI > this.config.shortDeepExtremeRSI) {
+          setup.state = 'deep_extreme';
+        } else if (currentRSI > this.config.shortTriggeredRSI) {
+          setup.state = 'triggered';
+        }
+        // else: keep current state — RSI not extreme enough
       }
-      if (!setup.triggeredAt) {
+      if ((setup.state === 'triggered' || setup.state === 'deep_extreme') && !setup.triggeredAt) {
         setup.triggeredAt = Date.now();
         setup.rsiAtTrigger = currentRSI;
         setup.entryPrice = currentPrice;

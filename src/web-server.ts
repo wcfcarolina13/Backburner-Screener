@@ -1631,14 +1631,21 @@ async function handleNewSetup(setup: BackburnerSetup) {
       bot.feedSignal(expSignal);
 
       // Only process Backburner setups (not GP) here - BB bots start with 'exp-bb-'
+      // CRITICAL: Apply same timeframe filter as main bots — exp bots must NOT bypass it
       if (botId.startsWith('exp-bb-')) {
+        if (!ALLOWED_TIMEFRAMES.includes(setup.timeframe)) {
+          console.log(`[EXP:${botId}] Skip ${setup.symbol} ${setup.timeframe} — timeframe not allowed`);
+          continue;
+        }
         const result = bot.processBackburnerSetup(setup, setup.currentPrice, currentBtcBias);
+        logBotDecision(botId, setup.symbol, result.action, `${setup.direction} ${setup.timeframe} RSI=${setup.currentRSI?.toFixed(1)} | ${result.reason}`);
         if (result.action === 'open' && result.position) {
           console.log(`[EXP:${botId}] OPENED ${result.position.direction.toUpperCase()} ${setup.symbol} | Reason: ${result.reason}`);
           broadcast('position_opened', { bot: botId, position: result.position });
 
           // Queue for MEXC live execution if this experimental bot is selected
           if (serverSettings.mexcSelectedBots.includes(botId)) {
+            logBotDecision(botId, setup.symbol, 'queued_for_mexc', `${result.position.direction} $${serverSettings.mexcPositionSizeUsd} ${result.position.leverage}x | SL: ${result.position.stopLoss} TP: ${result.position.takeProfit}`);
             addToMexcQueue(
               botId,
               setup.symbol,
@@ -2401,10 +2408,30 @@ interface QueuedOrder {
   takeProfitPrice?: number;
   entryQuality?: string;
   entryPrice?: number;
-  status: 'pending' | 'executing' | 'executed' | 'failed' | 'cancelled';
+  status: 'pending' | 'executing' | 'executed' | 'failed' | 'cancelled' | 'closed' | 'stopped_out' | 'tp_hit';
   error?: string;
+  closedAt?: number;
+  closedPnl?: number;
 }
 const mexcExecutionQueue: QueuedOrder[] = [];
+
+// Decision log for bot actions (ring buffer, last 200 entries)
+interface BotDecisionLog {
+  timestamp: number;
+  bot: string;
+  symbol: string;
+  action: string;
+  details: string;
+}
+const botDecisionLogs: BotDecisionLog[] = [];
+const MAX_DECISION_LOGS = 200;
+
+function logBotDecision(bot: string, symbol: string, action: string, details: string): void {
+  botDecisionLogs.push({ timestamp: Date.now(), bot, symbol, action, details });
+  if (botDecisionLogs.length > MAX_DECISION_LOGS) {
+    botDecisionLogs.shift();
+  }
+}
 
 // Initialize MEXC client if cookie is set
 function initMexcClient(): MexcFuturesClient | null {
@@ -2475,7 +2502,7 @@ app.get('/api/mexc/test-connection', async (req, res) => {
   }
 });
 
-// Get MEXC positions
+// Get MEXC positions with calculated unrealized P&L
 app.get('/api/mexc/positions', async (req, res) => {
   try {
     const client = initMexcClient();
@@ -2490,21 +2517,41 @@ app.get('/api/mexc/positions', async (req, res) => {
       return;
     }
 
-    res.json({
-      success: true,
-      positions: result.data?.map(p => ({
+    // Calculate unrealized PnL from current prices
+    const positions = await Promise.all((result.data || []).map(async (p) => {
+      let unrealized = 0;
+      try {
+        const ticker = await client.getTickerPrice(p.symbol);
+        if (ticker.success && ticker.price) {
+          const side = p.positionType === 1 ? 1 : -1; // 1=long, -1=short
+          unrealized = (ticker.price - p.holdAvgPrice) * p.holdVol * side;
+        }
+      } catch { /* use 0 if price fetch fails */ }
+
+      return {
         symbol: p.symbol,
-        side: p.positionType === 1 ? 'long' : 'short',
+        side: p.positionType === 1 ? 'long' as const : 'short' as const,
         size: p.holdVol,
         entryPrice: p.holdAvgPrice,
         leverage: p.leverage,
-        unrealized: p.realised, // This is actually realized, need to calculate unrealized
+        unrealized,
         liquidationPrice: p.liquidatePrice,
-      })) || [],
-    });
+      };
+    }));
+
+    res.json({ success: true, positions });
   } catch (err) {
     res.json({ success: false, error: (err as Error).message });
   }
+});
+
+// Get bot decision logs
+app.get('/api/mexc/logs', (req, res) => {
+  const bot = req.query.bot as string | undefined;
+  const logs = bot
+    ? botDecisionLogs.filter(l => l.bot === bot)
+    : botDecisionLogs;
+  res.json({ success: true, logs: logs.slice(-100) });
 });
 
 // Set execution mode
@@ -2778,17 +2825,20 @@ async function autoExecuteOrder(order: QueuedOrder): Promise<void> {
     if (result.success) {
       order.status = 'executed';
       console.log(`[MEXC-AUTO] Executed: ${order.side} ${order.symbol} $${order.size} ${order.leverage}x`);
+      logBotDecision(order.bot, order.symbol, 'executed', `${order.side.toUpperCase()} $${order.size} ${order.leverage}x | SL: ${order.stopLossPrice || 'none'} | TP: ${order.takeProfitPrice || 'none'}`);
       // Refresh balance after execution
       fetchMexcBalance();
     } else {
       order.status = 'failed';
       order.error = result.error;
       console.log(`[MEXC-AUTO] Failed: ${order.symbol} — ${result.error}`);
+      logBotDecision(order.bot, order.symbol, 'failed', `${result.error}`);
     }
   } catch (err) {
     order.status = 'failed';
     order.error = (err as Error).message;
     console.log(`[MEXC-AUTO] Error: ${order.symbol} — ${(err as Error).message}`);
+    logBotDecision(order.bot, order.symbol, 'error', `${(err as Error).message}`);
   }
 }
 
@@ -3434,7 +3484,9 @@ app.get('/api/check/:symbol', async (req, res) => {
             continue;
           }
 
-          const currentRSI = getCurrentRSI(candles, DEFAULT_CONFIG.rsiPeriod);
+          // RSI on closed candles only (exclude forming candle for consistency with detectors)
+          const closedCandles = candles.slice(0, -1);
+          const currentRSI = getCurrentRSI(closedCandles, DEFAULT_CONFIG.rsiPeriod);
           const currentPrice = candles[candles.length - 1].close;
           const setups = detector.analyzeSymbol(symbol, timeframe, candles);
           const activeSetup = setups.find(s => s.state !== 'played_out');
@@ -3543,12 +3595,14 @@ app.get('/api/btc-rsi', async (req, res) => {
         const candles = await getKlines('BTCUSDT', tf, 200);
         if (!candles || candles.length < 50) continue;
 
-        const rsiValues = calculateRSI(candles, rsiPeriod);
+        // RSI on closed candles only (exclude forming candle)
+        const closedCandles = candles.slice(0, -1);
+        const rsiValues = calculateRSI(closedCandles, rsiPeriod);
         const rsiNumbers = rsiValues.map(r => r.value);
         const smaValues = calculateSMA(rsiNumbers, smaPeriod);
 
         // Detect divergence
-        const divergence = detectDivergence(candles, rsiValues, 50, 5);
+        const divergence = detectDivergence(closedCandles, rsiValues, 50, 5);
 
         // Align SMA with RSI timestamps (SMA starts smaPeriod-1 later)
         const alignedRSI = rsiValues.slice(-dataPoints);
@@ -3832,7 +3886,9 @@ app.get('/api/bias-system-b', async (req, res) => {
       try {
         const candles = await getKlines('BTCUSDT', tf, 50);
         if (candles && candles.length >= 20) {
-          const rsiResults = calculateRSI(candles, 14);
+          // RSI on closed candles only (exclude forming candle)
+          const closedCandles = candles.slice(0, -1);
+          const rsiResults = calculateRSI(closedCandles, 14);
           if (rsiResults.length > 0) {
             const currentRsi = rsiResults[rsiResults.length - 1].value;
             const rsiValues = rsiResults.map(r => r.value);
@@ -5155,6 +5211,17 @@ function getHtmlPage(): string {
         </div>
       </div>
 
+      <!-- Bot Decision Logs -->
+      <div style="background: #0d1117; border-radius: 8px; border: 1px solid #30363d; overflow: hidden; margin-top: 12px;">
+        <div style="padding: 10px 12px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 12px; font-weight: 600; color: #c9d1d9;" title="Detailed log of all bot decisions — opens, skips, executions, closures">📜 Bot Decision Log</span>
+          <button onclick="refreshBotLogs()" style="padding: 4px 10px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; font-size: 10px; cursor: pointer;">↻ Refresh</button>
+        </div>
+        <div id="botDecisionLogTable" style="max-height: 250px; overflow-y: auto; font-family: monospace;">
+          <div style="padding: 12px; text-align: center; color: #6e7681; font-size: 11px;">No decisions logged yet.</div>
+        </div>
+      </div>
+
       <!-- Quick Actions -->
       <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
         <button onclick="testMexcConnection()" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #238636; background: #21262d; color: #238636; font-size: 11px; font-weight: 600; cursor: pointer;" title="Test API connection to MEXC Futures using your session cookie. Shows your account balance if successful. Safe — does not place any orders.">
@@ -6321,6 +6388,54 @@ async function main() {
             highestPnlPercent: closedPos.highestPnlPercent,
           };
           dataPersistence.logTradeClose(botId, positionForClose as any);
+        }
+      }
+
+      // MEXC position lifecycle: detect SL/TP closures and update queue statuses
+      if (getMexcExecutionMode() !== 'dry_run') {
+        try {
+          const client = initMexcClient();
+          if (client) {
+            const posResult = await client.getOpenPositions();
+            if (posResult.success) {
+              const openSymbols = new Set((posResult.data || []).map(p => p.symbol));
+
+              // Check executed orders: if their symbol is no longer in open positions, mark as closed
+              for (const order of mexcExecutionQueue) {
+                if (order.status !== 'executed') continue;
+                const futuresSymbol = spotSymbolToFutures(order.symbol);
+                if (!openSymbols.has(futuresSymbol)) {
+                  // Position is gone from MEXC — was closed (SL, TP, or manual)
+                  const hadSL = order.stopLossPrice && order.stopLossPrice > 0;
+                  const hadTP = order.takeProfitPrice && order.takeProfitPrice > 0;
+                  order.status = 'closed';
+                  order.closedAt = Date.now();
+                  logBotDecision(order.bot, order.symbol, 'position_closed', `MEXC position no longer open (had SL: ${hadSL}, TP: ${hadTP})`);
+                  console.log(`[MEXC-SYNC] ${order.symbol} position closed on MEXC — marking queue order as closed`);
+                }
+              }
+
+              // Broadcast updated position count and P&L
+              let totalUnrealized = 0;
+              for (const p of (posResult.data || [])) {
+                try {
+                  const ticker = await client.getTickerPrice(p.symbol);
+                  if (ticker.success && ticker.price) {
+                    const side = p.positionType === 1 ? 1 : -1;
+                    totalUnrealized += (ticker.price - p.holdAvgPrice) * p.holdVol * side;
+                  }
+                } catch { /* skip */ }
+              }
+
+              broadcast('mexc_positions_update', {
+                count: (posResult.data || []).length,
+                unrealizedPnl: totalUnrealized,
+              });
+            }
+          }
+        } catch (err) {
+          // Don't crash the loop on MEXC API errors
+          console.error('[MEXC-SYNC] Error polling positions:', (err as Error).message);
         }
       }
 

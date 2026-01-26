@@ -70,9 +70,12 @@ export class BackburnerDetector {
 
     const results: BackburnerSetup[] = [];
 
-    // Calculate current RSI
-    const rsiValues = calculateRSI(candles, this.config.rsiPeriod);
-    const currentRSI = getCurrentRSI(candles, this.config.rsiPeriod);
+    // Calculate RSI on CLOSED candles only (exclude forming candle)
+    // MEXC kline API returns the current incomplete candle as the last element.
+    // Using it would cause false triggers on intra-candle wicks that reverse before close.
+    const closedCandles = candles.slice(0, -1);
+    const rsiValues = calculateRSI(closedCandles, this.config.rsiPeriod);
+    const currentRSI = getCurrentRSI(closedCandles, this.config.rsiPeriod);
 
     if (currentRSI === null || rsiValues.length < 5) {
       return [];

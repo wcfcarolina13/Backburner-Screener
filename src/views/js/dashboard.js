@@ -78,6 +78,24 @@ eventSource.addEventListener('position_closed', (e) => {
   }
 });
 
+// Listen for MEXC position updates (auto-sync from server polling)
+eventSource.addEventListener('mexc_positions_update', (e) => {
+  try {
+    const { count, unrealizedPnl } = JSON.parse(e.data);
+    const posCountEl = document.getElementById('mexcPositionCount');
+    const unrealEl = document.getElementById('mexcUnrealizedPnL');
+    if (posCountEl) posCountEl.textContent = count;
+    if (unrealEl) {
+      unrealEl.textContent = '$' + unrealizedPnl.toFixed(2);
+      unrealEl.className = unrealizedPnl >= 0 ? 'positive' : 'negative';
+    }
+    // Auto-refresh queue to pick up status changes (closed, stopped_out, etc.)
+    refreshMexcQueue();
+  } catch (err) {
+    console.error('[Dashboard] Error parsing mexc_positions_update:', err);
+  }
+});
+
 // Symbol check functionality
 const symbolSearchEl = document.getElementById('symbolSearch');
 if (symbolSearchEl) {
@@ -2889,7 +2907,10 @@ async function refreshMexcQueue() {
         executing: '#58a6ff',
         executed: '#238636',
         failed: '#f85149',
-        cancelled: '#6e7681'
+        cancelled: '#6e7681',
+        closed: '#8b949e',
+        stopped_out: '#f85149',
+        tp_hit: '#3fb950'
       };
 
       // Format price with appropriate decimal places
@@ -2922,6 +2943,52 @@ async function refreshMexcQueue() {
 
   } catch (err) {
     queueTable.innerHTML = '<div style="padding: 20px; text-align: center; color: #f85149; font-size: 12px;">Error loading queue: ' + err.message + '</div>';
+  }
+}
+
+// Refresh bot decision logs
+async function refreshBotLogs() {
+  const logTable = document.getElementById('botDecisionLogTable');
+  if (!logTable) return;
+
+  try {
+    const response = await fetch('/api/mexc/logs');
+    const data = await response.json();
+
+    if (!data.logs || data.logs.length === 0) {
+      logTable.innerHTML = '<div style="padding: 12px; text-align: center; color: #6e7681; font-size: 11px;">No decisions logged yet.</div>';
+      return;
+    }
+
+    const actionColors = {
+      open: '#3fb950',
+      skip: '#6e7681',
+      executed: '#238636',
+      failed: '#f85149',
+      error: '#f85149',
+      queued_for_mexc: '#58a6ff',
+      position_closed: '#d29922'
+    };
+
+    let html = '<div style="font-size: 10px; line-height: 1.6; padding: 8px;">';
+    // Show newest first
+    for (let i = data.logs.length - 1; i >= 0; i--) {
+      const log = data.logs[i];
+      const time = new Date(log.timestamp).toLocaleTimeString();
+      const color = actionColors[log.action] || '#8b949e';
+      const ticker = log.symbol.replace('USDT', '');
+      html += '<div style="padding: 2px 0; border-bottom: 1px solid #161b22;">';
+      html += '<span style="color: #6e7681;">' + time + '</span> ';
+      html += '<span style="color: #58a6ff;">[' + log.bot + ']</span> ';
+      html += '<span style="color: ' + color + '; font-weight: 600;">' + log.action.toUpperCase() + '</span> ';
+      html += '<span style="color: #c9d1d9;">' + ticker + '</span> ';
+      html += '<span style="color: #8b949e;">' + log.details + '</span>';
+      html += '</div>';
+    }
+    html += '</div>';
+    logTable.innerHTML = html;
+  } catch (err) {
+    logTable.innerHTML = '<div style="padding: 12px; text-align: center; color: #f85149; font-size: 11px;">Error: ' + err.message + '</div>';
   }
 }
 
@@ -3276,6 +3343,7 @@ document.head.appendChild(toastStyles);
 setTimeout(() => {
   testMexcConnection();
   refreshMexcQueue();
+  refreshBotLogs();
   loadMexcBotSelection();
   loadMexcMode();
 }, 2000);
@@ -3285,5 +3353,6 @@ setInterval(() => {
   if (mexcConnectionActive) {
     syncMexcPositions();
     refreshMexcQueue();
+    refreshBotLogs();
   }
 }, 30000);
