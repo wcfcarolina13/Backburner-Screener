@@ -6276,6 +6276,24 @@ async function main() {
           console.log(`[EXP:${botId}] CLOSED ${closedPos.symbol}: ${closedPos.exitReason} | PnL: $${closedPos.realizedPnl.toFixed(2)}`);
           broadcast('position_closed', { bot: botId, position: closedPos });
 
+          // Close corresponding MEXC live position if this bot is selected for execution
+          if (getMexcExecutionMode() === 'live' && serverSettings.mexcSelectedBots.includes(botId)) {
+            const client = initMexcClient();
+            if (client) {
+              const futuresSymbol = spotSymbolToFutures(closedPos.symbol);
+              try {
+                const closeResult = await client.closePosition(futuresSymbol);
+                if (closeResult.success) {
+                  console.log(`[MEXC-EXIT] Closed ${futuresSymbol} ${closedPos.direction} | Reason: ${closedPos.exitReason} | Paper PnL: $${closedPos.realizedPnl.toFixed(2)}`);
+                } else {
+                  console.error(`[MEXC-EXIT] Failed to close ${futuresSymbol}: ${closeResult.error}`);
+                }
+              } catch (err) {
+                console.error(`[MEXC-EXIT] Error closing ${futuresSymbol}:`, (err as Error).message);
+              }
+            }
+          }
+
           // Log close event to persistence
           const dataPersistence = getDataPersistence();
           const positionForClose = {
