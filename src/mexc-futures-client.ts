@@ -114,6 +114,61 @@ export interface MexcClientConfig {
 /**
  * MEXC Futures API Client using cookie bypass
  */
+// Cached contract details: symbol -> { contractSize, minVol, priceScale, volScale }
+interface ContractSpec {
+  contractSize: number;
+  minVol: number;
+  priceScale: number;
+  volScale: number;
+}
+const contractSpecCache = new Map<string, ContractSpec>();
+let contractSpecLastFetch = 0;
+const CONTRACT_SPEC_TTL = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Fetch and cache all contract specs from MEXC public API.
+ * Does NOT require authentication.
+ */
+async function ensureContractSpecs(): Promise<void> {
+  if (contractSpecCache.size > 0 && Date.now() - contractSpecLastFetch < CONTRACT_SPEC_TTL) return;
+  try {
+    const resp = await fetch('https://futures.mexc.com/api/v1/contract/detail');
+    const data = await resp.json() as { success: boolean; data: Array<Record<string, unknown>> };
+    if (!data.success || !Array.isArray(data.data)) return;
+    for (const c of data.data) {
+      if (c.state !== 0) continue; // only active contracts
+      contractSpecCache.set(c.symbol as string, {
+        contractSize: c.contractSize as number,
+        minVol: (c.minVol as number) || 1,
+        priceScale: (c.priceScale as number) || 4,
+        volScale: (c.volScale as number) || 0,
+      });
+    }
+    contractSpecLastFetch = Date.now();
+    console.log(`[MEXC] Cached ${contractSpecCache.size} contract specs`);
+  } catch (err) {
+    console.error('[MEXC] Failed to fetch contract specs:', (err as Error).message);
+  }
+}
+
+/**
+ * Convert a USD notional size to the number of contracts for a given symbol.
+ * contracts = floor(usdSize / (price * contractSize))
+ * Returns at least minVol (1) if the position can be opened.
+ */
+export async function usdToContracts(symbol: string, usdSize: number, price: number): Promise<number> {
+  await ensureContractSpecs();
+  const spec = contractSpecCache.get(symbol);
+  if (!spec) {
+    // Fallback: assume contractSize=1 (true for many altcoins)
+    console.warn(`[MEXC] No contract spec for ${symbol}, assuming contractSize=1`);
+    return Math.max(1, Math.floor(usdSize / price));
+  }
+  const valuePerContract = price * spec.contractSize;
+  const contracts = Math.floor(usdSize / valuePerContract);
+  return Math.max(spec.minVol, contracts);
+}
+
 export class MexcFuturesClient {
   private apiKey: string;
   private baseUrl: string;
@@ -269,10 +324,10 @@ export class MexcFuturesClient {
       openType: params.openType || 1, // Default to isolated margin
     };
 
-    // Add optional params
+    // Add optional params (skip zero/falsy SL/TP — MEXC rejects price=0)
     if (params.price !== undefined) payload.price = params.price;
-    if (params.stopLossPrice !== undefined) payload.stopLossPrice = params.stopLossPrice;
-    if (params.takeProfitPrice !== undefined) payload.takeProfitPrice = params.takeProfitPrice;
+    if (params.stopLossPrice) payload.stopLossPrice = params.stopLossPrice;
+    if (params.takeProfitPrice) payload.takeProfitPrice = params.takeProfitPrice;
     if (params.externalOid) payload.externalOid = params.externalOid;
 
     console.log('[MEXC] Creating order:', payload);

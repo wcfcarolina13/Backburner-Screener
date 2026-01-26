@@ -4,10 +4,58 @@
 
 ## Summary
 
-- Iterations completed: 32
-- Current status: MEXC Bot Feeder Pipeline Complete
+- Iterations completed: 33
+- Current status: MEXC Execution Fixes Complete
 
-## Current Task: MEXC Live Execution Pipeline
+## Current Task: Fix MEXC Order Execution Failures
+
+### Iteration 33 - Fix MEXC Auto-Execution Failures (PROVEUSDT)
+**Date**: 2026-01-26
+**Status**: ✅ Complete
+
+**Goal**: Fix why MEXC live auto-executed orders were failing despite the previous symbol format fix (commit 1c84dc6).
+
+**Root Causes Found**:
+
+1. **"The price of stop-limit order error"**: Orders were sending `takeProfitPrice: 0` to MEXC. The bot's position had no TP set (defaulting to 0), but `createOrder()` checked `!== undefined` which let 0 through. MEXC rejects price=0 as invalid.
+
+2. **Wrong vol parameter**: The `vol` field was receiving a USD amount (e.g., $5) instead of the number of contracts. MEXC futures `vol` means contract count, where each contract has a `contractSize` (e.g., PROVE=1 token, DOGE=100 tokens, BTC=0.0001 BTC). A $5 order for PROVE should be ~13 contracts, not 5.
+
+**Fixes Implemented**:
+
+1. **SL/TP price validation** (`src/mexc-futures-client.ts`):
+   - Changed `if (params.stopLossPrice !== undefined)` to `if (params.stopLossPrice)`
+   - Changed `if (params.takeProfitPrice !== undefined)` to `if (params.takeProfitPrice)`
+   - Zero/falsy values are now excluded from the order payload
+
+2. **USD-to-contracts conversion** (`src/mexc-futures-client.ts`):
+   - Added `ContractSpec` interface and `contractSpecCache` Map
+   - Added `ensureContractSpecs()` — fetches all 831 contract specs from MEXC public API, cached for 1 hour
+   - Added `usdToContracts(symbol, usdSize, price)` — converts USD to contract count using `contractSize`
+   - Formula: `contracts = floor(usdSize / (price * contractSize))`, minimum = `minVol`
+
+3. **Unified execution path** (`src/web-server.ts`):
+   - Added `executeOnMexc(client, order)` function that:
+     - Fetches current price via `client.getTickerPrice()`
+     - Converts USD size to contracts via `usdToContracts()`
+     - Filters out zero SL/TP before passing to openLong/openShort
+   - Both `autoExecuteOrder()` and manual `/api/mexc/queue/execute/:index` now use `executeOnMexc()`
+
+**Test Results** (contract conversion verified):
+- PROVE_USDT: $5 @ $0.368 → 13 contracts ✓
+- DOGE_USDT: $10 @ $0.32 → 1 contract (min) ✓
+- BTC_USDT: $10 @ $105,000 → 1 contract (min) ✓
+- BTC_USDT: $100 @ $105,000 → 9 contracts ✓
+
+**Files Modified**:
+- `src/mexc-futures-client.ts` — Added contract spec cache, usdToContracts(), fixed SL/TP validation
+- `src/web-server.ts` — Added executeOnMexc(), updated import, unified execution paths
+
+**Build**: ✅ Passes
+
+---
+
+## Previous Task: MEXC Live Execution Pipeline
 
 ### Iteration 32 - MEXC Bot Feeder Pipeline & Live Execution Wiring
 **Date**: 2026-01-25

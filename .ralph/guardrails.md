@@ -73,3 +73,13 @@
 - **Instruction**: On macOS, Chrome requires the native host path to be a shell script, not a direct Node.js file. Use a `.sh` wrapper that calls `node script.js`. Also use `stdin.on('readable')` not `stdin.on('end')` for reading - Chrome keeps the pipe open.
 - **Added after**: Iteration 30 - Native host kept timing out because it waited for stdin 'end' which Chrome doesn't send until after response
 
+### Sign: MEXC Futures vol is Contracts, Not USD
+- **Trigger**: When placing orders on MEXC futures API
+- **Instruction**: The `vol` parameter in MEXC futures orders is the **number of contracts**, NOT a USD amount. Each contract has a `contractSize` (e.g., DOGE=100, BTC=0.0001, PROVE=1). Must fetch contract specs from `/api/v1/contract/detail` and convert: `contracts = floor(usdSize / (price * contractSize))`. Use `usdToContracts()` from mexc-futures-client.ts.
+- **Added after**: Iteration 33 - Orders were passing USD amount (e.g., $5) directly as vol, resulting in wrong position sizes
+
+### Sign: MEXC Rejects Zero SL/TP Prices
+- **Trigger**: When sending stop-loss or take-profit prices to MEXC order API
+- **Instruction**: Never send `stopLossPrice: 0` or `takeProfitPrice: 0` to MEXC. A value of 0 is semantically "no price" but MEXC interprets it as a literal price of $0, which is invalid. Always check for falsy values (`if (price)` not `if (price !== undefined)`) before including SL/TP in the order payload.
+- **Added after**: Iteration 33 - PROVEUSDT order failed with "The price of stop-limit order error" because takeProfitPrice was 0
+

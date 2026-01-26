@@ -49,7 +49,7 @@ import { getFocusModeHtml, getFocusModeApiData, calculateSmartTradeSetup } from 
 import type { BackburnerSetup, Timeframe, MomentumExhaustionSignal } from './types.js';
 import { createSettingsRouter } from './routes/index.js';
 import type { ServerContext } from './server-context.js';
-import { createMexcClient, type MexcFuturesClient } from './mexc-futures-client.js';
+import { createMexcClient, usdToContracts, type MexcFuturesClient } from './mexc-futures-client.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -2573,9 +2573,7 @@ app.post('/api/mexc/queue/execute/:index', express.json(), async (req, res) => {
   order.status = 'executing';
 
   try {
-    const result = order.side === 'long'
-      ? await client.openLong(order.symbol, order.size, order.leverage, order.stopLossPrice, order.takeProfitPrice)
-      : await client.openShort(order.symbol, order.size, order.leverage, order.stopLossPrice, order.takeProfitPrice);
+    const result = await executeOnMexc(client, order);
 
     if (result.success) {
       order.status = 'executed';
@@ -2738,6 +2736,30 @@ export function addToMexcQueue(
   }
 }
 
+// Convert USD order size to MEXC contract volume and execute
+async function executeOnMexc(
+  client: MexcFuturesClient,
+  order: QueuedOrder
+): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  // Get current price for contract conversion
+  const priceResult = await client.getTickerPrice(order.symbol);
+  if (!priceResult.success || !priceResult.price) {
+    return { success: false, error: `Could not get price for ${order.symbol}: ${priceResult.error}` };
+  }
+
+  // Convert USD size to number of contracts
+  const contracts = await usdToContracts(order.symbol, order.size, priceResult.price);
+  console.log(`[MEXC] ${order.symbol}: $${order.size} @ $${priceResult.price} → ${contracts} contracts`);
+
+  // Filter out zero/invalid SL/TP prices
+  const sl = order.stopLossPrice && order.stopLossPrice > 0 ? order.stopLossPrice : undefined;
+  const tp = order.takeProfitPrice && order.takeProfitPrice > 0 ? order.takeProfitPrice : undefined;
+
+  return order.side === 'long'
+    ? client.openLong(order.symbol, contracts, order.leverage, sl, tp)
+    : client.openShort(order.symbol, contracts, order.leverage, sl, tp);
+}
+
 // Auto-execute a queued order on MEXC (used by full automation mode)
 async function autoExecuteOrder(order: QueuedOrder): Promise<void> {
   const client = initMexcClient();
@@ -2751,9 +2773,7 @@ async function autoExecuteOrder(order: QueuedOrder): Promise<void> {
   order.status = 'executing';
 
   try {
-    const result = order.side === 'long'
-      ? await client.openLong(order.symbol, order.size, order.leverage, order.stopLossPrice, order.takeProfitPrice)
-      : await client.openShort(order.symbol, order.size, order.leverage, order.stopLossPrice, order.takeProfitPrice);
+    const result = await executeOnMexc(client, order);
 
     if (result.success) {
       order.status = 'executed';
