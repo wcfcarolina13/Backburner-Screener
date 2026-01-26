@@ -281,6 +281,7 @@ interface ServerSettings {
   mexcPositionSizePct: number;        // Percentage of available balance per trade
   mexcMaxLeverage: number;            // Override: cap leverage at this value
   mexcAutoExecute: boolean;           // Full automation: auto-execute in live mode
+  mexcExecutionMode: 'dry_run' | 'shadow' | 'live';  // Persisted execution mode
 }
 
 // Default bot notification settings - top performers enabled by default
@@ -321,6 +322,7 @@ const serverSettings: ServerSettings = {
   mexcPositionSizePct: 5,
   mexcMaxLeverage: 20,
   mexcAutoExecute: false,
+  mexcExecutionMode: 'dry_run',
 };
 
 // Load server settings from disk (uses fs/path imported via data-persistence)
@@ -2382,7 +2384,11 @@ app.use('/api', express.json(), createSettingsRouter(serverContext));
 
 // MEXC Client singleton
 let mexcClient: MexcFuturesClient | null = null;
-let mexcExecutionMode: 'dry_run' | 'shadow' | 'live' = 'dry_run';
+// mexcExecutionMode is now persisted via serverSettings.mexcExecutionMode
+// This alias keeps the rest of the code working without renaming everywhere
+function getMexcExecutionMode(): 'dry_run' | 'shadow' | 'live' {
+  return serverSettings.mexcExecutionMode || 'dry_run';
+}
 interface QueuedOrder {
   id: string;
   timestamp: number;
@@ -2515,9 +2521,15 @@ app.post('/api/mexc/mode', express.json(), (req, res) => {
     return;
   }
 
-  mexcExecutionMode = mode;
-  console.log(`[MEXC] Execution mode set to: ${mode}`);
+  serverSettings.mexcExecutionMode = mode;
+  saveServerSettings();
+  console.log(`[MEXC] Execution mode set to: ${mode} (persisted)`);
   res.json({ success: true, mode });
+});
+
+// Get current execution mode
+app.get('/api/mexc/mode', (req, res) => {
+  res.json({ success: true, mode: getMexcExecutionMode() });
 });
 
 // Get execution queue
@@ -2547,7 +2559,7 @@ app.post('/api/mexc/queue/execute/:index', express.json(), async (req, res) => {
     return;
   }
 
-  if (mexcExecutionMode !== 'live') {
+  if (getMexcExecutionMode() !== 'live') {
     res.json({ success: false, error: 'Not in live mode' });
     return;
   }
@@ -2714,13 +2726,13 @@ export function addToMexcQueue(
   console.log(`[MEXC] Order queued: ${bot} ${side} ${symbol} $${size} ${leverage}x${slStr}${tpStr}`);
 
   // Auto-execute in shadow mode (log only)
-  if (mexcExecutionMode === 'shadow') {
+  if (getMexcExecutionMode() === 'shadow') {
     console.log(`[MEXC-SHADOW] Would execute: ${side} ${symbol} $${size} ${leverage}x${slStr}${tpStr}`);
     order.status = 'executed';
   }
 
   // Auto-execute in live mode when full automation is enabled
-  if (mexcExecutionMode === 'live' && serverSettings.mexcAutoExecute) {
+  if (getMexcExecutionMode() === 'live' && serverSettings.mexcAutoExecute) {
     console.log(`[MEXC-AUTO] Auto-executing: ${side} ${symbol} $${size} ${leverage}x${slStr}${tpStr}`);
     autoExecuteOrder(order);
   }

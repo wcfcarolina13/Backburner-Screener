@@ -2801,6 +2801,59 @@ async function setMexcMode(mode) {
   }
 }
 
+// Load execution mode from server (persisted across restarts)
+async function loadMexcMode() {
+  try {
+    const response = await fetch('/api/mexc/mode');
+    const data = await response.json();
+    if (data.success && data.mode) {
+      // Update local state and button styling without triggering the POST
+      mexcCurrentMode = data.mode;
+
+      var buttons = {
+        dry_run: document.getElementById('mexcModeDryRun'),
+        shadow: document.getElementById('mexcModeShadow'),
+        live: document.getElementById('mexcModeLive')
+      };
+
+      // Reset all buttons
+      Object.values(buttons).forEach(function(btn) {
+        if (btn) {
+          btn.style.background = '#21262d';
+          btn.style.borderColor = '#30363d';
+          btn.style.color = '#8b949e';
+        }
+      });
+
+      // Highlight selected
+      var selectedBtn = buttons[data.mode];
+      if (selectedBtn) {
+        if (data.mode === 'dry_run') {
+          selectedBtn.style.background = '#238636';
+          selectedBtn.style.borderColor = '#238636';
+          selectedBtn.style.color = 'white';
+        } else if (data.mode === 'shadow') {
+          selectedBtn.style.background = '#6e40c9';
+          selectedBtn.style.borderColor = '#6e40c9';
+          selectedBtn.style.color = 'white';
+        } else if (data.mode === 'live') {
+          selectedBtn.style.background = '#f85149';
+          selectedBtn.style.borderColor = '#f85149';
+          selectedBtn.style.color = 'white';
+        }
+      }
+
+      // Show/hide live warning
+      var warningEl = document.getElementById('liveModeWarning');
+      if (warningEl) {
+        warningEl.style.display = data.mode === 'live' ? 'block' : 'none';
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load MEXC mode:', err);
+  }
+}
+
 // Refresh execution queue
 async function refreshMexcQueue() {
   const queueTable = document.getElementById('mexcQueueTable');
@@ -3224,6 +3277,7 @@ setTimeout(() => {
   testMexcConnection();
   refreshMexcQueue();
   loadMexcBotSelection();
+  loadMexcMode();
 }, 2000);
 
 // Auto-refresh MEXC data every 30 seconds
