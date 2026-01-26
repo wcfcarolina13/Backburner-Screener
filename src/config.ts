@@ -93,6 +93,9 @@ export const DEFAULT_CONFIG: ScreenerConfig = {
     /^BABYDOGE/i,     // BabyDoge specifically
     /^MINIDOGE/i,     // Mini tokens
     /ELON$/i,         // Elon tokens like DOGELON
+
+    // Tokenized stocks on MEXC futures (JPMSTOCK_USDT, AAPLSTOCK_USDT, etc.)
+    /STOCK$/i,
   ],
 };
 
