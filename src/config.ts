@@ -99,6 +99,14 @@ export const DEFAULT_CONFIG: ScreenerConfig = {
   ],
 };
 
+// Whitelisted futures-only symbols that bypass CoinGecko market cap requirement.
+// These are known legitimate assets with no MEXC spot pair but active futures contracts.
+// Add symbols here manually after verifying they're real, liquid, and tradeable.
+export const FUTURES_WHITELIST: string[] = [
+  'SILVER_USDT',   // Silver (XAG) commodity — $527M daily turnover
+  'PAXG_USDT',     // Gold (PAXG) — $155M daily turnover
+];
+
 // MEXC API endpoints
 export const MEXC_API = {
   BASE_URL: 'https://api.mexc.com',

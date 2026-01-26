@@ -12,7 +12,7 @@ import {
   type FuturesSymbolInfo,
   type FuturesTickerInfo,
 } from './mexc-api.js';
-import { DEFAULT_CONFIG, TIMEFRAME_MS, SETUP_EXPIRY_MS } from './config.js';
+import { DEFAULT_CONFIG, TIMEFRAME_MS, SETUP_EXPIRY_MS, FUTURES_WHITELIST } from './config.js';
 import {
   buildMarketDataCache,
   getMarketCap,
@@ -246,6 +246,8 @@ export class BackburnerScreener {
       }
 
       // Also add futures-only symbols (not on spot but on futures)
+      let futuresOnlyAdded = 0;
+      let futuresOnlyWhitelisted = 0;
       for (const contract of futuresContracts) {
         const spotSymbol = futuresSymbolToSpot(contract.symbol);
         const alreadyAdded = this.eligibleSymbols.some(
@@ -256,7 +258,21 @@ export class BackburnerScreener {
           const volume24h = futuresVolumeMap.get(contract.symbol) || 0;
           // Apply basic filters for futures-only
           if (volume24h < this.config.minVolume24h) continue;
-          if (this.config.requireMarketCap && !hasMarketCapData(spotSymbol)) continue;
+
+          // Check exclude patterns (STOCK tokens, stablecoins, etc.)
+          const baseAsset = contract.baseCoin || spotSymbol.replace(/USDT$/i, '');
+          let excluded = false;
+          for (const pattern of this.config.excludePatterns) {
+            if (pattern.test(baseAsset) || pattern.test(spotSymbol)) {
+              excluded = true;
+              break;
+            }
+          }
+          if (excluded) continue;
+
+          // Allow whitelisted futures-only symbols (commodities, RWA) to bypass CoinGecko
+          const isWhitelisted = FUTURES_WHITELIST.includes(contract.symbol);
+          if (!isWhitelisted && this.config.requireMarketCap && !hasMarketCapData(spotSymbol)) continue;
 
           this.eligibleSymbols.push({
             symbol: spotSymbol,
@@ -266,7 +282,12 @@ export class BackburnerScreener {
             liquidityRisk: this.getLiquidityRisk(volume24h),
           });
           this.symbolVolumes.set(`futures:${spotSymbol}`, volume24h);
+          futuresOnlyAdded++;
+          if (isWhitelisted) futuresOnlyWhitelisted++;
         }
+      }
+      if (futuresOnlyAdded > 0) {
+        console.log(`[Screener] Added ${futuresOnlyAdded} futures-only symbols (${futuresOnlyWhitelisted} whitelisted)`);
       }
 
       const spotCount = this.eligibleSymbols.filter(s => s.marketType === 'spot').length;

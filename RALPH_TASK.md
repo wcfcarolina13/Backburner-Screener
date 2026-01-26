@@ -1,190 +1,63 @@
 ---
-task: Momentum Exhaustion Signal Classification & Filter
+task: Futures-Only Asset Discovery & Commodity Screening
 test_command: "npm run build"
 ---
 
-# Task: Momentum Exhaustion Signal Classification & Filter
+# Task: Futures-Only Asset Discovery & Commodity Screening
 
-**Priority**: High
-**Status**: In Progress
+**Priority**: Medium
+**Status**: Complete
 
-**Context**: We discovered that the Backburner detector is generating false positives on higher timeframes (4H). When a coin pumps hard (e.g., INIT +21%) and RSI becomes overbought, the system incorrectly classifies this as a "backburner short" setup. In reality, this is a "momentum exhaustion" pattern - different signal, different use case.
-
-**Problem Statement**:
-- Current: 4H "short" signals trigger when coin pumps + RSI > 70
-- Expected: Backburner SHORT should be: dump → bounce → overbought RSI → fade
-- Actual: System sees old dump + current pump as "bounce" due to 50-candle lookback
-
-**Goal**:
-1. Classify these signals correctly as "momentum_exhaustion" not "backburner"
-2. Use momentum_exhaustion as a FILTER to prevent bad 5m longs
-3. Display these separately in the dashboard for manual review
+**Context**: Screener was missing viable trading opportunities on futures-only assets (no MEXC spot pair). Assets like SILVER_USDT (silver/XAG, $527M/day) and PAXG_USDT (gold, $155M/day) have active futures contracts but were invisible to the screener because:
+1. Main discovery loop requires a spot pair
+2. Futures-only loop blocked by CoinGecko market cap check (commodities aren't tracked)
+3. Futures-only loop was missing exclude pattern checks (STOCK tokens could slip through)
 
 ---
 
-## Phase 1: Signal Classification
+## Success Criteria
 
-### Success Criteria
+1. [x] **Add FUTURES_WHITELIST to config.ts**
+   - Conservative list of manually verified futures-only assets
+   - SILVER_USDT and PAXG_USDT added
 
-1. [x] **Analyze impulse recency in detection logic**
-   - Read `indicators.ts` detectImpulseMove() thoroughly
-   - Understand how impulse start/end is determined
-   - Document the current 50-candle lookback behavior on different timeframes
+2. [x] **Add exclude patterns to futures-only discovery loop**
+   - Futures-only loop in screener.ts now checks excludePatterns
+   - STOCK tokens, stablecoins, etc. properly blocked
+   - Uses contract.baseCoin for pattern matching
 
-   **Findings**:
-   - Lookback: 50 candles (4H = 8.3 days, 1H = 2 days, 5m = 4.2 hours)
-   - UP impulse: `lowest.index < highest.index` (low first, then high)
-   - DOWN impulse: `highest.index < lowest.index` (high first, then low)
-   - Must be in second half of lookback (recency > 0.5)
-   - Must have 1%+ pullback/bounce from extreme
+3. [x] **Add whitelist bypass for CoinGecko market cap check**
+   - Whitelisted symbols bypass hasMarketCapData() requirement
+   - Non-whitelisted futures-only symbols still need CoinGecko data
 
-   **Root Cause of INIT False Positive**:
-   - 4H lookback sees: old high → dump → current rally
-   - Since low came AFTER high → classified as "DOWN impulse"
-   - Current price above low → "bouncing"
-   - RSI > 70 → "overbought bounce = backburner short"
-   - PROBLEM: The "bounce" is actually a NEW UPTREND, not relief rally
+4. [x] **Add logging for futures-only discovery**
+   - Logs count of futures-only symbols added and how many were whitelisted
 
-2. [x] **Add momentum_exhaustion signal type**
-   - Create new type in `types.ts` (or extend BackburnerSetup)
-   - Distinguish: impulse UP + overbought = momentum_exhaustion (not backburner short)
-   - Distinguish: impulse DOWN + oversold = momentum_exhaustion (not backburner long)
+5. [x] **Build passes**
+   - `npm run build` succeeds with no TypeScript errors
 
-   **Added**:
-   - `SignalClassification` type: 'backburner' | 'momentum_exhaustion'
-   - `ExhaustionDirection` type: 'extended_long' | 'extended_short'
-   - `signalClassification` and `exhaustionDirection` fields to BackburnerSetup
-   - `MomentumExhaustionSignal` interface for standalone tracking
-
-3. [x] **Modify detection to classify correctly**
-   - In `backburner-detector.ts`, add logic to detect when impulse direction matches RSI extreme
-   - If impulse UP and RSI overbought → momentum_exhaustion, not backburner
-   - If impulse DOWN and RSI oversold → momentum_exhaustion, not backburner
-
-   **Implemented**:
-   - Added retracement calculation (how much of impulse has been retraced)
-   - If retracement > 61.8% OR price beyond impulse start → momentum_exhaustion
-   - For SHORT: if "bounce" went past impulse start → extended_long
-   - For LONG: if "pullback" went past impulse start → extended_short
-   - Classification stored in `signalClassification` and `exhaustionDirection` fields
-
----
-
-## Phase 2: Filter Implementation
-
-### Success Criteria
-
-4. [x] **Create momentum exhaustion tracker**
-   - Track which symbols currently have momentum_exhaustion signals on 4H/1H
-   - Store in memory (Map or similar structure)
-   - Include: symbol, timeframe, direction (extended_long/extended_short), RSI, impulse%
-
-   **Implemented**:
-   - `momentumExhaustionMap` - Map to track exhaustion signals by symbol-timeframe
-   - `updateMomentumExhaustion()` - Called on new/updated setups to track exhaustion
-   - `checkMomentumExhaustion()` - Check if symbol has 4H/1H exhaustion
-   - `cleanupStaleExhaustion()` - Remove signals older than 4 hours
-   - `getAllExhaustionSignals()` - Get all signals for dashboard
-
-5. [x] **Add filter to shouldTradeSetup()**
-   - If symbol has 4H momentum_exhaustion (extended_long), skip 5m LONG setups
-   - If symbol has 4H momentum_exhaustion (extended_short), skip 5m SHORT setups
-
-   **Implemented**:
-   - Added momentum exhaustion check before BTC bias filter
-   - Logs when trades are filtered with reason and details
-   - Log when filter blocks a trade
-
-6. [x] **Add filter to Focus Mode suggestions**
-   - When showing Focus Mode setups, warn if coin has momentum_exhaustion
-   - Add visual indicator (⚠️ "4H Extended") to Focus Mode cards
-
-   **Implemented**:
-   - Added `/api/exhaustion` endpoint - returns all extended coins
-   - Added `/api/exhaustion/:symbol` endpoint - check specific symbol
-   - Frontend can query these to add warnings (UI update deferred)
-
----
-
-## Phase 3: Dashboard Visibility
-
-### Success Criteria
-
-7. [x] **Add "Extended Coins" section to dashboard**
-   - New collapsible section showing momentum_exhaustion signals
-   - Show: Symbol, Timeframe, RSI, Impulse%, Time since detection
-   - Sort by impulse% (most extended first)
-
-   **Implemented**:
-   - X-Sig column in setup table now shows exhaustion signals (⚠️ EXT↑ or ⚠️ EXT↓)
-   - Falls back to GP cross-strategy signal if not exhaustion
-   - Also added spot/futures/all filter dropdown
-
-8. [ ] **Log momentum_exhaustion to Turso**
-   - New signal type in signal_events table
-   - Track for historical analysis
-   - Can later analyze: "do 5m longs fail when 4H is extended?"
-   - **Note**: Deferred to follow-up - in-memory tracking works for now
-
----
-
-## Phase 4: Testing & Validation
-
-### Success Criteria
-
-9. [x] **Build passes with all changes**
-   - `npm run build` succeeds
-   - No TypeScript errors
-
-10. [x] **Manual verification**
-    - Deploy to Render (or test locally)
-    - Find a coin with recent pump + overbought 4H RSI
-    - Verify it shows as momentum_exhaustion, not backburner
-    - Verify 5m longs on that coin are filtered
-
-    **Verified via API**:
-    - MANA, PENDLE, SPK all show `signalClassification: "momentum_exhaustion"` and `exhaustionDirection: "extended_short"`
-    - X-Sig column will now display this in GUI after deploy
+6. [x] **Exclude tokenized stocks**
+   - `/STOCK$/i` pattern in excludePatterns blocks AAPLSTOCK, JPMSTOCK, etc.
+   - Added in previous commit (0e95826)
 
 ---
 
 ## Technical Notes
 
-### Current Behavior (the bug)
-```
-detectImpulseMove() with 50 candle lookback on 4H:
-- Finds lowest low (maybe from 8 days ago dump)
-- Finds highest high (current pump)
-- If low.index > high.index → classifies as "down impulse"
-- Current price above low → "this is the bounce"
-- RSI > 70 → "overbought bounce = backburner short"
+### Key Findings
+- 287 eligible symbols currently tracked (spot+futures pairs)
+- 123 futures-only contracts exist on MEXC (commodities, forex, stocks, crypto)
+- `apiAllowed: false` on 741/742 contracts — NOT a restriction for cookie-based API
+- Zero symbol name mismatches between spot↔futures conversion
+- XAUT (Tether Gold) already tracked via spot pair + CoinGecko rank #50
+- Screener already uses `getFuturesKlines()` for all eligible symbols (not spot-only)
 
-WRONG: The recent action is clearly bullish, not a bounce
-```
-
-### Correct Classification
-```
-If impulse direction == UP and RSI > 70:
-  → This is momentum_exhaustion (extended_long), NOT backburner_short
-
-If impulse direction == DOWN and RSI < 30:
-  → This is momentum_exhaustion (extended_short), NOT backburner_long
-
-True backburner requires:
-- Impulse direction OPPOSITE to the RSI extreme
-- SHORT: impulse DOWN, then bounce, then RSI > 70 (fading the bounce)
-- LONG: impulse UP, then pullback, then RSI < 30 (buying the dip)
-```
-
-### Files to Modify
-- `src/types.ts` - Add momentum_exhaustion type
-- `src/indicators.ts` - Maybe add helper for impulse classification
-- `src/backburner-detector.ts` - Main classification logic
-- `src/web-server.ts` - Filter in shouldTradeSetup(), dashboard section
-- `src/focus-mode-dashboard.ts` - Warning indicator
-- `src/turso-db.ts` - Maybe new signal type logging
+### Files Modified
+- `src/config.ts` — Added FUTURES_WHITELIST, STOCK exclude pattern
+- `src/screener.ts` — Updated futures-only loop with exclude patterns + whitelist bypass
 
 ---
 
 ## Commits
-- (pending)
+- 0e95826 "fix: Exclude tokenized stock futures from screener"
+- (pending) "feat: Add futures-only commodity whitelist for SILVER/PAXG screening"

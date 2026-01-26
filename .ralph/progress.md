@@ -4,10 +4,48 @@
 
 ## Summary
 
-- Iterations completed: 33
-- Current status: MEXC Execution Fixes Complete
+- Iterations completed: 34
+- Current status: Futures-Only Commodity Screening Complete
 
-## Current Task: Fix MEXC Order Execution Failures
+## Current Task: Futures-Only Asset Discovery & Commodity Screening
+
+### Iteration 34 - Futures-Only Commodity Whitelist (SILVER, PAXG)
+**Date**: 2026-01-26
+**Status**: ✅ Complete
+
+**Goal**: Enable the screener to track futures-only assets like SILVER (XAG) and PAXG (gold) that have no MEXC spot pair but active, liquid futures contracts.
+
+**Root Cause**: The futures-only discovery loop (screener.ts:248-270) blocked commodities because:
+1. `hasMarketCapData("SILVERUSDT")` fails — CoinGecko doesn't track silver commodity
+2. No exclude pattern checks in the futures-only loop (STOCK tokens could slip through)
+
+**Key Findings**:
+- 123 futures-only contracts exist on MEXC (commodities, forex, stocks, crypto)
+- SILVER_USDT: $527M daily turnover, 100x max leverage, zero fees
+- PAXG_USDT: $155M daily turnover, 100x max leverage, zero fees
+- XAUT (Tether Gold): Already tracked via spot pair + CoinGecko rank #50
+- `apiAllowed: false` on 741/742 contracts — NOT a real restriction for cookie-based API
+- Screener already uses `getFuturesKlines()` for all eligible symbols (not spot-only)
+
+**Changes Implemented**:
+
+1. **FUTURES_WHITELIST** (`src/config.ts`):
+   - New constant: manually verified futures-only assets that bypass CoinGecko
+   - Initial entries: SILVER_USDT, PAXG_USDT
+
+2. **Futures-only discovery loop** (`src/screener.ts`):
+   - Added exclude pattern checks (blocks STOCK tokens, stablecoins, etc.)
+   - Added whitelist bypass for CoinGecko market cap requirement
+   - Added logging: count of futures-only symbols added + whitelisted count
+
+3. **STOCK exclusion** (`src/config.ts`):
+   - Added `/STOCK$/i` pattern to exclude tokenized stock futures (48 contracts)
+
+**Build**: ✅ Passes
+
+---
+
+## Previous Task: Fix MEXC Order Execution Failures
 
 ### Iteration 33 - Fix MEXC Auto-Execution Failures (PROVEUSDT)
 **Date**: 2026-01-26
