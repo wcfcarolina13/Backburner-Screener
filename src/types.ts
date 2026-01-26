@@ -60,6 +60,7 @@ export interface BackburnerSetup {
   impulseStartTime: number;
   impulseEndTime: number;
   impulsePercentMove: number;
+  impulseSource?: 'htf' | 'ltf';  // Where the impulse was detected (HTF candles or LTF fallback)
 
   // Current RSI readings
   currentRSI: number;

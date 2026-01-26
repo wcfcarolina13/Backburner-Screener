@@ -72,7 +72,7 @@ app.use('/static', express.static(path.join(__dirname, 'views')));
 // ============================================================================
 // V2 CHANGE: Focus exclusively on 5m timeframe (best win rate: 31.8%)
 // Analysis showed 5m had best performance, 15m was marginal, 1h was terrible
-const ALLOWED_TIMEFRAMES: Timeframe[] = ['5m'];  // V2: 5m only (was: 5m, 15m)
+const ALLOWED_TIMEFRAMES: Timeframe[] = ['5m', '15m'];  // TCG pairings: 5m→1h HTF, 15m→4h HTF
 
 // ============================================================================
 // MOMENTUM EXHAUSTION TRACKER
@@ -164,9 +164,9 @@ function getAllExhaustionSignals(): MomentumExhaustionSignal[] {
  * Returns false to skip setups that don't meet quality criteria
  */
 function shouldTradeSetup(setup: BackburnerSetup, btcBias: string): boolean {
-  // Skip 1h timeframe entirely (0% win rate for longs, 13% for shorts from backtest)
+  // Only trade on allowed timeframes (5m, 15m — with proper HTF pairings)
   if (!ALLOWED_TIMEFRAMES.includes(setup.timeframe)) {
-    console.log(`[FILTER] Skip ${setup.symbol} - 1h timeframe disabled`);
+    console.log(`[FILTER] Skip ${setup.symbol} - ${setup.timeframe} timeframe not allowed for trading`);
     return false;
   }
 
@@ -179,14 +179,9 @@ function shouldTradeSetup(setup: BackburnerSetup, btcBias: string): boolean {
     return false;
   }
 
-  // ==========================================================================
-  // TCG FIX 3: REQUIRE RSI CROSS (not just "is below 30")
-  // Only enter on fresh RSI threshold crosses, not stale oversold conditions
-  // ==========================================================================
-  if (setup.rsiCrossedThreshold === false) {
-    console.log(`[FILTER] Skip ${setup.symbol} ${setup.timeframe} ${setup.direction} - no RSI cross detected`);
-    return false;
-  }
+  // RSI cross filter removed — the detector already gates on RSI < 30 (line 258)
+  // and the "first oversold after impulse" check ensures freshness.
+  // The cross filter was blocking 75% of valid entries.
 
   // ==========================================================================
   // MOMENTUM EXHAUSTION FILTER

@@ -591,12 +591,14 @@ export class BackburnerScreener {
       }
 
       // Select appropriate higher timeframe
+      // TCG pairings: 5m entry → 1h HTF, 15m entry → 4h HTF
       let higherTFCandles;
-      if (timeframe === '5m' || timeframe === '15m') {
+      if (timeframe === '5m') {
         higherTFCandles = htf1h ?? undefined;
-      } else if (timeframe === '1h') {
+      } else if (timeframe === '15m') {
         higherTFCandles = htf4h ?? undefined;
       }
+      // 1h and 4h: no HTF pairing — dashboard-only, not for auto-trading
 
       // analyzeSymbol returns an array (can have both long and short setups)
       const setups = this.detector.analyzeSymbol(symbol, timeframe, candles, higherTFCandles);

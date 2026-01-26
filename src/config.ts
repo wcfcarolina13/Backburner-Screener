@@ -107,6 +107,16 @@ export const FUTURES_WHITELIST: string[] = [
   'PAXG_USDT',     // Gold (PAXG) — $155M daily turnover
 ];
 
+// Per-timeframe minimum impulse % for LTF fallback (when HTF candles unavailable).
+// Primary impulse detection uses HTF candles with the global minImpulsePercent (5%).
+// These lower thresholds only apply when falling back to LTF-only impulse detection.
+export const TIMEFRAME_IMPULSE_MIN: Record<string, number> = {
+  '5m':  2,   // 2% on 5m (fallback only — HTF 1h impulse is primary)
+  '15m': 3,   // 3% on 15m (fallback only — HTF 4h impulse is primary)
+  '1h':  5,   // 5% on 1h (no HTF pairing, always uses LTF)
+  '4h':  5,   // 5% on 4h (no HTF pairing, always uses LTF)
+};
+
 // MEXC API endpoints
 export const MEXC_API = {
   BASE_URL: 'https://api.mexc.com',

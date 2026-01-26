@@ -1,5 +1,5 @@
 import type { Candle, Timeframe, BackburnerSetup, SetupState, SetupDirection, SignalClassification, ExhaustionDirection } from './types.js';
-import { DEFAULT_CONFIG } from './config.js';
+import { DEFAULT_CONFIG, TIMEFRAME_IMPULSE_MIN } from './config.js';
 import {
   calculateRSI,
   getCurrentRSI,
@@ -17,6 +17,17 @@ import {
   findRecentSwingLows,
   findRecentSwingHighs,
 } from './indicators.js';
+
+/**
+ * Find the LTF candle index closest to (at or before) a given timestamp.
+ * Used to map HTF impulse indices back to LTF candle positions.
+ */
+function findCandleIndexByTime(candles: Candle[], timestamp: number): number {
+  for (let i = candles.length - 1; i >= 0; i--) {
+    if (candles[i].timestamp <= timestamp) return i;
+  }
+  return 0;
+}
 
 /**
  * The Backburner Detector
@@ -123,7 +134,8 @@ export class BackburnerDetector {
           rsiValues,
           currentRSI,
           currentPrice,
-          higherTFBullish
+          higherTFBullish,
+          higherTFCandles
         );
         if (newSetup) {
           results.push(newSetup);
@@ -152,17 +164,41 @@ export class BackburnerDetector {
     rsiValues: { value: number; timestamp: number }[],
     currentRSI: number,
     currentPrice: number,
-    higherTFBullish?: boolean
+    higherTFBullish?: boolean,
+    higherTFCandles?: Candle[]
   ): BackburnerSetup | null {
-    // Look for an impulse move
-    // TCG: Use shorter lookback for higher timeframes to avoid stale impulses
-    // 5m: 50 candles = 4.2 hours, 15m: 50 = 12.5 hours, 1h: 50 = 2 days, 4h: 30 = 5 days
+    // ==========================================================================
+    // IMPULSE DETECTION: HTF-first approach (TCG BackBurner methodology)
+    // The impulse belongs to the HIGHER timeframe — it defines the trend.
+    // The LTF just needs RSI extreme (oversold/overbought) for entry.
+    // Pairings: 5m→1h, 15m→4h. Other timeframes use LTF fallback.
+    // ==========================================================================
     const lookback = timeframe === '4h' ? 30 : 50;
-    const impulse = detectImpulseMove(candles, this.config.minImpulsePercent, lookback);
+
+    // Primary: detect impulse on HTF candles (the "trend" context)
+    let impulse = higherTFCandles && higherTFCandles.length >= 30
+      ? detectImpulseMove(higherTFCandles, this.config.minImpulsePercent, 30)
+      : null;
+    let impulseSource: 'htf' | 'ltf' = impulse ? 'htf' : 'ltf';
+
+    // Fallback: if no HTF data or no HTF impulse, use LTF with per-timeframe threshold
+    if (!impulse) {
+      const ltfMinImpulse = TIMEFRAME_IMPULSE_MIN[timeframe] ?? this.config.minImpulsePercent;
+      impulse = detectImpulseMove(candles, ltfMinImpulse, lookback);
+      impulseSource = 'ltf';
+    }
 
     if (!impulse) {
       return null;
     }
+
+    // Determine which candle array the impulse indices reference
+    const sourceCandles = impulseSource === 'htf' ? higherTFCandles! : candles;
+
+    // Map impulse timestamps to LTF candle indices (for RSI/structure checks)
+    const impulseEndTime = sourceCandles[impulse.endIndex].timestamp;
+    const impulseStartTime = sourceCandles[impulse.startIndex].timestamp;
+    const ltfImpulseEndIndex = findCandleIndexByTime(candles, impulseEndTime);
 
     // Check direction matches
     if (direction === 'long' && impulse.direction !== 'up') {
@@ -245,7 +281,7 @@ export class BackburnerDetector {
       // Check if this is the FIRST oversold condition
       const isFirstOversold = this.isFirstExtremeAfterImpulse(
         rsiValues,
-        impulse.endIndex,
+        ltfImpulseEndIndex,
         candles.length,
         'oversold'
       );
@@ -273,7 +309,7 @@ export class BackburnerDetector {
       // Check if this is the FIRST overbought condition
       const isFirstOverbought = this.isFirstExtremeAfterImpulse(
         rsiValues,
-        impulse.endIndex,
+        ltfImpulseEndIndex,
         candles.length,
         'overbought'
       );
@@ -297,13 +333,13 @@ export class BackburnerDetector {
     let structureStopPrice: number | undefined;
 
     if (direction === 'long') {
-      const pullbackResult = findPullbackLow(candles, impulse.endIndex);
+      const pullbackResult = findPullbackLow(candles, ltfImpulseEndIndex);
       if (pullbackResult) {
         pullbackLow = pullbackResult.price;
         structureStopPrice = calculateStructureStop('long', pullbackLow, undefined, 0.5) ?? undefined;
       }
     } else {
-      const bounceResult = findBounceHigh(candles, impulse.endIndex);
+      const bounceResult = findBounceHigh(candles, ltfImpulseEndIndex);
       if (bounceResult) {
         bounceHigh = bounceResult.price;
         structureStopPrice = calculateStructureStop('short', undefined, bounceHigh, 0.5) ?? undefined;
@@ -345,8 +381,10 @@ export class BackburnerDetector {
     }));
 
     // Analyze volume
-    const impulseCandles = candles.slice(impulse.startIndex, impulse.endIndex + 1);
-    const counterMoveCandles = candles.slice(impulse.endIndex + 1);
+    // impulseCandles come from whichever array the impulse was detected on
+    const impulseCandles = sourceCandles.slice(impulse.startIndex, impulse.endIndex + 1);
+    // counterMoveCandles are LTF candles from after the impulse ended
+    const counterMoveCandles = candles.slice(ltfImpulseEndIndex + 1);
     const volumeContracting = isVolumeContracting(impulseCandles, counterMoveCandles);
 
     // Determine setup state
@@ -431,9 +469,10 @@ export class BackburnerDetector {
       state,
       impulseHigh: direction === 'long' ? impulse.endPrice : impulse.startPrice,
       impulseLow: direction === 'long' ? impulse.startPrice : impulse.endPrice,
-      impulseStartTime: candles[impulse.startIndex].timestamp,
-      impulseEndTime: candles[impulse.endIndex].timestamp,
+      impulseStartTime: impulseStartTime,
+      impulseEndTime: impulseEndTime,
       impulsePercentMove: impulse.percentMove,
+      impulseSource,
       currentRSI,
       rsiAtTrigger: currentRSI,
       currentPrice,
