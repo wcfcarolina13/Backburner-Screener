@@ -273,6 +273,10 @@ interface ServerSettings {
   soundEnabled: boolean;
   investmentAmount: number;  // User's actual MEXC investment amount
   botNotifications: Record<string, boolean>;  // Per-bot notification enable/disable
+  // MEXC Live Execution - Bot Feeder
+  mexcSelectedBots: string[];         // Which focus bots feed the execution queue
+  mexcPositionSizeUsd: number;        // Real-money position size per trade (USD)
+  mexcMaxPositionSizeUsd: number;     // Safety cap on position size
 }
 
 // Default bot notification settings - top performers enabled by default
@@ -305,6 +309,10 @@ const serverSettings: ServerSettings = {
   soundEnabled: true,  // Default: ON
   investmentAmount: 2000,  // Default: $2000
   botNotifications: { ...defaultBotNotifications },
+  // MEXC Bot Feeder - default safe: no bots selected
+  mexcSelectedBots: [],
+  mexcPositionSizeUsd: 10,
+  mexcMaxPositionSizeUsd: 50,
 };
 
 // Load server settings from disk (uses fs/path imported via data-persistence)
@@ -1565,6 +1573,21 @@ async function handleNewSetup(setup: BackburnerSetup) {
           entryQuality: result.position.entryQuality,
         };
         dataPersistence.logTradeOpen(botId, positionForLog as any, setup);
+
+        // Queue for MEXC live execution if this bot is selected
+        if (serverSettings.mexcSelectedBots.includes(botId)) {
+          addToMexcQueue(
+            botId,
+            setup.symbol,
+            result.position.direction,
+            serverSettings.mexcPositionSizeUsd,
+            result.position.leverage,
+            result.position.stopLoss,
+            result.position.takeProfit,
+            result.position.entryQuality,
+            result.position.entryPrice
+          );
+        }
       }
     }
   }
@@ -2330,6 +2353,10 @@ interface QueuedOrder {
   side: 'long' | 'short';
   size: number;
   leverage: number;
+  stopLossPrice?: number;
+  takeProfitPrice?: number;
+  entryQuality?: string;
+  entryPrice?: number;
   status: 'pending' | 'executing' | 'executed' | 'failed' | 'cancelled';
   error?: string;
 }
@@ -2464,8 +2491,8 @@ app.post('/api/mexc/queue/execute/:index', express.json(), async (req, res) => {
 
   try {
     const result = order.side === 'long'
-      ? await client.openLong(order.symbol, order.size, order.leverage)
-      : await client.openShort(order.symbol, order.size, order.leverage);
+      ? await client.openLong(order.symbol, order.size, order.leverage, order.stopLossPrice, order.takeProfitPrice)
+      : await client.openShort(order.symbol, order.size, order.leverage, order.stopLossPrice, order.takeProfitPrice);
 
     if (result.success) {
       order.status = 'executed';
@@ -2553,8 +2580,28 @@ export function addToMexcQueue(
   symbol: string,
   side: 'long' | 'short',
   size: number,
-  leverage: number
+  leverage: number,
+  stopLossPrice?: number,
+  takeProfitPrice?: number,
+  entryQuality?: string,
+  entryPrice?: number
 ): void {
+  // Dedup: skip if pending order already exists for same symbol+side
+  const hasDuplicate = mexcExecutionQueue.some(
+    o => o.symbol === symbol && o.side === side && o.status === 'pending'
+  );
+  if (hasDuplicate) {
+    console.log(`[MEXC] Skipping duplicate: ${symbol} ${side} already pending`);
+    return;
+  }
+
+  // Enforce position size cap
+  const maxSize = serverSettings.mexcMaxPositionSizeUsd;
+  if (size > maxSize) {
+    console.log(`[MEXC] Capping order size: $${size} → $${maxSize}`);
+    size = maxSize;
+  }
+
   const order: QueuedOrder = {
     id: `${Date.now()}-${Math.random().toString(36).substring(7)}`,
     timestamp: Date.now(),
@@ -2563,18 +2610,75 @@ export function addToMexcQueue(
     side,
     size,
     leverage,
+    stopLossPrice,
+    takeProfitPrice,
+    entryQuality,
+    entryPrice,
     status: 'pending',
   };
 
   mexcExecutionQueue.push(order);
-  console.log(`[MEXC] Order queued: ${bot} ${side} ${symbol} $${size} ${leverage}x`);
+  const slStr = stopLossPrice ? ` SL:$${stopLossPrice.toFixed(4)}` : '';
+  const tpStr = takeProfitPrice ? ` TP:$${takeProfitPrice.toFixed(4)}` : '';
+  console.log(`[MEXC] Order queued: ${bot} ${side} ${symbol} $${size} ${leverage}x${slStr}${tpStr}`);
 
   // Auto-execute in shadow mode (log only)
   if (mexcExecutionMode === 'shadow') {
-    console.log(`[MEXC-SHADOW] Would execute: ${side} ${symbol} $${size} ${leverage}x`);
+    console.log(`[MEXC-SHADOW] Would execute: ${side} ${symbol} $${size} ${leverage}x${slStr}${tpStr}`);
     order.status = 'executed';
   }
 }
+
+// ============================================================
+// MEXC Bot Selection API
+// ============================================================
+
+// Get current bot selection and available bots with stats
+app.get('/api/mexc/bot-selection', (req, res) => {
+  const available = Array.from(focusShadowBots.entries()).map(([id, bot]) => {
+    const stats = bot.getStats();
+    return {
+      id,
+      totalTrades: stats.totalTrades,
+      openPositions: stats.openPositions,
+      winRate: stats.winRate,
+      totalPnl: stats.totalPnl,
+      profitFactor: stats.profitFactor,
+    };
+  });
+
+  res.json({
+    success: true,
+    selected: serverSettings.mexcSelectedBots,
+    positionSizeUsd: serverSettings.mexcPositionSizeUsd,
+    maxPositionSizeUsd: serverSettings.mexcMaxPositionSizeUsd,
+    available,
+  });
+});
+
+// Update bot selection
+app.post('/api/mexc/bot-selection', express.json(), (req, res) => {
+  const { selectedBots, positionSizeUsd } = req.body;
+
+  if (Array.isArray(selectedBots)) {
+    // Validate all IDs exist in focusShadowBots
+    const validIds = selectedBots.filter((id: string) => focusShadowBots.has(id));
+    serverSettings.mexcSelectedBots = validIds;
+  }
+
+  if (typeof positionSizeUsd === 'number' && positionSizeUsd > 0) {
+    serverSettings.mexcPositionSizeUsd = Math.min(positionSizeUsd, serverSettings.mexcMaxPositionSizeUsd);
+  }
+
+  saveServerSettings();
+  console.log(`[MEXC] Bot selection updated: ${serverSettings.mexcSelectedBots.join(', ') || '(none)'} | Size: $${serverSettings.mexcPositionSizeUsd}`);
+
+  res.json({
+    success: true,
+    selected: serverSettings.mexcSelectedBots,
+    positionSizeUsd: serverSettings.mexcPositionSizeUsd,
+  });
+});
 
 // ============================================================
 // MEXC Cookie Health Monitoring
@@ -4705,6 +4809,27 @@ function getHtmlPage(): string {
           What happens next depends on the <strong style="color: #c9d1d9;">Execution Mode</strong>:
           Dry Run = queue only (no action), Shadow = log only (no real orders), Live = real MEXC orders (real money).
           Orders in the queue can be individually approved, executed, or cancelled.
+        </div>
+      </div>
+
+      <!-- Bot Feeder Configuration -->
+      <div style="margin-bottom: 12px; padding: 12px; background: #0d1117; border-radius: 8px; border: 1px solid #30363d;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="color: #c9d1d9; font-size: 12px; font-weight: 600;" title="Select which paper-trading bot(s) feed signals into the execution queue. When a selected bot opens a paper position, a corresponding order is added to the queue for real execution.">🤖 Bot Feeder</span>
+          <span id="mexcBotFeederStatus" style="font-size: 10px; color: #8b949e;">No bots selected</span>
+        </div>
+        <div style="color: #8b949e; font-size: 10px; margin-bottom: 8px;">
+          Select which bot(s) feed signals to the queue. Only selected bots will add orders when they open paper positions.
+        </div>
+        <div id="mexcBotCheckboxes" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px; margin-bottom: 10px;">
+          <div style="color: #6e7681; font-size: 10px; padding: 4px;">Loading bots...</div>
+        </div>
+        <div style="display: flex; gap: 12px; align-items: center; padding-top: 8px; border-top: 1px solid #21262d;">
+          <label style="color: #8b949e; font-size: 11px; white-space: nowrap;" title="The real-money position size for each trade. This is independent from the paper bot's balance — the paper bot might trade $200 but the real order will use this amount.">Position Size (USD):</label>
+          <input type="number" id="mexcPositionSize" value="10" min="1" max="500"
+            style="width: 80px; padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d; background: #161b22; color: #c9d1d9; font-size: 12px;">
+          <button onclick="saveMexcBotSelection()" style="padding: 4px 12px; border-radius: 4px; border: none; background: #238636; color: white; font-size: 11px; cursor: pointer;">Save</button>
+          <span style="color: #6e7681; font-size: 10px; margin-left: auto;" title="Maximum allowed position size as a safety cap">Max: $<span id="mexcMaxSize">50</span></span>
         </div>
       </div>
 

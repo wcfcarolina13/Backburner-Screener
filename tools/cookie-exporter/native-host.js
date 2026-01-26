@@ -111,6 +111,9 @@ function pushCookieToRender(envContent, cookieValue) {
       res.on('end', () => {
         if (res.statusCode >= 200 && res.statusCode < 300) {
           log(`Render push success (${res.statusCode}): cookie updated`);
+          // Trigger a deploy so the running service picks up the new env var
+          // (restart alone does NOT load new env vars on Render)
+          triggerRenderDeploy(https, apiKey, serviceId);
         } else {
           log(`Render push failed (${res.statusCode}): ${body}`);
         }
@@ -126,6 +129,37 @@ function pushCookieToRender(envContent, cookieValue) {
   }).catch((err) => {
     log(`Render push import error: ${err.message}`);
   });
+}
+
+// Trigger a new deploy on Render so it picks up the updated env var
+function triggerRenderDeploy(https, apiKey, serviceId) {
+  log(`Triggering Render deploy for service ${serviceId}...`);
+
+  const req = https.request({
+    hostname: 'api.render.com',
+    path: `/v1/services/${serviceId}/deploys`,
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+  }, (res) => {
+    let body = '';
+    res.on('data', (chunk) => body += chunk);
+    res.on('end', () => {
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        log(`Render deploy triggered (${res.statusCode}): service will restart with new cookie`);
+      } else {
+        log(`Render deploy failed (${res.statusCode}): ${body}`);
+      }
+    });
+  });
+
+  req.on('error', (err) => {
+    log(`Render deploy error: ${err.message}`);
+  });
+
+  req.end();
 }
 
 function processMessage(buffer) {
