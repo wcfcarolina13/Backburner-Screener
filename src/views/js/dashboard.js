@@ -2961,11 +2961,15 @@ async function loadMexcBotSelection() {
     const statusEl = document.getElementById('mexcBotFeederStatus');
     const sizeInput = document.getElementById('mexcPositionSize');
     const pctInput = document.getElementById('mexcPositionPct');
-    const maxSizeEl = document.getElementById('mexcMaxSize');
+    const maxSizeInput = document.getElementById('mexcMaxPositionSize');
+    const maxLevInput = document.getElementById('mexcMaxLeverage');
+    const autoExecToggle = document.getElementById('mexcAutoExecuteToggle');
 
     if (sizeInput) sizeInput.value = data.positionSizeUsd;
     if (pctInput) pctInput.value = data.positionSizePct || 5;
-    if (maxSizeEl) maxSizeEl.textContent = data.maxPositionSizeUsd;
+    if (maxSizeInput) maxSizeInput.value = data.maxPositionSizeUsd || 50;
+    if (maxLevInput) maxLevInput.value = data.maxLeverage || 20;
+    if (autoExecToggle) autoExecToggle.checked = data.autoExecute || false;
 
     // Set sizing mode toggle state
     const mode = data.positionSizeMode || 'fixed';
@@ -3040,8 +3044,12 @@ async function saveMexcBotSelection() {
 
   const sizeInput = document.getElementById('mexcPositionSize');
   const pctInput = document.getElementById('mexcPositionPct');
+  const maxSizeInput = document.getElementById('mexcMaxPositionSize');
+  const maxLevInput = document.getElementById('mexcMaxLeverage');
   const positionSizeUsd = sizeInput ? parseFloat(sizeInput.value) || 10 : 10;
   const positionSizePct = pctInput ? parseFloat(pctInput.value) || 5 : 5;
+  const maxPositionSizeUsd = maxSizeInput ? parseFloat(maxSizeInput.value) || 50 : 50;
+  const maxLeverage = maxLevInput ? parseInt(maxLevInput.value) || 20 : 20;
 
   // Determine current mode from toggle state
   const fixedBtn = document.getElementById('mexcSizeModeFixed');
@@ -3051,7 +3059,7 @@ async function saveMexcBotSelection() {
     const response = await fetch('/api/mexc/bot-selection', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ selectedBots, positionSizeUsd, positionSizeMode, positionSizePct })
+      body: JSON.stringify({ selectedBots, positionSizeUsd, positionSizeMode, positionSizePct, maxPositionSizeUsd, maxLeverage })
     });
     const data = await response.json();
     if (data.success) {
@@ -3063,6 +3071,52 @@ async function saveMexcBotSelection() {
     }
   } catch (err) {
     showToast('Error saving bot selection: ' + err.message, 'error');
+  }
+}
+
+// Toggle auto-execute with double confirmation
+async function toggleAutoExecute(checked) {
+  const toggle = document.getElementById('mexcAutoExecuteToggle');
+  if (checked) {
+    const confirm1 = window.confirm(
+      '⚠️ DANGER: Enable Full Automation?\n\n' +
+      'When Auto-Execute is ON and Execution Mode is LIVE, every order from selected bots will be executed IMMEDIATELY on MEXC with REAL MONEY.\n\n' +
+      'No manual review. No undo.\n\n' +
+      'Are you sure?'
+    );
+    if (!confirm1) {
+      toggle.checked = false;
+      return;
+    }
+    const confirm2 = window.confirm(
+      '⚠️ FINAL CONFIRMATION\n\n' +
+      'You are enabling fully automated live trading.\n' +
+      'Orders will execute automatically when bots signal.\n\n' +
+      'Type OK to confirm you understand the risk.'
+    );
+    if (!confirm2) {
+      toggle.checked = false;
+      return;
+    }
+  }
+
+  try {
+    const response = await fetch('/api/mexc/bot-selection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ autoExecute: checked })
+    });
+    const data = await response.json();
+    if (data.success) {
+      if (checked) {
+        showToast('Auto-Execute ENABLED — orders will execute automatically in live mode', 'error');
+      } else {
+        showToast('Auto-Execute disabled — manual execution required', 'success');
+      }
+    }
+  } catch (err) {
+    toggle.checked = false;
+    showToast('Error toggling auto-execute: ' + err.message, 'error');
   }
 }
 
