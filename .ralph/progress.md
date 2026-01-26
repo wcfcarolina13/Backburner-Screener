@@ -4,10 +4,67 @@
 
 ## Summary
 
-- Iterations completed: 31
-- Current status: Momentum Exhaustion Filter In Progress
+- Iterations completed: 32
+- Current status: MEXC Bot Feeder Pipeline Complete
 
-## Current Task: Momentum Exhaustion Signal Classification & Filter
+## Current Task: MEXC Live Execution Pipeline
+
+### Iteration 32 - MEXC Bot Feeder Pipeline & Live Execution Wiring
+**Date**: 2026-01-25
+**Status**: ✅ Complete
+
+**Goal**: Wire paper trading bots to MEXC live execution queue so bot signals automatically feed real trade orders.
+
+**Key Accomplishments**:
+
+1. **Bot Feeder GUI** (`src/web-server.ts`, `src/views/js/dashboard.js`):
+   - Checkbox grid of all 10 focus bots + 6 experimental bots with PnL/win-rate stats
+   - Section headers (Focus Bots / Experimental Bots) with grid-column spanning
+   - Status indicator ("N bot(s) feeding queue | $X/trade")
+
+2. **Signal Wiring**:
+   - Focus bots: `addToMexcQueue()` called after position opens in focusShadowBots loop
+   - Experimental bots: Wired in both BB and GP experimental signal loops
+   - Queue conditional on `serverSettings.mexcSelectedBots.includes(botId)`
+
+3. **Position Sizing**:
+   - Fixed USD mode (default $10) or % of available balance mode
+   - MEXC balance cached via `fetchMexcBalance()` and refreshed every 5 min
+   - `GET /api/mexc/balance` endpoint for real-time balance
+   - Preview shows "≈ $X.XX (of $Y.YY available)"
+
+4. **Safety Controls**:
+   - Editable max position size (default $50) — enforced in `addToMexcQueue()`
+   - Editable max leverage (default 20x) — caps bot's suggested leverage
+   - Dedup: same symbol+side only creates one queue entry
+   - SL/TP passthrough: every queued order includes stop-loss and take-profit
+
+5. **Full Automation Toggle**:
+   - `mexcAutoExecute` boolean in ServerSettings
+   - Double `window.confirm()` dialog for safety
+   - `autoExecuteOrder()` function for live mode auto-execution
+   - Shadow mode: auto-marks as "executed" (log only)
+   - Live mode: calls `client.openLong()`/`openShort()` with SL/TP
+
+6. **Grid Alignment Fix**:
+   - Added `grid-column: 1 / -1` to section headers
+   - Increased min column width from 220px to 280px
+
+**API Endpoints Added**:
+- `GET /api/mexc/bot-selection` — available bots with stats, current selection, all settings
+- `POST /api/mexc/bot-selection` — update selection, position size, max size/leverage, auto-execute
+- `GET /api/mexc/balance` — real-time MEXC available balance
+
+**Commits**:
+- `0c95d9a` "feat: Add experimental bots to Bot Feeder + % balance position sizing"
+- `e1f23c0` "feat: Editable max size/leverage + full automation toggle"
+- `b5de078` "fix: Bot Feeder grid alignment — headers span full width, wider columns"
+
+**Pushed to Github**: ✅ `ecf8d3d` (6 commits ahead of origin)
+
+---
+
+## Previous Task: Momentum Exhaustion Signal Classification & Filter
 
 ### Iteration 31 - Momentum Exhaustion Filter
 **Date**: 2026-01-25
