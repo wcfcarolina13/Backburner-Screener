@@ -2657,6 +2657,9 @@ export function addToMexcQueue(
   entryQuality?: string,
   entryPrice?: number
 ): void {
+  // Convert spot symbol (BTCUSDT) to futures format (BTC_USDT) for MEXC API
+  symbol = spotSymbolToFutures(symbol);
+
   // Dedup: skip if pending order already exists for same symbol+side
   const hasDuplicate = mexcExecutionQueue.some(
     o => o.symbol === symbol && o.side === side && o.status === 'pending'
