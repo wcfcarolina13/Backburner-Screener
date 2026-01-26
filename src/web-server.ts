@@ -277,6 +277,8 @@ interface ServerSettings {
   mexcSelectedBots: string[];         // Which focus bots feed the execution queue
   mexcPositionSizeUsd: number;        // Real-money position size per trade (USD)
   mexcMaxPositionSizeUsd: number;     // Safety cap on position size
+  mexcPositionSizeMode: 'fixed' | 'percent';  // Fixed USD or % of available balance
+  mexcPositionSizePct: number;        // Percentage of available balance per trade
 }
 
 // Default bot notification settings - top performers enabled by default
@@ -313,6 +315,8 @@ const serverSettings: ServerSettings = {
   mexcSelectedBots: [],
   mexcPositionSizeUsd: 10,
   mexcMaxPositionSizeUsd: 50,
+  mexcPositionSizeMode: 'fixed',
+  mexcPositionSizePct: 5,
 };
 
 // Load server settings from disk (uses fs/path imported via data-persistence)
@@ -1423,6 +1427,21 @@ async function handleNewSetup(setup: BackburnerSetup) {
         if (result.action === 'open' && result.position) {
           console.log(`[EXP:${botId}] OPENED GP ${result.position.direction.toUpperCase()} ${setup.symbol} | Reason: ${result.reason}`);
           broadcast('position_opened', { bot: botId, position: result.position });
+
+          // Queue for MEXC live execution if this experimental bot is selected
+          if (serverSettings.mexcSelectedBots.includes(botId)) {
+            addToMexcQueue(
+              botId,
+              setup.symbol,
+              result.position.direction,
+              serverSettings.mexcPositionSizeUsd,
+              result.position.leverage,
+              result.position.stopLoss,
+              result.position.takeProfit,
+              undefined,
+              result.position.entryPrice
+            );
+          }
         }
       }
     }
@@ -1611,6 +1630,21 @@ async function handleNewSetup(setup: BackburnerSetup) {
         if (result.action === 'open' && result.position) {
           console.log(`[EXP:${botId}] OPENED ${result.position.direction.toUpperCase()} ${setup.symbol} | Reason: ${result.reason}`);
           broadcast('position_opened', { bot: botId, position: result.position });
+
+          // Queue for MEXC live execution if this experimental bot is selected
+          if (serverSettings.mexcSelectedBots.includes(botId)) {
+            addToMexcQueue(
+              botId,
+              setup.symbol,
+              result.position.direction,
+              serverSettings.mexcPositionSizeUsd,
+              result.position.leverage,
+              result.position.stopLoss,
+              result.position.takeProfit,
+              undefined,
+              result.position.entryPrice
+            );
+          }
         }
       }
     }
@@ -2377,6 +2411,39 @@ function initMexcClient(): MexcFuturesClient | null {
   return mexcClient;
 }
 
+// Cached MEXC available balance for queue-time position sizing
+let cachedMexcAvailableBalance: number = 0;
+let cachedMexcEquity: number = 0;
+let lastBalanceFetchTime: number = 0;
+
+async function fetchMexcBalance(): Promise<{ equity: number; available: number } | null> {
+  const client = initMexcClient();
+  if (!client) return null;
+
+  const result = await client.getUsdtBalance();
+  if (result.success && result.balance !== undefined && result.available !== undefined) {
+    cachedMexcEquity = result.balance;
+    cachedMexcAvailableBalance = result.available;
+    lastBalanceFetchTime = Date.now();
+    return { equity: result.balance, available: result.available };
+  }
+  return null;
+}
+
+// Get MEXC balance (used by Bot Feeder UI for % sizing)
+app.get('/api/mexc/balance', async (req, res) => {
+  try {
+    const bal = await fetchMexcBalance();
+    if (!bal) {
+      res.json({ success: false, error: 'MEXC client not available or balance fetch failed' });
+      return;
+    }
+    res.json({ success: true, equity: bal.equity, available: bal.available });
+  } catch (err) {
+    res.json({ success: false, error: (err as Error).message });
+  }
+});
+
 // Test MEXC connection
 app.get('/api/mexc/test-connection', async (req, res) => {
   try {
@@ -2386,12 +2453,12 @@ app.get('/api/mexc/test-connection', async (req, res) => {
       return;
     }
 
-    const result = await client.testConnection();
+    const bal = await fetchMexcBalance();
     res.json({
-      success: result.success,
-      balance: result.balance,
-      available: result.balance, // Will be updated with proper available balance
-      error: result.error,
+      success: bal !== null,
+      balance: bal?.equity ?? 0,
+      available: bal?.available ?? 0,
+      error: bal === null ? 'Balance fetch failed' : undefined,
     });
   } catch (err) {
     res.json({ success: false, error: (err as Error).message });
@@ -2595,6 +2662,16 @@ export function addToMexcQueue(
     return;
   }
 
+  // Compute position size based on mode
+  if (serverSettings.mexcPositionSizeMode === 'percent') {
+    if (cachedMexcAvailableBalance > 0) {
+      size = cachedMexcAvailableBalance * (serverSettings.mexcPositionSizePct / 100);
+      console.log(`[MEXC] Percent sizing: ${serverSettings.mexcPositionSizePct}% of $${cachedMexcAvailableBalance.toFixed(2)} = $${size.toFixed(2)}`);
+    } else {
+      console.log(`[MEXC] Percent sizing fallback: no cached balance, using fixed $${size}`);
+    }
+  }
+
   // Enforce position size cap
   const maxSize = serverSettings.mexcMaxPositionSizeUsd;
   if (size > maxSize) {
@@ -2635,10 +2712,12 @@ export function addToMexcQueue(
 
 // Get current bot selection and available bots with stats
 app.get('/api/mexc/bot-selection', (req, res) => {
-  const available = Array.from(focusShadowBots.entries()).map(([id, bot]) => {
+  // Focus shadow bots
+  const focusAvailable = Array.from(focusShadowBots.entries()).map(([id, bot]) => {
     const stats = bot.getStats();
     return {
       id,
+      group: 'focus',
       totalTrades: stats.totalTrades,
       openPositions: stats.openPositions,
       winRate: stats.winRate,
@@ -2647,22 +2726,40 @@ app.get('/api/mexc/bot-selection', (req, res) => {
     };
   });
 
+  // Experimental shadow bots
+  const expAvailable = Array.from(experimentalBots.entries()).map(([id, bot]) => {
+    const state = bot.getState();
+    return {
+      id,
+      group: 'experimental',
+      description: state.description,
+      totalTrades: state.stats.totalTrades,
+      openPositions: state.openPositions.length,
+      winRate: state.stats.winRate,
+      totalPnl: state.stats.totalPnl,
+      profitFactor: state.stats.profitFactor,
+    };
+  });
+
   res.json({
     success: true,
     selected: serverSettings.mexcSelectedBots,
     positionSizeUsd: serverSettings.mexcPositionSizeUsd,
     maxPositionSizeUsd: serverSettings.mexcMaxPositionSizeUsd,
-    available,
+    positionSizeMode: serverSettings.mexcPositionSizeMode,
+    positionSizePct: serverSettings.mexcPositionSizePct,
+    cachedAvailableBalance: cachedMexcAvailableBalance,
+    available: [...focusAvailable, ...expAvailable],
   });
 });
 
 // Update bot selection
 app.post('/api/mexc/bot-selection', express.json(), (req, res) => {
-  const { selectedBots, positionSizeUsd } = req.body;
+  const { selectedBots, positionSizeUsd, positionSizeMode, positionSizePct } = req.body;
 
   if (Array.isArray(selectedBots)) {
-    // Validate all IDs exist in focusShadowBots
-    const validIds = selectedBots.filter((id: string) => focusShadowBots.has(id));
+    // Validate all IDs exist in focusShadowBots or experimentalBots
+    const validIds = selectedBots.filter((id: string) => focusShadowBots.has(id) || experimentalBots.has(id));
     serverSettings.mexcSelectedBots = validIds;
   }
 
@@ -2670,13 +2767,26 @@ app.post('/api/mexc/bot-selection', express.json(), (req, res) => {
     serverSettings.mexcPositionSizeUsd = Math.min(positionSizeUsd, serverSettings.mexcMaxPositionSizeUsd);
   }
 
+  if (positionSizeMode === 'fixed' || positionSizeMode === 'percent') {
+    serverSettings.mexcPositionSizeMode = positionSizeMode;
+  }
+
+  if (typeof positionSizePct === 'number' && positionSizePct > 0 && positionSizePct <= 100) {
+    serverSettings.mexcPositionSizePct = positionSizePct;
+  }
+
   saveServerSettings();
-  console.log(`[MEXC] Bot selection updated: ${serverSettings.mexcSelectedBots.join(', ') || '(none)'} | Size: $${serverSettings.mexcPositionSizeUsd}`);
+  const sizeDesc = serverSettings.mexcPositionSizeMode === 'percent'
+    ? `${serverSettings.mexcPositionSizePct}% of balance`
+    : `$${serverSettings.mexcPositionSizeUsd}`;
+  console.log(`[MEXC] Bot selection updated: ${serverSettings.mexcSelectedBots.join(', ') || '(none)'} | Size: ${sizeDesc}`);
 
   res.json({
     success: true,
     selected: serverSettings.mexcSelectedBots,
     positionSizeUsd: serverSettings.mexcPositionSizeUsd,
+    positionSizeMode: serverSettings.mexcPositionSizeMode,
+    positionSizePct: serverSettings.mexcPositionSizePct,
   });
 });
 
@@ -2822,6 +2932,17 @@ if (process.env.NODE_ENV === 'production') {
 
   console.log('[MEXC-HEALTH] Cookie health monitoring enabled (30min interval)');
 }
+
+// Periodic balance refresh for % position sizing (every 5 minutes)
+// Runs in all environments since it's needed for queue-time sizing
+setInterval(async () => {
+  if (serverSettings.mexcPositionSizeMode === 'percent') {
+    const bal = await fetchMexcBalance();
+    if (bal) {
+      console.log(`[MEXC] Balance refreshed for % sizing: $${bal.available.toFixed(2)} available`);
+    }
+  }
+}, 5 * 60 * 1000);
 
 // ============================================================
 // End MEXC Live Execution API Routes
@@ -4824,10 +4945,26 @@ function getHtmlPage(): string {
         <div id="mexcBotCheckboxes" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px; margin-bottom: 10px;">
           <div style="color: #6e7681; font-size: 10px; padding: 4px;">Loading bots...</div>
         </div>
-        <div style="display: flex; gap: 12px; align-items: center; padding-top: 8px; border-top: 1px solid #21262d;">
-          <label style="color: #8b949e; font-size: 11px; white-space: nowrap;" title="The real-money position size for each trade. This is independent from the paper bot's balance — the paper bot might trade $200 but the real order will use this amount.">Position Size (USD):</label>
-          <input type="number" id="mexcPositionSize" value="10" min="1" max="500"
-            style="width: 80px; padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d; background: #161b22; color: #c9d1d9; font-size: 12px;">
+        <div style="display: flex; gap: 8px; align-items: center; padding-top: 8px; border-top: 1px solid #21262d; flex-wrap: wrap;">
+          <div style="display: flex; gap: 2px; background: #161b22; border-radius: 4px; border: 1px solid #30363d;">
+            <button id="mexcSizeModeFixed" onclick="setMexcSizeMode('fixed')"
+              style="padding: 4px 10px; border-radius: 3px; border: none; font-size: 10px; font-weight: 600; cursor: pointer; background: #238636; color: white;"
+              title="Use a fixed USD amount per trade">$ Fixed</button>
+            <button id="mexcSizeModePct" onclick="setMexcSizeMode('percent')"
+              style="padding: 4px 10px; border-radius: 3px; border: none; font-size: 10px; font-weight: 600; cursor: pointer; background: transparent; color: #8b949e;"
+              title="Use a percentage of your MEXC available balance per trade">% Balance</button>
+          </div>
+          <div id="mexcSizeFixedGroup" style="display: flex; gap: 4px; align-items: center;">
+            <input type="number" id="mexcPositionSize" value="10" min="1" max="500"
+              style="width: 70px; padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d; background: #161b22; color: #c9d1d9; font-size: 12px;">
+            <span style="color: #6e7681; font-size: 10px;">USD</span>
+          </div>
+          <div id="mexcSizePctGroup" style="display: none; gap: 4px; align-items: center;">
+            <input type="number" id="mexcPositionPct" value="5" min="0.5" max="100" step="0.5"
+              style="width: 60px; padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d; background: #161b22; color: #c9d1d9; font-size: 12px;">
+            <span style="color: #6e7681; font-size: 10px;">%</span>
+            <span id="mexcPctPreview" style="color: #58a6ff; font-size: 10px;" title="Estimated trade size based on current available balance"></span>
+          </div>
           <button onclick="saveMexcBotSelection()" style="padding: 4px 12px; border-radius: 4px; border: none; background: #238636; color: white; font-size: 11px; cursor: pointer;">Save</button>
           <span style="color: #6e7681; font-size: 10px; margin-left: auto;" title="Maximum allowed position size as a safety cap">Max: $<span id="mexcMaxSize">50</span></span>
         </div>
