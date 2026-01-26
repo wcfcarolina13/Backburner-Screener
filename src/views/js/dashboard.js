@@ -2813,6 +2813,9 @@ async function refreshMexcQueue() {
     html += '<th style="padding: 6px 8px; text-align: left; color: #8b949e;">Symbol</th>';
     html += '<th style="padding: 6px 8px; text-align: left; color: #8b949e;">Side</th>';
     html += '<th style="padding: 6px 8px; text-align: right; color: #8b949e;">Size</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: #8b949e;">Entry</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: #8b949e;">SL</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: #8b949e;">TP</th>';
     html += '<th style="padding: 6px 8px; text-align: center; color: #8b949e;">Status</th>';
     html += '<th style="padding: 6px 8px; text-align: center; color: #8b949e;">Actions</th>';
     html += '</tr></thead><tbody>';
@@ -2828,12 +2831,21 @@ async function refreshMexcQueue() {
         cancelled: '#6e7681'
       };
 
+      // Format price with appropriate decimal places
+      const fmtPrice = (p) => {
+        if (!p) return '-';
+        return p >= 100 ? '$' + p.toFixed(2) : p >= 1 ? '$' + p.toFixed(3) : '$' + p.toFixed(5);
+      };
+
       html += '<tr style="border-bottom: 1px solid #21262d;">';
       html += '<td style="padding: 6px 8px; color: #8b949e;">' + new Date(order.timestamp).toLocaleTimeString() + '</td>';
-      html += '<td style="padding: 6px 8px; color: #c9d1d9;">' + order.bot + '</td>';
+      html += '<td style="padding: 6px 8px; color: #c9d1d9; font-size: 10px;">' + order.bot + '</td>';
       html += '<td style="padding: 6px 8px; color: #58a6ff; font-weight: 600;">' + order.symbol + '</td>';
       html += '<td style="padding: 6px 8px; color: ' + sideColor + ';">' + sideIcon + ' ' + order.side.toUpperCase() + '</td>';
-      html += '<td style="padding: 6px 8px; text-align: right; color: #c9d1d9;">$' + order.size.toFixed(0) + '</td>';
+      html += '<td style="padding: 6px 8px; text-align: right; color: #c9d1d9;">$' + order.size.toFixed(0) + ' ' + order.leverage + 'x</td>';
+      html += '<td style="padding: 6px 8px; text-align: right; color: #c9d1d9; font-size: 10px;">' + fmtPrice(order.entryPrice) + '</td>';
+      html += '<td style="padding: 6px 8px; text-align: right; color: #f85149; font-size: 10px;">' + fmtPrice(order.stopLossPrice) + '</td>';
+      html += '<td style="padding: 6px 8px; text-align: right; color: #3fb950; font-size: 10px;">' + fmtPrice(order.takeProfitPrice) + '</td>';
       html += '<td style="padding: 6px 8px; text-align: center;"><span style="padding: 2px 6px; border-radius: 4px; background: ' + statusColors[order.status] + '; color: white; font-size: 10px;">' + order.status + '</span></td>';
       html += '<td style="padding: 6px 8px; text-align: center;">';
       if (order.status === 'pending') {
@@ -2927,6 +2939,90 @@ async function emergencyCloseAll() {
   }
 }
 
+// ============================================================
+// MEXC Bot Feeder Selection
+// ============================================================
+
+async function loadMexcBotSelection() {
+  try {
+    const response = await fetch('/api/mexc/bot-selection');
+    const data = await response.json();
+    if (!data.success) return;
+
+    const container = document.getElementById('mexcBotCheckboxes');
+    const statusEl = document.getElementById('mexcBotFeederStatus');
+    const sizeInput = document.getElementById('mexcPositionSize');
+    const maxSizeEl = document.getElementById('mexcMaxSize');
+
+    if (sizeInput) sizeInput.value = data.positionSizeUsd;
+    if (maxSizeEl) maxSizeEl.textContent = data.maxPositionSizeUsd;
+
+    if (!container) return;
+
+    // Sort by PnL (best first)
+    const sorted = (data.available || []).sort((a, b) => parseFloat(b.totalPnl) - parseFloat(a.totalPnl));
+
+    let html = '';
+    sorted.forEach(bot => {
+      const checked = data.selected.includes(bot.id) ? 'checked' : '';
+      const pnl = parseFloat(bot.totalPnl);
+      const pnlColor = pnl >= 0 ? '#3fb950' : '#f85149';
+      const pnlStr = pnl >= 0 ? '+$' + pnl.toFixed(0) : '-$' + Math.abs(pnl).toFixed(0);
+      const trades = bot.totalTrades + ' trades';
+      const wr = bot.winRate + '%';
+      const open = bot.openPositions > 0 ? ' | ' + bot.openPositions + ' open' : '';
+
+      html += '<label style="display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 4px; background: #161b22; cursor: pointer; font-size: 11px;">'
+        + '<input type="checkbox" value="' + bot.id + '" ' + checked
+        + ' onchange="saveMexcBotSelection()"'
+        + ' style="accent-color: #238636;">'
+        + '<span style="color: #c9d1d9;">' + bot.id + '</span>'
+        + '<span style="color: #6e7681; font-size: 10px; margin-left: auto;">' + trades + ' ' + wr + open + '</span>'
+        + '<span style="color: ' + pnlColor + '; font-size: 10px; font-weight: 600; min-width: 40px; text-align: right;">' + pnlStr + '</span>'
+        + '</label>';
+    });
+    container.innerHTML = html;
+
+    if (statusEl) {
+      if (data.selected.length > 0) {
+        statusEl.textContent = data.selected.length + ' bot(s) feeding queue | $' + data.positionSizeUsd + '/trade';
+        statusEl.style.color = '#3fb950';
+      } else {
+        statusEl.textContent = 'No bots selected';
+        statusEl.style.color = '#8b949e';
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load bot selection:', err);
+  }
+}
+
+async function saveMexcBotSelection() {
+  const checkboxes = document.querySelectorAll('#mexcBotCheckboxes input[type="checkbox"]');
+  const selectedBots = [];
+  checkboxes.forEach(function(cb) {
+    if (cb.checked) selectedBots.push(cb.value);
+  });
+
+  const sizeInput = document.getElementById('mexcPositionSize');
+  const positionSizeUsd = sizeInput ? parseFloat(sizeInput.value) || 10 : 10;
+
+  try {
+    const response = await fetch('/api/mexc/bot-selection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selectedBots, positionSizeUsd })
+    });
+    const data = await response.json();
+    if (data.success) {
+      showToast('Bot selection saved: ' + (selectedBots.length || 'none') + ' bot(s), $' + data.positionSizeUsd + '/trade', 'success');
+      loadMexcBotSelection();
+    }
+  } catch (err) {
+    showToast('Error saving bot selection: ' + err.message, 'error');
+  }
+}
+
 // Helper: show toast notification
 function showToast(message, type = 'info') {
   // Check if toast container exists, create if not
@@ -2967,6 +3063,7 @@ document.head.appendChild(toastStyles);
 setTimeout(() => {
   testMexcConnection();
   refreshMexcQueue();
+  loadMexcBotSelection();
 }, 2000);
 
 // Auto-refresh MEXC data every 30 seconds
