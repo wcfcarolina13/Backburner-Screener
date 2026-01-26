@@ -611,3 +611,42 @@ Continue monitoring through **Jan 17-18** (3-4 more days) to capture:
 | focus-aggressive | 11 | 8 | 72.7% | -$132.04 |
 
 **Note:** Kelly bot showing recovery but small sample size. Monitoring continues.
+
+---
+
+## 2026-01-25
+
+**Analysis Timestamp:** 2026-01-25T05:55:02.192Z
+**Market Context:** Mixed
+**Total Trades:** 42 | **Total P&L:** +$1312.57
+
+### Performance Summary
+
+| Bot | Trades | Wins | Losses | Win Rate | Total P&L | Avg P&L |
+|-----|--------|------|--------|----------|-----------|---------|
+| exp-bb-sysB | 12 | 6 | 6 | 50% | +$389.61 | +$32.47 |
+| Trail Wide | 2 | 2 | 0 | 100% | +$192.61 | +$96.31 |
+| aggressive | 2 | 1 | 1 | 50% | +$128.37 | +$64.18 |
+| Trail Aggressive (20x) | 1 | 1 | 0 | 100% | +$124.76 | +$124.76 |
+| focus-aggressive | 4 | 3 | 1 | 75% | +$94.18 | +$23.55 |
+| standard-05cb | 2 | 2 | 0 | 100% | +$77.02 | +$38.51 |
+| standard | 2 | 1 | 1 | 50% | +$64.47 | +$32.23 |
+| shadow-10pct10x-sl8 | 1 | 1 | 0 | 100% | +$59.35 | +$59.35 |
+| focus-baseline | 3 | 3 | 0 | 100% | +$32.13 | +$10.71 |
+| focus-conflict | 3 | 3 | 0 | 100% | +$32.13 | +$10.71 |
+| focus-full-quadrant | 3 | 3 | 0 | 100% | +$32.13 | +$10.71 |
+| focus-excellent | 2 | 2 | 0 | 100% | +$25.49 | +$12.74 |
+| focus-hybrid | 2 | 2 | 0 | 100% | +$25.49 | +$12.74 |
+| exp-bb-sysB-contrarian | 2 | 1 | 1 | 50% | +$22.98 | +$11.49 |
+| focus-conservative | 1 | 1 | 0 | 100% | +$11.84 | +$11.84 |
+
+### Notable Winning Trades
+
+- **exp-bb-sysB**: CYBER +$137.38
+- **Trail Wide**: CYBER +$124.76
+- **aggressive**: CYBER +$135.53
+
+### Observations
+
+1. **Top performer:** exp-bb-sysB with +$389.61 (50% win rate)
+3. **Average win rate across all bots:** 85.0%
