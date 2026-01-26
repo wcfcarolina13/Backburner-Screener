@@ -5020,7 +5020,7 @@ function getHtmlPage(): string {
         <div style="color: #8b949e; font-size: 10px; margin-bottom: 8px;">
           Select which bot(s) feed signals to the queue. Only selected bots will add orders when they open paper positions.
         </div>
-        <div id="mexcBotCheckboxes" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px; margin-bottom: 10px;">
+        <div id="mexcBotCheckboxes" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 4px; margin-bottom: 10px;">
           <div style="color: #6e7681; font-size: 10px; padding: 4px;">Loading bots...</div>
         </div>
         <div style="display: flex; gap: 8px; align-items: center; padding-top: 8px; border-top: 1px solid #21262d; flex-wrap: wrap;">
