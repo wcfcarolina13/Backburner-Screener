@@ -5188,11 +5188,19 @@ function getHtmlPage(): string {
         </div>
 
         <!-- Open Positions Summary -->
-        <div style="flex: 1; min-width: 200px; padding: 12px; background: #0d1117; border-radius: 8px; border: 1px solid #30363d;" title="Shows open positions on your actual MEXC Futures account. Click 'Sync Positions' to refresh this data from MEXC.">
+        <div style="flex: 1; min-width: 200px; padding: 12px; background: #0d1117; border-radius: 8px; border: 1px solid #30363d;" title="Shows open positions on your actual MEXC Futures account. Auto-syncs on page load and every 10s.">
           <div style="color: #8b949e; font-size: 11px; margin-bottom: 8px;">MEXC Positions</div>
-          <div style="font-size: 20px; font-weight: 600; color: #c9d1d9;"><span id="mexcPositionCount">0</span> <span style="font-size: 12px; color: #8b949e;">open</span></div>
-          <div style="font-size: 11px; color: #8b949e; margin-top: 4px;">Unrealized P&L: <span id="mexcUnrealizedPnL" class="positive" title="Combined unrealized profit/loss across all open MEXC positions">$0.00</span></div>
+          <div style="font-size: 20px; font-weight: 600; color: #c9d1d9;"><span id="mexcPositionCount">...</span> <span style="font-size: 12px; color: #8b949e;">open</span></div>
+          <div style="font-size: 11px; color: #8b949e; margin-top: 4px;">Unrealized P&L: <span id="mexcUnrealizedPnL" class="positive" title="Combined unrealized profit/loss across all open MEXC positions">loading...</span></div>
         </div>
+      </div>
+
+      <!-- Open Positions Detail -->
+      <div id="mexcPositionsDetail" style="background: #0d1117; border-radius: 8px; border: 1px solid #30363d; overflow: hidden; display: none;">
+        <div style="padding: 8px 12px; background: #161b22; border-bottom: 1px solid #30363d;">
+          <span style="font-size: 12px; font-weight: 600; color: #c9d1d9;">Open MEXC Positions</span>
+        </div>
+        <div id="mexcPositionsList" style="max-height: 200px; overflow-y: auto;"></div>
       </div>
 
       <!-- Execution Queue -->

@@ -81,15 +81,9 @@ eventSource.addEventListener('position_closed', (e) => {
 // Listen for MEXC position updates (auto-sync from server polling)
 eventSource.addEventListener('mexc_positions_update', (e) => {
   try {
-    const { count, unrealizedPnl } = JSON.parse(e.data);
-    const posCountEl = document.getElementById('mexcPositionCount');
-    const unrealEl = document.getElementById('mexcUnrealizedPnL');
-    if (posCountEl) posCountEl.textContent = count;
-    if (unrealEl) {
-      unrealEl.textContent = '$' + unrealizedPnl.toFixed(2);
-      unrealEl.className = unrealizedPnl >= 0 ? 'positive' : 'negative';
-    }
-    // Auto-refresh queue to pick up status changes (closed, stopped_out, etc.)
+    // Server sends count + pnl summary; do a full position sync to render details
+    syncMexcPositions(true);
+    // Also refresh queue to pick up status changes (closed, stopped_out, etc.)
     refreshMexcQueue();
   } catch (err) {
     console.error('[Dashboard] Error parsing mexc_positions_update:', err);
@@ -2726,10 +2720,12 @@ async function testMexcConnection() {
   }
 }
 
-// Sync positions from MEXC
-async function syncMexcPositions() {
+// Sync positions from MEXC (silent=true skips toast, used for auto-sync)
+async function syncMexcPositions(silent) {
   const posCountEl = document.getElementById('mexcPositionCount');
   const unrealEl = document.getElementById('mexcUnrealizedPnL');
+  const detailPanel = document.getElementById('mexcPositionsDetail');
+  const listEl = document.getElementById('mexcPositionsList');
 
   try {
     const response = await fetch('/api/mexc/positions');
@@ -2745,12 +2741,54 @@ async function syncMexcPositions() {
       unrealEl.textContent = '$' + totalUnreal.toFixed(2);
       unrealEl.className = totalUnreal >= 0 ? 'positive' : 'negative';
 
-      showToast('Synced ' + positions.length + ' positions from MEXC', 'success');
+      // Render position details
+      if (positions.length > 0 && detailPanel && listEl) {
+        detailPanel.style.display = 'block';
+        const fmtPrice = (p) => {
+          if (!p) return '-';
+          return p >= 100 ? '$' + p.toFixed(2) : p >= 1 ? '$' + p.toFixed(3) : '$' + p.toFixed(5);
+        };
+
+        let html = '<table style="width: 100%; font-size: 11px;">';
+        html += '<thead style="background: #161b22;"><tr>';
+        html += '<th style="padding: 6px 8px; text-align: left; color: #8b949e;">Symbol</th>';
+        html += '<th style="padding: 6px 8px; text-align: left; color: #8b949e;">Side</th>';
+        html += '<th style="padding: 6px 8px; text-align: right; color: #8b949e;">Size</th>';
+        html += '<th style="padding: 6px 8px; text-align: right; color: #8b949e;">Entry</th>';
+        html += '<th style="padding: 6px 8px; text-align: right; color: #8b949e;">Leverage</th>';
+        html += '<th style="padding: 6px 8px; text-align: right; color: #8b949e;">Unrealized</th>';
+        html += '<th style="padding: 6px 8px; text-align: right; color: #8b949e;">Liq. Price</th>';
+        html += '</tr></thead><tbody>';
+
+        positions.forEach(p => {
+          const sideColor = p.side === 'long' ? '#3fb950' : '#f85149';
+          const sideIcon = p.side === 'long' ? '🟢' : '🔴';
+          const pnlColor = p.unrealized >= 0 ? '#3fb950' : '#f85149';
+          const pnlStr = p.unrealized >= 0 ? '+$' + p.unrealized.toFixed(4) : '-$' + Math.abs(p.unrealized).toFixed(4);
+          const ticker = p.symbol.replace('_USDT', '');
+
+          html += '<tr style="border-bottom: 1px solid #21262d;">';
+          html += '<td style="padding: 6px 8px; color: #58a6ff; font-weight: 600;">' + ticker + '</td>';
+          html += '<td style="padding: 6px 8px; color: ' + sideColor + ';">' + sideIcon + ' ' + p.side.toUpperCase() + '</td>';
+          html += '<td style="padding: 6px 8px; text-align: right; color: #c9d1d9;">' + p.size + '</td>';
+          html += '<td style="padding: 6px 8px; text-align: right; color: #c9d1d9;">' + fmtPrice(p.entryPrice) + '</td>';
+          html += '<td style="padding: 6px 8px; text-align: right; color: #c9d1d9;">' + p.leverage + 'x</td>';
+          html += '<td style="padding: 6px 8px; text-align: right; color: ' + pnlColor + ';">' + pnlStr + '</td>';
+          html += '<td style="padding: 6px 8px; text-align: right; color: #8b949e;">' + fmtPrice(p.liquidationPrice) + '</td>';
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+        listEl.innerHTML = html;
+      } else if (detailPanel) {
+        detailPanel.style.display = 'none';
+      }
+
+      if (!silent) showToast('Synced ' + positions.length + ' positions from MEXC', 'success');
     } else {
-      showToast('Failed to sync positions: ' + (data.error || 'Unknown error'), 'error');
+      if (!silent) showToast('Failed to sync positions: ' + (data.error || 'Unknown error'), 'error');
     }
   } catch (err) {
-    showToast('Error syncing positions: ' + err.message, 'error');
+    if (!silent) showToast('Error syncing positions: ' + err.message, 'error');
   }
 }
 
@@ -3342,6 +3380,7 @@ document.head.appendChild(toastStyles);
 // Initialize MEXC section on page load
 setTimeout(() => {
   testMexcConnection();
+  syncMexcPositions(true);  // Silent auto-sync on load
   refreshMexcQueue();
   refreshBotLogs();
   loadMexcBotSelection();
@@ -3351,7 +3390,7 @@ setTimeout(() => {
 // Auto-refresh MEXC data every 30 seconds
 setInterval(() => {
   if (mexcConnectionActive) {
-    syncMexcPositions();
+    syncMexcPositions(true);  // Silent auto-sync
     refreshMexcQueue();
     refreshBotLogs();
   }
