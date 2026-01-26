@@ -3009,11 +3009,11 @@ async function loadMexcBotSelection() {
 
     let html = '';
     if (focusBots.length > 0) {
-      html += '<div style="color: #8b949e; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 8px; margin-top: 2px;">Focus Bots</div>';
+      html += '<div style="grid-column: 1 / -1; color: #8b949e; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 8px; margin-top: 2px;">Focus Bots</div>';
       focusBots.forEach(bot => { html += renderBotRow(bot); });
     }
     if (expBots.length > 0) {
-      html += '<div style="color: #8b949e; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 8px; margin-top: 8px;">Experimental Bots</div>';
+      html += '<div style="grid-column: 1 / -1; color: #8b949e; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 8px; margin-top: 8px;">Experimental Bots</div>';
       expBots.forEach(bot => { html += renderBotRow(bot); });
     }
     container.innerHTML = html;
