@@ -182,6 +182,7 @@ class ExperimentalShadowBot extends EventEmitter {
   protected peakBalance: number;
   protected regimeDetector: SignalRatioRegimeDetector;
   protected lastBiasResult: SystemBBiasResult | null = null;
+  protected executionMode: string = 'paper';
 
   constructor(config: ExperimentalBotConfig) {
     super();
@@ -197,6 +198,11 @@ class ExperimentalShadowBot extends EventEmitter {
 
   getDescription(): string {
     return this.config.description;
+  }
+
+  // Set execution mode for trade logging (paper/shadow/live)
+  setExecutionMode(mode: string): void {
+    this.executionMode = mode;
   }
 
   // Feed signals to regime detector (called for ALL signals, not just ones we trade)
@@ -347,7 +353,7 @@ class ExperimentalShadowBot extends EventEmitter {
 
     // Log trade open
     const dataPersistence = getDataPersistence();
-    dataPersistence.logTradeOpen(this.config.botId, position as any, setup);
+    dataPersistence.logTradeOpen(this.config.botId, position as any, setup, this.executionMode);
 
     return { action: 'open', reason: `Opened in ${regimeCheck.quadrant}`, position };
   }
@@ -433,7 +439,7 @@ class ExperimentalShadowBot extends EventEmitter {
 
     // Log trade open
     const dataPersistence = getDataPersistence();
-    dataPersistence.logTradeOpen(this.config.botId, position as any, setup as any);
+    dataPersistence.logTradeOpen(this.config.botId, position as any, setup as any, this.executionMode);
 
     return { action: 'open', reason: `Opened GP in ${regimeCheck.quadrant}`, position };
   }
@@ -545,7 +551,7 @@ class ExperimentalShadowBot extends EventEmitter {
 
         // Log trade close
         const dataPersistence = getDataPersistence();
-        dataPersistence.logTradeClose(this.config.botId, closedPos as any);
+        dataPersistence.logTradeClose(this.config.botId, closedPos as any, this.executionMode);
       }
     }
 
@@ -624,6 +630,42 @@ class ExperimentalShadowBot extends EventEmitter {
     this.closedPositions = [];
     this.balance = this.config.initialBalance;
     this.peakBalance = this.config.initialBalance;
+  }
+
+  // Serialize bot state for persistence (survives restarts)
+  saveState(): {
+    botId: string;
+    balance: number;
+    peakBalance: number;
+    openPositions: Array<[string, ShadowPosition]>;
+    closedPositions: ClosedPosition[];
+    savedAt: string;
+  } {
+    return {
+      botId: this.config.botId,
+      balance: this.balance,
+      peakBalance: this.peakBalance,
+      openPositions: Array.from(this.positions.entries()),
+      closedPositions: this.closedPositions.slice(-100), // Keep last 100
+      savedAt: new Date().toISOString(),
+    };
+  }
+
+  // Restore bot state from persisted data
+  restoreState(state: {
+    balance: number;
+    peakBalance: number;
+    openPositions: Array<[string, ShadowPosition]>;
+    closedPositions: ClosedPosition[];
+  }): void {
+    this.balance = state.balance;
+    this.peakBalance = state.peakBalance;
+    this.positions.clear();
+    for (const [key, pos] of state.openPositions) {
+      this.positions.set(key, pos);
+    }
+    this.closedPositions = state.closedPositions || [];
+    console.log(`[EXP:${this.config.botId}] Restored state: balance=$${this.balance.toFixed(2)}, ${this.positions.size} open positions, ${this.closedPositions.length} closed`);
   }
 }
 

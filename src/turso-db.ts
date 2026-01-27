@@ -86,6 +86,7 @@ export async function initSchema(): Promise<void> {
       'highest_pnl_percent REAL',
       'entry_time TEXT',
       'duration_ms INTEGER',
+      'execution_mode TEXT',
     ];
     for (const col of newColumns) {
       try {
@@ -205,6 +206,7 @@ export async function insertTradeEvent(event: {
   highestPnlPercent?: number;
   entryTime?: string;
   durationMs?: number;
+  executionMode?: string;
   [key: string]: unknown;
 }): Promise<void> {
   const client = getTurso();
@@ -220,8 +222,8 @@ export async function insertTradeEvent(event: {
         notional_size, leverage, realized_pnl, realized_pnl_percent,
         exit_reason, signal_rsi, signal_state, impulse_percent,
         entry_quadrant, entry_quality, entry_bias, trail_activated,
-        highest_pnl_percent, entry_time, duration_ms, data_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        highest_pnl_percent, entry_time, duration_ms, execution_mode, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         event.timestamp,
         date,
@@ -250,6 +252,7 @@ export async function insertTradeEvent(event: {
         event.highestPnlPercent || null,
         event.entryTime || null,
         event.durationMs || null,
+        event.executionMode || null,
         JSON.stringify(event),
       ],
     });

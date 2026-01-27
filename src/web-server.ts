@@ -1499,7 +1499,7 @@ async function handleNewSetup(setup: BackburnerSetup) {
           takeProfitPrice: 0,
           stopLossPrice: result.position.stopLoss,
         };
-        dataPersistence.logTradeOpen(botId, positionForLog as any, setup);
+        dataPersistence.logTradeOpen(botId, positionForLog as any, setup, getExecutionModeForBot(botId));
       } else if (result.action === 'skip') {
         // Still log skipped signals for debugging regime detection
         // console.log(`[REGIME:${botId}] Skipped ${setup.symbol}: ${result.reason}`);
@@ -1592,7 +1592,7 @@ async function handleNewSetup(setup: BackburnerSetup) {
           entryQuadrant: result.position.entryQuadrant,
           entryQuality: result.position.entryQuality,
         };
-        dataPersistence.logTradeOpen(botId, positionForLog as any, setup);
+        dataPersistence.logTradeOpen(botId, positionForLog as any, setup, getExecutionModeForBot(botId));
 
         // Queue for MEXC live execution if this bot is selected
         if (serverSettings.mexcSelectedBots.includes(botId)) {
@@ -2391,6 +2391,18 @@ let mexcClient: MexcFuturesClient | null = null;
 function getMexcExecutionMode(): 'dry_run' | 'shadow' | 'live' {
   return serverSettings.mexcExecutionMode || 'dry_run';
 }
+
+// Determine the execution mode for a specific bot (for trade logging)
+// Returns 'live' if the bot is selected for MEXC execution in live mode,
+// 'shadow' if in shadow mode, otherwise 'paper'
+function getExecutionModeForBot(botId: string): string {
+  if (serverSettings.mexcSelectedBots.includes(botId)) {
+    const mode = getMexcExecutionMode();
+    if (mode === 'live') return 'live';
+    if (mode === 'shadow') return 'shadow';
+  }
+  return 'paper';
+}
 interface QueuedOrder {
   id: string;
   timestamp: number;
@@ -2565,6 +2577,10 @@ app.post('/api/mexc/mode', express.json(), (req, res) => {
 
   serverSettings.mexcExecutionMode = mode;
   saveServerSettings();
+  // Update execution mode on experimental bots for trade logging
+  for (const [botId, bot] of experimentalBots) {
+    bot.setExecutionMode(getExecutionModeForBot(botId));
+  }
   console.log(`[MEXC] Execution mode set to: ${mode} (persisted)`);
   res.json({ success: true, mode });
 });
@@ -2928,6 +2944,11 @@ app.post('/api/mexc/bot-selection', express.json(), (req, res) => {
     } else {
       console.log(`[MEXC] Auto-execute disabled — manual execution required`);
     }
+  }
+
+  // Update execution mode on experimental bots for trade logging
+  for (const [botId, bot] of experimentalBots) {
+    bot.setExecutionMode(getExecutionModeForBot(botId));
   }
 
   saveServerSettings();
@@ -6011,6 +6032,28 @@ async function main() {
   // Load server settings (daily reset, etc.)
   loadServerSettings();
 
+  // Sync execution mode from persisted settings to experimental bots
+  for (const [botId, bot] of experimentalBots) {
+    bot.setExecutionMode(getExecutionModeForBot(botId));
+  }
+
+  // Restore experimental bot state (critical for trailing stop persistence across restarts)
+  for (const [botId, bot] of experimentalBots) {
+    const saved = dataPersistence.loadPositions(botId);
+    if (saved && saved.openPositions && saved.openPositions.length > 0) {
+      try {
+        bot.restoreState({
+          balance: saved.balance,
+          peakBalance: saved.peakBalance,
+          openPositions: saved.openPositions as Array<[string, any]>,
+          closedPositions: (saved.closedPositions || []) as any[],
+        });
+      } catch (err) {
+        console.error(`[EXP:${botId}] Failed to restore state:`, (err as Error).message);
+      }
+    }
+  }
+
   // Check for daily reset on startup
   checkDailyReset();
 
@@ -6077,6 +6120,18 @@ async function main() {
       const closedPositions = bot.getClosedPositions();
       const stats = bot.getStats();
       dataPersistence.savePositions(botId, positions, closedPositions, stats.currentBalance, stats.peakBalance);
+    }
+
+    // Experimental shadow bots - save state for trailing stop persistence
+    for (const [botId, bot] of experimentalBots) {
+      const state = bot.saveState();
+      dataPersistence.savePositions(
+        botId,
+        state.openPositions,
+        state.closedPositions,
+        state.balance,
+        state.peakBalance
+      );
     }
   };
 
@@ -6269,7 +6324,7 @@ async function main() {
                 takeProfitPrice: 0,
                 stopLossPrice: 0,
               };
-              dataPersistence.logTradeClose(botId, positionForClose as any);
+              dataPersistence.logTradeClose(botId, positionForClose as any, getExecutionModeForBot(botId));
             }
           }
         }
@@ -6321,7 +6376,7 @@ async function main() {
             trailActivated: closedPos.trailActivated,
             highestPnlPercent: closedPos.highestPnlPercent,
           };
-          dataPersistence.logTradeClose(botId, positionForClose as any);
+          dataPersistence.logTradeClose(botId, positionForClose as any, getExecutionModeForBot(botId));
         }
       }
 
@@ -6390,7 +6445,7 @@ async function main() {
             trailActivated: closedPos.trailActivated,
             highestPnlPercent: closedPos.highestPnlPercent,
           };
-          dataPersistence.logTradeClose(botId, positionForClose as any);
+          dataPersistence.logTradeClose(botId, positionForClose as any, getExecutionModeForBot(botId));
         }
       }
 

@@ -4,10 +4,62 @@
 
 ## Summary
 
-- Iterations completed: 34
-- Current status: Futures-Only Commodity Screening Complete
+- Iterations completed: 36
+- Current status: Persistent Live Trade Logging + Experimental Bot State Recovery Complete
 
-## Current Task: Futures-Only Asset Discovery & Commodity Screening
+## Current Task: Persistent Live Trade Logging + Experimental Bot State Recovery
+
+### Iteration 36 — Execution Mode Logging + Experimental Bot Persistence
+**Date**: 2026-01-26
+**Status**: ✅ Complete
+
+**Goal**: Add `execution_mode` column to Turso so paper vs live trades can be distinguished, and persist experimental bot state (trailing stops, positions) so MEXC live position management survives server restarts.
+
+**Changes Implemented**:
+
+1. **`execution_mode` column in Turso** (`src/turso-db.ts`):
+   - Added `'execution_mode TEXT'` to ALTER TABLE migration array
+   - Added `executionMode?: string` to insertTradeEvent parameter type
+   - Added `execution_mode` to INSERT SQL + args
+
+2. **TradeEvent executionMode threading** (`src/data-persistence.ts`):
+   - Added `executionMode?: string` to `TradeEvent` interface
+   - Updated `logTradeOpen()` — new 4th parameter `executionMode?: string`
+   - Updated `logTradeClose()` — new 3rd parameter `executionMode?: string`
+   - Both pass executionMode through to Turso
+
+3. **Execution mode determination** (`src/web-server.ts`):
+   - Added `getExecutionModeForBot(botId)` helper function
+   - Returns 'live' if bot in mexcSelectedBots + mode is live
+   - Returns 'shadow' if in shadow mode, 'paper' otherwise
+   - Updated all 6 logTradeOpen/logTradeClose call sites
+   - Syncs mode to experimental bots on: startup, mode change, bot selection change
+
+4. **ExperimentalShadowBot persistence** (`src/experimental-shadow-bots.ts`):
+   - Added `executionMode` field + `setExecutionMode()` method
+   - All internal logTradeOpen/logTradeClose calls pass executionMode
+   - Added `saveState()` — serializes positions Map, balance, peakBalance, closed positions
+   - Added `restoreState()` — rebuilds Map from serialized entries, logs restore info
+
+5. **Save/restore integration** (`src/web-server.ts`):
+   - Save: Added experimental bots to `saveAllBotStates()` (every 5 min + shutdown)
+   - Restore: Added after `loadServerSettings()` on startup, before main loop
+
+**Build**: ✅ Passes
+
+---
+
+### Iteration 35 — HTF-Based Impulse Detection + Enable 15m Trading
+**Date**: 2026-01-26
+**Status**: ✅ Complete
+
+**Goal**: Move impulse detection from entry timeframe to higher timeframe per TCG methodology. Enable 15m trading.
+
+(See RALPH_TASK.md previous task section for full details)
+
+---
+
+## Previous Task: Futures-Only Asset Discovery & Commodity Screening
 
 ### Iteration 34 - Futures-Only Commodity Whitelist (SILVER, PAXG)
 **Date**: 2026-01-26

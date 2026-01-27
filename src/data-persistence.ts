@@ -94,6 +94,9 @@ export interface TradeEvent {
   entryBias?: string;
   trailActivated?: boolean;
   highestPnlPercent?: number;
+
+  // Execution mode tracking (paper vs live)
+  executionMode?: string;  // 'paper' | 'live' | 'shadow' | 'dry_run'
 }
 
 // Market conditions snapshot (logged periodically)
@@ -414,7 +417,8 @@ export class DataPersistence {
   logTradeOpen(
     botId: string,
     position: PaperPosition,
-    setup: BackburnerSetup
+    setup: BackburnerSetup,
+    executionMode?: string
   ): void {
     this.checkDateRollover();
 
@@ -437,6 +441,7 @@ export class DataPersistence {
       signalRsi: setup.currentRSI,
       signalState: setup.state,
       impulsePercent: setup.impulsePercentMove,
+      executionMode,
     };
 
     this.tradeEvents.push(event);
@@ -458,13 +463,14 @@ export class DataPersistence {
       signalRsi: event.signalRsi,
       signalState: event.signalState,
       impulsePercent: event.impulsePercent,
+      executionMode: event.executionMode,
     }).catch(() => {}); // Fire and forget
   }
 
   /**
    * Log a trade close event
    */
-  logTradeClose(botId: string, position: PaperPosition): void {
+  logTradeClose(botId: string, position: PaperPosition, executionMode?: string): void {
     this.checkDateRollover();
 
     const event: TradeEvent = {
@@ -489,6 +495,7 @@ export class DataPersistence {
       realizedPnL: position.realizedPnL,
       realizedPnLPercent: position.realizedPnLPercent,
       durationMs: position.exitTime ? position.exitTime - position.entryTime : undefined,
+      executionMode,
     };
 
     this.tradeEvents.push(event);
@@ -511,6 +518,7 @@ export class DataPersistence {
       realizedPnL: event.realizedPnL,
       realizedPnLPercent: event.realizedPnLPercent,
       exitReason: event.exitReason,
+      executionMode: event.executionMode,
       // Regime analysis fields
       entryQuadrant: (position as any).entryQuadrant,
       entryQuality: (position as any).entryQuality,
