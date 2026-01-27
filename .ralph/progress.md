@@ -4,10 +4,73 @@
 
 ## Summary
 
-- Iterations completed: 36
-- Current status: Persistent Live Trade Logging + Experimental Bot State Recovery Complete
+- Iterations completed: 37
+- Current status: Exchange-Side Trailing Stops + GUI Position Adoption Complete
 
-## Current Task: Persistent Live Trade Logging + Experimental Bot State Recovery
+## Current Task: Exchange-Side Trailing Stops + GUI Position Adoption
+
+### Iteration 37 — Exchange-Side Trailing Stops + GUI Position Adoption
+**Date**: 2026-01-27
+**Status**: ✅ Complete
+
+**Goal**: Replace static MEXC plan orders with server-managed exchange-side trailing stops. Add ability to adopt unmanaged MEXC positions from the GUI.
+
+**Problem Solved**: Paper bots had dynamic in-memory trailing stops while MEXC had static plan orders that never updated. This was the #1 cause of paper vs live P&L divergence. Additionally, manually-opened MEXC positions had no SL management.
+
+**Changes Implemented**:
+
+1. **MexcTrailingManager** (`src/mexc-trailing-manager.ts` — NEW):
+   - Server-side trailing stop manager using MEXC plan orders as source of truth
+   - ROE-based trail activation: `(priceDiff / entryPrice) * 100 * leverage`
+   - Dynamically ratchets SL via `modifyStopOrder()` as price moves favorably
+   - Configurable: `trailTriggerPct`, `trailStepPct`, `initialStopPct`, `renewalDays`
+   - Plan order verification + renewal before 7-day expiry
+   - SL sanity check on startup: tightens any SL wider than `initialStopPct` from entry
+
+2. **Web Server Integration** (`src/web-server.ts`):
+   - Instantiated trailing manager with defaults (10% trigger, 5% step, 8% SL)
+   - `autoExecuteOrder()` → starts trailing tracking after successful MEXC execution
+   - Price updates in experimental bot loop → trailing manager price updates
+   - Paper bot close → trailing manager stop tracking + MEXC close
+   - External close detection in MEXC sync loop
+   - Startup reconciliation: Turso restore → MEXC verify → adopt untracked → remove stale
+   - Leverage sync: paper bot leverage matches MEXC settings on startup
+
+3. **Position Adoption API** (`src/web-server.ts`):
+   - `POST /api/mexc/adopt-position`: adopt unmanaged MEXC positions
+   - Creates SL plan order + starts trailing stop management
+   - Defaults: 8% SL, 10% trail trigger, 5% trail step, botId: 'adopted'
+   - Enriched `/api/mexc/positions` with `managed`, `currentStopPrice`, `trailActivated`, `highestRoePct`
+
+4. **Dashboard GUI** (`src/views/js/dashboard.js`):
+   - Added "Status" column to MEXC positions table
+   - Managed positions: green checkmark + trail status + current SL price
+   - Unmanaged positions: orange "Manage" button
+   - `adoptPosition(symbol)` function with confirm dialog, POST, toast feedback
+
+5. **Turso Persistence** (`src/turso-db.ts`):
+   - `server_settings` table for Render restart survival
+   - `trailing_positions` table for trailing stop state persistence
+   - `saveServerSettingsToTurso()` / `loadServerSettingsFromTurso()`
+   - `saveTrailingPosition()` / `loadTrailingPositions()` / `deleteTrailingPosition()`
+
+6. **Experimental Bot Enhancements** (`src/experimental-shadow-bots.ts`):
+   - Added `setLeverage()` / `getLeverage()` methods for leverage sync
+
+**Files Modified**:
+- `src/mexc-trailing-manager.ts` — NEW (exchange-side trailing stop manager)
+- `src/web-server.ts` — Trailing manager integration + adopt endpoint + settings persistence (+330 lines)
+- `src/views/js/dashboard.js` — Status column + adoptPosition function (+50 lines)
+- `src/turso-db.ts` — server_settings + trailing_positions tables (+117 lines)
+- `src/experimental-shadow-bots.ts` — setLeverage/getLeverage (+13 lines)
+
+**Build**: ✅ Passes
+**Commit**: `011eed4` "feat: Exchange-side trailing stops + GUI position adoption"
+**Pushed**: ✅ to GitHub (epic-lewin branch)
+
+---
+
+## Previous Task: Persistent Live Trade Logging + Experimental Bot State Recovery
 
 ### Iteration 36 — Execution Mode Logging + Experimental Bot Persistence
 **Date**: 2026-01-26
