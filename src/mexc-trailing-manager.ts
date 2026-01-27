@@ -26,7 +26,7 @@ export interface TrackedPosition {
   trailActivated: boolean;     // Whether trail has been activated
   trailTriggerPct: number;     // ROE% to activate trail
   trailStepPct: number;        // ROE% trailing step
-  initialStopPct: number;      // Price% for initial SL
+  initialStopPct: number;      // ROE% for initial SL (converted to price% via leverage)
   planOrderCreatedAt: number;  // Timestamp for 7-day renewal
   botId: string;               // Which bot owns this
   startedAt: number;           // When tracking began
@@ -35,7 +35,7 @@ export interface TrackedPosition {
 export interface TrailingManagerConfig {
   trailTriggerPct: number;     // Default: 10 (10% ROE to activate)
   trailStepPct: number;        // Default: 5 (5% ROE trailing step)
-  initialStopPct: number;      // Default: 8 (8% price distance)
+  initialStopPct: number;      // Default: 8 (8% ROE loss, converted to price% via leverage)
   renewalDays: number;         // Default: 6 (renew plan orders after 6 days)
   minModifyIntervalMs: number; // Default: 5000 (don't spam MEXC API)
 }
@@ -396,10 +396,11 @@ export class MexcTrailingManager {
           }
         }
 
-        // Sanity check: tighten SL if it's wider than initialStopPct
+        // Sanity check: tighten SL if it's wider than initialStopPct (ROE-based)
+        const slPriceDistance = pos.initialStopPct / 100 / pos.leverage;
         const correctStop = pos.direction === 'long'
-          ? pos.entryPrice * (1 - pos.initialStopPct / 100)
-          : pos.entryPrice * (1 + pos.initialStopPct / 100);
+          ? pos.entryPrice * (1 - slPriceDistance)
+          : pos.entryPrice * (1 + slPriceDistance);
 
         const isTooWide = pos.direction === 'long'
           ? pos.currentStopPrice < correctStop

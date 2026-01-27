@@ -319,7 +319,8 @@ class ExperimentalShadowBot extends EventEmitter {
     }
     const entryPrice = currentPrice * (1 + this.config.slippagePercent / 100 * (setup.direction === 'long' ? 1 : -1));
 
-    const stopDistance = entryPrice * (this.config.initialStopPercent / 100);
+    // SL is ROE-based: initialStopPercent is max ROE% loss, convert to price distance
+    const stopDistance = entryPrice * (this.config.initialStopPercent / 100 / this.config.leverage);
     const stopLoss = setup.direction === 'long'
       ? entryPrice - stopDistance
       : entryPrice + stopDistance;
@@ -498,11 +499,22 @@ class ExperimentalShadowBot extends EventEmitter {
       let exitReason = '';
       let exitPrice = 0;
 
-      // Stop loss
-      if (position.direction === 'long' && currentPrice <= position.stopLoss) {
+      // Liquidation check: at isolated margin, liquidation ~ entryPrice * (1 - 1/leverage) for longs
+      // Using 90% of margin as liquidation threshold (exchange takes maintenance margin)
+      const liqDistance = position.entryPrice / position.leverage * 0.9;
+      if (position.direction === 'long' && currentPrice <= position.entryPrice - liqDistance) {
+        exitReason = 'liquidation';
+        exitPrice = position.entryPrice - liqDistance;
+      } else if (position.direction === 'short' && currentPrice >= position.entryPrice + liqDistance) {
+        exitReason = 'liquidation';
+        exitPrice = position.entryPrice + liqDistance;
+      }
+
+      // Stop loss (only if not already liquidated)
+      if (!exitReason && position.direction === 'long' && currentPrice <= position.stopLoss) {
         exitReason = position.trailActivated ? 'trailing_stop' : 'stop_loss';
         exitPrice = position.stopLoss;
-      } else if (position.direction === 'short' && currentPrice >= position.stopLoss) {
+      } else if (!exitReason && position.direction === 'short' && currentPrice >= position.stopLoss) {
         exitReason = position.trailActivated ? 'trailing_stop' : 'stop_loss';
         exitPrice = position.stopLoss;
       }
@@ -520,15 +532,24 @@ class ExperimentalShadowBot extends EventEmitter {
 
       if (exitReason) {
         // Close position
-        const finalPriceDiff = position.direction === 'long'
-          ? exitPrice - position.entryPrice
-          : position.entryPrice - exitPrice;
+        let netPnl: number;
+        let netPnlPercent: number;
 
-        const grossPnlPercent = (finalPriceDiff / position.entryPrice) * 100 * position.leverage;
-        const fees = position.positionSize * (this.config.feePercent / 100) * 2;
-        const grossPnl = position.positionSize * (grossPnlPercent / 100);
-        const netPnl = grossPnl - fees;
-        const netPnlPercent = (netPnl / position.positionSize) * 100;
+        if (exitReason === 'liquidation') {
+          // Liquidation = lose entire margin (position size)
+          netPnl = -position.positionSize;
+          netPnlPercent = -100;
+        } else {
+          const finalPriceDiff = position.direction === 'long'
+            ? exitPrice - position.entryPrice
+            : position.entryPrice - exitPrice;
+
+          const grossPnlPercent = (finalPriceDiff / position.entryPrice) * 100 * position.leverage;
+          const fees = position.positionSize * (this.config.feePercent / 100) * 2;
+          const grossPnl = position.positionSize * (grossPnlPercent / 100);
+          netPnl = grossPnl - fees;
+          netPnlPercent = (netPnl / position.positionSize) * 100;
+        }
 
         const closedPos: ClosedPosition = {
           ...position,

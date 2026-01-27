@@ -2627,10 +2627,11 @@ app.post('/api/mexc/adopt-position', express.json(), async (req, res) => {
     const pos = posResult.data;
     const direction = pos.positionType === 1 ? 'long' as const : 'short' as const;
     const leverage = pos.leverage;
-    const stopPct = initialStopPct || 8;
+    const stopPct = initialStopPct || 8;  // ROE-based: 8% ROE loss max
+    const slPriceDistance = stopPct / 100 / leverage;  // Convert ROE% to price%
     const slPrice = direction === 'long'
-      ? pos.holdAvgPrice * (1 - stopPct / 100)
-      : pos.holdAvgPrice * (1 + stopPct / 100);
+      ? pos.holdAvgPrice * (1 - slPriceDistance)
+      : pos.holdAvgPrice * (1 + slPriceDistance);
 
     // Create SL plan order on MEXC (manual positions likely don't have one)
     const slResult = await client.setStopLoss(symbol, slPrice);
@@ -2970,7 +2971,10 @@ async function autoExecuteOrder(order: QueuedOrder): Promise<void> {
 
       // Start exchange-side trailing stop tracking
       const entryPrice = result.executionPrice || order.entryPrice || 0;
-      const slPrice = order.stopLossPrice || entryPrice * (order.side === 'long' ? 0.92 : 1.08);
+      // SL is ROE-based: 8% ROE loss max, converted to price distance using leverage
+      const slRoePct = 8;
+      const slPriceDist = slRoePct / 100 / order.leverage;
+      const slPrice = order.stopLossPrice || entryPrice * (order.side === 'long' ? (1 - slPriceDist) : (1 + slPriceDist));
       try {
         await trailingManager.startTracking(client, {
           symbol: order.symbol,
@@ -6250,10 +6254,11 @@ async function main() {
           console.warn(`[RECONCILE] MEXC position ${pos.symbol} not tracked — creating SL plan order and tracking`);
           const direction = pos.positionType === 1 ? 'long' as const : 'short' as const;
           const leverage = pos.leverage || serverSettings.mexcMaxLeverage;
-          const initialStopPct = 8;
+          const initialStopPct = 8;  // ROE-based: 8% ROE loss max
+          const slPriceDistance = initialStopPct / 100 / leverage;  // Convert ROE% to price%
           const slPrice = direction === 'long'
-            ? pos.holdAvgPrice * (1 - initialStopPct / 100)
-            : pos.holdAvgPrice * (1 + initialStopPct / 100);
+            ? pos.holdAvgPrice * (1 - slPriceDistance)
+            : pos.holdAvgPrice * (1 + slPriceDistance);
 
           // Create a plan order on MEXC so the trailing manager can modify it
           const slResult = await client.setStopLoss(pos.symbol, slPrice);
