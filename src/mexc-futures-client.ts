@@ -156,6 +156,15 @@ async function ensureContractSpecs(): Promise<void> {
  * contracts = floor(usdSize / (price * contractSize))
  * Returns at least minVol (1) if the position can be opened.
  */
+/**
+ * Get the contract size for a symbol (how many tokens per contract).
+ * Returns 1 if unknown.
+ */
+export async function getContractSize(symbol: string): Promise<number> {
+  await ensureContractSpecs();
+  return contractSpecCache.get(symbol)?.contractSize ?? 1;
+}
+
 export async function usdToContracts(symbol: string, usdSize: number, price: number): Promise<number> {
   await ensureContractSpecs();
   const spec = contractSpecCache.get(symbol);

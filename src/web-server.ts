@@ -50,7 +50,7 @@ import { getFocusModeHtml, getFocusModeApiData, calculateSmartTradeSetup } from 
 import type { BackburnerSetup, Timeframe, MomentumExhaustionSignal } from './types.js';
 import { createSettingsRouter } from './routes/index.js';
 import type { ServerContext } from './server-context.js';
-import { createMexcClient, usdToContracts, type MexcFuturesClient } from './mexc-futures-client.js';
+import { createMexcClient, usdToContracts, getContractSize, type MexcFuturesClient } from './mexc-futures-client.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -2567,7 +2567,8 @@ app.get('/api/mexc/positions', async (req, res) => {
         const ticker = await client.getTickerPrice(p.symbol);
         if (ticker.success && ticker.price) {
           const side = p.positionType === 1 ? 1 : -1; // 1=long, -1=short
-          unrealized = (ticker.price - p.holdAvgPrice) * p.holdVol * side;
+          const contractSize = await getContractSize(p.symbol);
+          unrealized = (ticker.price - p.holdAvgPrice) * p.holdVol * contractSize * side;
         }
       } catch { /* use 0 if price fetch fails */ }
 
