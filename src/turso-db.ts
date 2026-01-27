@@ -163,6 +163,24 @@ export async function initSchema(): Promise<void> {
       )
     `);
 
+    // Server settings table (singleton — persists across Render restarts)
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS server_settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        settings_json TEXT NOT NULL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Trailing stop positions table (persists exchange-side trailing state)
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS trailing_positions (
+        symbol TEXT PRIMARY KEY,
+        position_json TEXT NOT NULL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // Create indexes for common queries
     await client.execute(`CREATE INDEX IF NOT EXISTS idx_trade_events_date ON trade_events(date)`);
     await client.execute(`CREATE INDEX IF NOT EXISTS idx_trade_events_bot ON trade_events(bot_id, date)`);
@@ -619,5 +637,104 @@ export async function getDatabaseStats(): Promise<{
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('[TURSO] Stats query failed:', errorMessage);
     return { success: false, error: errorMessage };
+  }
+}
+
+// ============ Server Settings Persistence ============
+
+/**
+ * Save server settings to Turso (survives Render restarts).
+ * Uses singleton row with id=1.
+ */
+export async function saveServerSettingsToTurso(settings: Record<string, unknown>): Promise<void> {
+  const client = getTurso();
+  if (!client) return;
+
+  try {
+    await client.execute({
+      sql: `INSERT INTO server_settings (id, settings_json, updated_at)
+            VALUES (1, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(id) DO UPDATE SET
+              settings_json = excluded.settings_json,
+              updated_at = CURRENT_TIMESTAMP`,
+      args: [JSON.stringify(settings)],
+    });
+  } catch (error) {
+    console.error('[TURSO] Failed to save server settings:', error);
+  }
+}
+
+/**
+ * Load server settings from Turso.
+ * Returns null if no settings found.
+ */
+export async function loadServerSettingsFromTurso(): Promise<Record<string, unknown> | null> {
+  const client = getTurso();
+  if (!client) return null;
+
+  try {
+    const result = await client.execute(`SELECT settings_json FROM server_settings WHERE id = 1`);
+    if (result.rows.length === 0) return null;
+
+    return JSON.parse(result.rows[0].settings_json as string);
+  } catch (error) {
+    console.error('[TURSO] Failed to load server settings:', error);
+    return null;
+  }
+}
+
+// ============ Trailing Position Persistence ============
+
+/**
+ * Save a trailing position to Turso.
+ */
+export async function saveTrailingPosition(symbol: string, position: unknown): Promise<void> {
+  const client = getTurso();
+  if (!client) return;
+
+  try {
+    await client.execute({
+      sql: `INSERT INTO trailing_positions (symbol, position_json, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(symbol) DO UPDATE SET
+              position_json = excluded.position_json,
+              updated_at = CURRENT_TIMESTAMP`,
+      args: [symbol, JSON.stringify(position)],
+    });
+  } catch (error) {
+    console.error('[TURSO] Failed to save trailing position:', error);
+  }
+}
+
+/**
+ * Load all trailing positions from Turso.
+ */
+export async function loadTrailingPositions(): Promise<unknown[]> {
+  const client = getTurso();
+  if (!client) return [];
+
+  try {
+    const result = await client.execute(`SELECT symbol, position_json FROM trailing_positions`);
+    return result.rows.map(row => JSON.parse(row.position_json as string));
+  } catch (error) {
+    console.error('[TURSO] Failed to load trailing positions:', error);
+    return [];
+  }
+}
+
+/**
+ * Delete a trailing position from Turso.
+ */
+export async function deleteTrailingPosition(symbol: string): Promise<void> {
+  const client = getTurso();
+  if (!client) return;
+
+  try {
+    await client.execute({
+      sql: `DELETE FROM trailing_positions WHERE symbol = ?`,
+      args: [symbol],
+    });
+  } catch (error) {
+    console.error('[TURSO] Failed to delete trailing position:', error);
   }
 }

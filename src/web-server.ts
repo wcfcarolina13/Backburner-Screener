@@ -44,7 +44,8 @@ import { createExperimentalBots, type ExperimentalShadowBot } from './experiment
 import { getCurrentRSI, calculateRSI, calculateSMA, detectDivergence } from './indicators.js';
 import { DEFAULT_CONFIG } from './config.js';
 import { getDataPersistence } from './data-persistence.js';
-import { initSchema as initTursoSchema, isTursoConfigured, executeReadQuery, getDatabaseStats } from './turso-db.js';
+import { initSchema as initTursoSchema, isTursoConfigured, executeReadQuery, getDatabaseStats, saveServerSettingsToTurso, loadServerSettingsFromTurso, saveTrailingPosition, loadTrailingPositions, deleteTrailingPosition } from './turso-db.js';
+import { MexcTrailingManager, type TrackedPosition } from './mexc-trailing-manager.js';
 import { getFocusModeHtml, getFocusModeApiData, calculateSmartTradeSetup } from './focus-mode-dashboard.js';
 import type { BackburnerSetup, Timeframe, MomentumExhaustionSignal } from './types.js';
 import { createSettingsRouter } from './routes/index.js';
@@ -320,32 +321,55 @@ const serverSettings: ServerSettings = {
   mexcExecutionMode: 'dry_run',
 };
 
-// Load server settings from disk (uses fs/path imported via data-persistence)
+// Load server settings from disk first, then Turso fallback (for Render ephemeral filesystem)
 function loadServerSettings(): void {
+  let loaded = false;
   try {
     const settingsPath = path.join(process.cwd(), 'data', 'server-settings.json');
     if (fs.existsSync(settingsPath)) {
       const data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-      // Merge botNotifications with defaults (so new bots get added)
       if (data.botNotifications) {
         data.botNotifications = { ...defaultBotNotifications, ...data.botNotifications };
       }
       Object.assign(serverSettings, data);
-      console.log('[SETTINGS] Loaded server settings:', serverSettings);
+      console.log('[SETTINGS] Loaded server settings from disk');
+      loaded = true;
     }
   } catch (e) {
-    console.error('[SETTINGS] Failed to load server settings:', e);
+    console.error('[SETTINGS] Failed to load server settings from disk:', e);
+  }
+
+  // Turso fallback: if disk file doesn't exist (Render restart), load from cloud
+  if (!loaded && isTursoConfigured()) {
+    loadServerSettingsFromTurso().then(data => {
+      if (data) {
+        if ((data as any).botNotifications) {
+          (data as any).botNotifications = { ...defaultBotNotifications, ...(data as any).botNotifications };
+        }
+        Object.assign(serverSettings, data);
+        console.log('[SETTINGS] Loaded server settings from Turso (disk was empty)');
+      }
+    }).catch(e => {
+      console.error('[SETTINGS] Failed to load settings from Turso:', e);
+    });
   }
 }
 
-// Save server settings to disk
+// Save server settings to disk + Turso (async cloud backup for Render persistence)
 function saveServerSettings(): void {
   try {
     const settingsPath = path.join(process.cwd(), 'data', 'server-settings.json');
     fs.writeFileSync(settingsPath, JSON.stringify(serverSettings, null, 2));
-    console.log('[SETTINGS] Saved server settings');
+    console.log('[SETTINGS] Saved server settings to disk');
   } catch (e) {
-    console.error('[SETTINGS] Failed to save server settings:', e);
+    console.error('[SETTINGS] Failed to save server settings to disk:', e);
+  }
+
+  // Async Turso backup (fire-and-forget)
+  if (isTursoConfigured()) {
+    saveServerSettingsToTurso(serverSettings as unknown as Record<string, unknown>).catch(e => {
+      console.error('[SETTINGS] Failed to save settings to Turso:', e);
+    });
   }
 }
 
@@ -1083,8 +1107,11 @@ async function notifyGPPositionOpened(
   setup: any,
   isV2: boolean
 ): Promise<void> {
-  // Check if notifications are enabled
+  // Check if notifications are enabled (global + per-bot)
   if (!isNotificationsEnabled()) {
+    return;
+  }
+  if (serverSettings.botNotifications[botId] === false) {
     return;
   }
 
@@ -2422,6 +2449,15 @@ interface QueuedOrder {
 }
 const mexcExecutionQueue: QueuedOrder[] = [];
 
+// Exchange-side trailing stop manager (manages SL plan orders directly on MEXC)
+const trailingManager = new MexcTrailingManager({
+  trailTriggerPct: 10,   // 10% ROE to activate trail
+  trailStepPct: 5,       // 5% ROE trailing step
+  initialStopPct: 8,     // 8% price distance for initial SL
+  renewalDays: 6,        // Renew plan orders before 7-day expiry
+  minModifyIntervalMs: 5000,
+});
+
 // Decision log for bot actions (ring buffer, last 200 entries)
 interface BotDecisionLog {
   timestamp: number;
@@ -2535,6 +2571,9 @@ app.get('/api/mexc/positions', async (req, res) => {
         }
       } catch { /* use 0 if price fetch fails */ }
 
+      const isManaged = trailingManager.isTracking(p.symbol);
+      const tracked = isManaged ? trailingManager.getPosition(p.symbol) : undefined;
+
       return {
         symbol: p.symbol,
         side: p.positionType === 1 ? 'long' as const : 'short' as const,
@@ -2543,11 +2582,97 @@ app.get('/api/mexc/positions', async (req, res) => {
         leverage: p.leverage,
         unrealized,
         liquidationPrice: p.liquidatePrice,
+        managed: isManaged,
+        currentStopPrice: tracked?.currentStopPrice,
+        trailActivated: tracked?.trailActivated ?? false,
+        highestRoePct: tracked?.highestRoePct ?? 0,
       };
     }));
 
     res.json({ success: true, positions });
   } catch (err) {
+    res.json({ success: false, error: (err as Error).message });
+  }
+});
+
+// Adopt an unmanaged MEXC position for trailing stop management
+app.post('/api/mexc/adopt-position', express.json(), async (req, res) => {
+  const { symbol, initialStopPct, trailTriggerPct, trailStepPct } = req.body;
+
+  if (!symbol || typeof symbol !== 'string') {
+    res.json({ success: false, error: 'Symbol is required' });
+    return;
+  }
+
+  if (trailingManager.isTracking(symbol)) {
+    res.json({ success: false, error: `${symbol} is already managed` });
+    return;
+  }
+
+  const client = initMexcClient();
+  if (!client) {
+    res.json({ success: false, error: 'MEXC client not configured' });
+    return;
+  }
+
+  try {
+    // Fetch the actual MEXC position
+    const posResult = await client.getPosition(symbol);
+    if (!posResult.success || !posResult.data) {
+      res.json({ success: false, error: `No open position found for ${symbol}` });
+      return;
+    }
+
+    const pos = posResult.data;
+    const direction = pos.positionType === 1 ? 'long' as const : 'short' as const;
+    const leverage = pos.leverage;
+    const stopPct = initialStopPct || 8;
+    const slPrice = direction === 'long'
+      ? pos.holdAvgPrice * (1 - stopPct / 100)
+      : pos.holdAvgPrice * (1 + stopPct / 100);
+
+    // Create SL plan order on MEXC (manual positions likely don't have one)
+    const slResult = await client.setStopLoss(symbol, slPrice);
+    if (!slResult.success) {
+      console.warn(`[ADOPT] Failed to create SL for ${symbol}: ${slResult.error} — proceeding anyway`);
+    }
+
+    // Start trailing manager tracking
+    await trailingManager.startTracking(client, {
+      symbol: pos.symbol,
+      direction,
+      entryPrice: pos.holdAvgPrice,
+      leverage,
+      volume: pos.holdVol,
+      stopLossPrice: slPrice,
+      botId: 'adopted',
+      trailTriggerPct: trailTriggerPct || undefined,
+      trailStepPct: trailStepPct || undefined,
+      initialStopPct: stopPct,
+    });
+
+    // Persist to Turso
+    if (isTursoConfigured()) {
+      const tracked = trailingManager.getPosition(symbol);
+      if (tracked) {
+        saveTrailingPosition(symbol, tracked).catch(e =>
+          console.error(`[ADOPT] Turso save failed for ${symbol}:`, e)
+        );
+      }
+    }
+
+    console.log(`[ADOPT] Now managing ${symbol} ${direction} @ $${pos.holdAvgPrice} | SL: $${slPrice.toFixed(4)} | Trail: ${trailTriggerPct || 10}%/${trailStepPct || 5}%`);
+
+    res.json({
+      success: true,
+      symbol,
+      direction,
+      entryPrice: pos.holdAvgPrice,
+      stopLossPrice: slPrice,
+      managed: true,
+    });
+  } catch (err) {
+    console.error(`[ADOPT] Error adopting ${symbol}:`, (err as Error).message);
     res.json({ success: false, error: (err as Error).message });
   }
 });
@@ -2798,7 +2923,7 @@ export function addToMexcQueue(
 async function executeOnMexc(
   client: MexcFuturesClient,
   order: QueuedOrder
-): Promise<{ success: boolean; data?: unknown; error?: string }> {
+): Promise<{ success: boolean; data?: unknown; error?: string; contracts?: number; executionPrice?: number }> {
   // Get current price for contract conversion
   const priceResult = await client.getTickerPrice(order.symbol);
   if (!priceResult.success || !priceResult.price) {
@@ -2813,9 +2938,11 @@ async function executeOnMexc(
   const sl = order.stopLossPrice && order.stopLossPrice > 0 ? order.stopLossPrice : undefined;
   const tp = order.takeProfitPrice && order.takeProfitPrice > 0 ? order.takeProfitPrice : undefined;
 
-  return order.side === 'long'
-    ? client.openLong(order.symbol, contracts, order.leverage, sl, tp)
-    : client.openShort(order.symbol, contracts, order.leverage, sl, tp);
+  const result = order.side === 'long'
+    ? await client.openLong(order.symbol, contracts, order.leverage, sl, tp)
+    : await client.openShort(order.symbol, contracts, order.leverage, sl, tp);
+
+  return { ...result, contracts, executionPrice: priceResult.price };
 }
 
 // Auto-execute a queued order on MEXC (used by full automation mode)
@@ -2839,6 +2966,30 @@ async function autoExecuteOrder(order: QueuedOrder): Promise<void> {
       logBotDecision(order.bot, order.symbol, 'executed', `${order.side.toUpperCase()} $${order.size} ${order.leverage}x | SL: ${order.stopLossPrice || 'none'} | TP: ${order.takeProfitPrice || 'none'}`);
       // Refresh balance after execution
       fetchMexcBalance();
+
+      // Start exchange-side trailing stop tracking
+      const entryPrice = result.executionPrice || order.entryPrice || 0;
+      const slPrice = order.stopLossPrice || entryPrice * (order.side === 'long' ? 0.92 : 1.08);
+      try {
+        await trailingManager.startTracking(client, {
+          symbol: order.symbol,
+          direction: order.side,
+          entryPrice,
+          leverage: order.leverage,
+          volume: result.contracts || 0,
+          stopLossPrice: slPrice,
+          botId: order.bot,
+        });
+        // Persist trailing position to Turso
+        const pos = trailingManager.getPosition(order.symbol);
+        if (pos && isTursoConfigured()) {
+          saveTrailingPosition(order.symbol, pos).catch(e =>
+            console.error(`[TRAIL-MGR] Turso save failed for ${order.symbol}:`, e)
+          );
+        }
+      } catch (err) {
+        console.error(`[TRAIL-MGR] Failed to start tracking ${order.symbol}:`, (err as Error).message);
+      }
     } else {
       order.status = 'failed';
       order.error = result.error;
@@ -6054,6 +6205,95 @@ async function main() {
     }
   }
 
+  // Sync leverage from server settings to selected experimental bots
+  for (const botId of serverSettings.mexcSelectedBots) {
+    const bot = experimentalBots.get(botId);
+    if (bot) {
+      bot.setLeverage(serverSettings.mexcMaxLeverage);
+    }
+  }
+
+  // Reconcile trailing manager with MEXC positions on startup
+  (async () => {
+    try {
+      const client = initMexcClient();
+      if (!client) {
+        console.log('[RECONCILE] Skipping — MEXC client not available');
+        return;
+      }
+
+      // 1. Load trailing positions from Turso
+      if (isTursoConfigured()) {
+        const savedPositions = await loadTrailingPositions();
+        if (savedPositions.length > 0) {
+          trailingManager.restoreState(savedPositions as TrackedPosition[]);
+          // Verify plan orders still exist on MEXC
+          await trailingManager.verifyPlanOrders(client);
+          console.log(`[RECONCILE] Restored ${savedPositions.length} trailing positions from Turso`);
+        }
+      }
+
+      // 2. Get all live MEXC positions
+      const posResult = await client.getOpenPositions();
+      if (!posResult.success || !posResult.data) {
+        console.log('[RECONCILE] Could not fetch MEXC positions');
+        return;
+      }
+
+      const mexcPositions = posResult.data;
+      const trackedSymbols = new Set(trailingManager.getTrackedPositions().map(p => p.symbol));
+
+      // 3. For each MEXC position not already tracked — start tracking with initial SL
+      for (const pos of mexcPositions) {
+        if (!trackedSymbols.has(pos.symbol)) {
+          console.warn(`[RECONCILE] MEXC position ${pos.symbol} not tracked — creating initial SL and tracking`);
+          const direction = pos.positionType === 1 ? 'long' as const : 'short' as const;
+          const leverage = pos.leverage || serverSettings.mexcMaxLeverage;
+          const initialStopPct = 8;
+          const slPrice = direction === 'long'
+            ? pos.holdAvgPrice * (1 - initialStopPct / 100)
+            : pos.holdAvgPrice * (1 + initialStopPct / 100);
+
+          await trailingManager.startTracking(client, {
+            symbol: pos.symbol,
+            direction,
+            entryPrice: pos.holdAvgPrice,
+            leverage,
+            volume: pos.holdVol,
+            stopLossPrice: slPrice,
+            botId: 'reconciled',
+          });
+
+          if (isTursoConfigured()) {
+            const tracked = trailingManager.getPosition(pos.symbol);
+            if (tracked) {
+              saveTrailingPosition(pos.symbol, tracked).catch(e =>
+                console.error(`[RECONCILE] Turso save failed for ${pos.symbol}:`, e)
+              );
+            }
+          }
+        }
+      }
+
+      // 4. For each tracked position not on MEXC — SL fired while server was down
+      const mexcSymbols = new Set(mexcPositions.map(p => p.symbol));
+      const closedWhileDown = trailingManager.detectExternalCloses(mexcSymbols);
+      for (const sym of closedWhileDown) {
+        console.log(`[RECONCILE] ${sym} was closed while server was down (SL fired on exchange)`);
+        logBotDecision('trail-mgr', sym, 'reconcile_close', 'Position closed while server was offline');
+        if (isTursoConfigured()) {
+          deleteTrailingPosition(sym).catch(e =>
+            console.error(`[RECONCILE] Turso delete failed for ${sym}:`, e)
+          );
+        }
+      }
+
+      console.log(`[RECONCILE] Done — tracking ${trailingManager.getTrackedPositions().length} positions`);
+    } catch (err) {
+      console.error('[RECONCILE] Error during startup reconciliation:', (err as Error).message);
+    }
+  })();
+
   // Check for daily reset on startup
   checkDailyReset();
 
@@ -6416,6 +6656,16 @@ async function main() {
               } catch (err) {
                 console.error(`[MEXC-EXIT] Error closing ${futuresSymbol}:`, (err as Error).message);
               }
+
+              // Stop trailing manager tracking for this position
+              if (trailingManager.isTracking(futuresSymbol)) {
+                trailingManager.stopTracking(futuresSymbol);
+                if (isTursoConfigured()) {
+                  deleteTrailingPosition(futuresSymbol).catch(e =>
+                    console.error(`[TRAIL-MGR] Turso delete failed for ${futuresSymbol}:`, e)
+                  );
+                }
+              }
             }
           }
 
@@ -6449,6 +6699,47 @@ async function main() {
         }
       }
 
+      // Update exchange-side trailing stops with current prices
+      if (trailingManager.getTrackedPositions().length > 0) {
+        try {
+          const client = initMexcClient();
+          if (client) {
+            // Build futures-symbol price map for trailing manager
+            const futuresPriceMap = new Map<string, number>();
+            for (const [spotSymbol, price] of expPriceMap) {
+              futuresPriceMap.set(spotSymbolToFutures(spotSymbol), price);
+            }
+            // Also fetch prices for any tracked symbols not in expPriceMap
+            for (const pos of trailingManager.getTrackedPositions()) {
+              if (!futuresPriceMap.has(pos.symbol)) {
+                try {
+                  const ticker = await client.getTickerPrice(pos.symbol);
+                  if (ticker.success && ticker.price) {
+                    futuresPriceMap.set(pos.symbol, ticker.price);
+                  }
+                } catch { /* skip */ }
+              }
+            }
+            const modified = await trailingManager.updatePrices(client, futuresPriceMap);
+            if (modified.length > 0) {
+              // Persist updated positions to Turso
+              if (isTursoConfigured()) {
+                for (const sym of modified) {
+                  const pos = trailingManager.getPosition(sym);
+                  if (pos) {
+                    saveTrailingPosition(sym, pos).catch(e =>
+                      console.error(`[TRAIL-MGR] Turso save failed for ${sym}:`, e)
+                    );
+                  }
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.error('[TRAIL-MGR] Error updating prices:', (err as Error).message);
+        }
+      }
+
       // MEXC position lifecycle: detect SL/TP closures and update queue statuses
       if (getMexcExecutionMode() !== 'dry_run') {
         try {
@@ -6470,6 +6761,19 @@ async function main() {
                   order.closedAt = Date.now();
                   logBotDecision(order.bot, order.symbol, 'position_closed', `MEXC position no longer open (had SL: ${hadSL}, TP: ${hadTP})`);
                   console.log(`[MEXC-SYNC] ${order.symbol} position closed on MEXC — marking queue order as closed`);
+                }
+              }
+
+              // Detect trailing-manager positions closed externally (SL fired on MEXC, manual close)
+              if (trailingManager.getTrackedPositions().length > 0) {
+                const closedByExchange = trailingManager.detectExternalCloses(openSymbols);
+                for (const sym of closedByExchange) {
+                  logBotDecision('trail-mgr', sym, 'external_close', 'MEXC position gone — SL fired or manually closed');
+                  if (isTursoConfigured()) {
+                    deleteTrailingPosition(sym).catch(e =>
+                      console.error(`[TRAIL-MGR] Turso delete failed for ${sym}:`, e)
+                    );
+                  }
                 }
               }
 

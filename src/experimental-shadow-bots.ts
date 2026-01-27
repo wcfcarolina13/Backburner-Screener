@@ -651,6 +651,19 @@ class ExperimentalShadowBot extends EventEmitter {
     };
   }
 
+  // Update leverage for new positions (does not change existing open positions)
+  setLeverage(newLeverage: number): void {
+    const old = this.config.leverage;
+    if (old !== newLeverage) {
+      this.config.leverage = newLeverage;
+      console.log(`[EXP:${this.config.botId}] Leverage updated: ${old}x → ${newLeverage}x`);
+    }
+  }
+
+  getLeverage(): number {
+    return this.config.leverage;
+  }
+
   // Restore bot state from persisted data
   restoreState(state: {
     balance: number;

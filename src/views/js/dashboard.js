@@ -242,7 +242,7 @@ async function toggleDailyReset(enabled) {
 }
 
 // Notification & Sound settings
-let notificationsEnabled = true;
+let notificationsEnabled = false;  // Default OFF until settings are loaded from server
 let soundEnabled = true;
 let botNotifications = {};  // Per-bot notification settings
 
@@ -2758,6 +2758,7 @@ async function syncMexcPositions(silent) {
         html += '<th style="padding: 6px 8px; text-align: right; color: #8b949e;">Leverage</th>';
         html += '<th style="padding: 6px 8px; text-align: right; color: #8b949e;">Unrealized</th>';
         html += '<th style="padding: 6px 8px; text-align: right; color: #8b949e;">Liq. Price</th>';
+        html += '<th style="padding: 6px 8px; text-align: center; color: #8b949e;">Status</th>';
         html += '</tr></thead><tbody>';
 
         positions.forEach(p => {
@@ -2775,6 +2776,26 @@ async function syncMexcPositions(silent) {
           html += '<td style="padding: 6px 8px; text-align: right; color: #c9d1d9;">' + p.leverage + 'x</td>';
           html += '<td style="padding: 6px 8px; text-align: right; color: ' + pnlColor + ';">' + pnlStr + '</td>';
           html += '<td style="padding: 6px 8px; text-align: right; color: #8b949e;">' + fmtPrice(p.liquidationPrice) + '</td>';
+
+          // Status column: managed vs unmanaged
+          if (p.managed) {
+            var trailStr = p.trailActivated ? ' TRAIL' : '';
+            html += '<td style="padding: 6px 8px; text-align: center;">';
+            html += '<span style="color: #3fb950; font-size: 10px; font-weight: 600;">&#x2713; Managed' + trailStr + '</span>';
+            if (p.currentStopPrice) {
+              html += '<div style="color: #8b949e; font-size: 9px;">SL: ' + fmtPrice(p.currentStopPrice) + '</div>';
+            }
+            html += '</td>';
+          } else {
+            html += '<td style="padding: 6px 8px; text-align: center;">';
+            html += '<button onclick="adoptPosition(\'' + p.symbol + '\')" ';
+            html += 'style="padding: 3px 8px; border-radius: 4px; border: 1px solid #d29922; ';
+            html += 'background: #2d1f00; color: #d29922; font-size: 10px; cursor: pointer; font-weight: 600;" ';
+            html += 'title="Start managing with trailing stop (8% SL, 10% trail trigger)">';
+            html += 'Manage</button>';
+            html += '</td>';
+          }
+
           html += '</tr>';
         });
         html += '</tbody></table>';
@@ -2789,6 +2810,33 @@ async function syncMexcPositions(silent) {
     }
   } catch (err) {
     if (!silent) showToast('Error syncing positions: ' + err.message, 'error');
+  }
+}
+
+// Adopt an unmanaged MEXC position for trailing stop management
+async function adoptPosition(symbol) {
+  var ticker = symbol.replace('_USDT', '');
+  if (!confirm('Start managing ' + ticker + ' with trailing stop?\n\nDefaults: 8% SL, 10% trail trigger, 5% trail step')) {
+    return;
+  }
+
+  try {
+    var response = await fetch('/api/mexc/adopt-position', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol: symbol })
+    });
+
+    var data = await response.json();
+
+    if (data.success) {
+      showToast('Now managing ' + ticker + ' | SL: $' + data.stopLossPrice.toFixed(4), 'success');
+      syncMexcPositions(true);
+    } else {
+      showToast('Failed to adopt: ' + (data.error || 'Unknown error'), 'error');
+    }
+  } catch (err) {
+    showToast('Error adopting position: ' + err.message, 'error');
   }
 }
 
