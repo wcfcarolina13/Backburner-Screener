@@ -6247,13 +6247,19 @@ async function main() {
       // 3. For each MEXC position not already tracked — start tracking with initial SL
       for (const pos of mexcPositions) {
         if (!trackedSymbols.has(pos.symbol)) {
-          console.warn(`[RECONCILE] MEXC position ${pos.symbol} not tracked — creating initial SL and tracking`);
+          console.warn(`[RECONCILE] MEXC position ${pos.symbol} not tracked — creating SL plan order and tracking`);
           const direction = pos.positionType === 1 ? 'long' as const : 'short' as const;
           const leverage = pos.leverage || serverSettings.mexcMaxLeverage;
           const initialStopPct = 8;
           const slPrice = direction === 'long'
             ? pos.holdAvgPrice * (1 - initialStopPct / 100)
             : pos.holdAvgPrice * (1 + initialStopPct / 100);
+
+          // Create a plan order on MEXC so the trailing manager can modify it
+          const slResult = await client.setStopLoss(pos.symbol, slPrice);
+          if (!slResult.success) {
+            console.warn(`[RECONCILE] Failed to create SL plan order for ${pos.symbol}: ${slResult.error}`);
+          }
 
           await trailingManager.startTracking(client, {
             symbol: pos.symbol,
