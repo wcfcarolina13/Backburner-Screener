@@ -2635,7 +2635,8 @@ app.post('/api/mexc/adopt-position', express.json(), async (req, res) => {
       ? pos.holdAvgPrice * (1 - slPriceDistance)
       : pos.holdAvgPrice * (1 + slPriceDistance);
 
-    // Create SL plan order on MEXC (manual positions likely don't have one)
+    // Cancel any existing plan orders to avoid duplicates, then create fresh SL
+    await client.cancelAllPlanOrders(symbol);
     const slResult = await client.setStopLoss(symbol, slPrice);
     if (!slResult.success) {
       console.warn(`[ADOPT] Failed to create SL for ${symbol}: ${slResult.error} — proceeding anyway`);
@@ -2842,7 +2843,8 @@ app.post('/api/mexc/emergency-close', express.json(), async (req, res) => {
   }
 });
 
-// Clean up orphaned plan orders (SL/TP/Trigger) that don't belong to any open position
+// Clean up duplicate/orphaned plan orders — cancels ALL plan orders for every position,
+// then recreates one clean SL per position via the trailing manager.
 app.post('/api/mexc/cleanup-orders', express.json(), async (req, res) => {
   const client = initMexcClient();
   if (!client) {
@@ -2857,39 +2859,76 @@ app.post('/api/mexc/cleanup-orders', express.json(), async (req, res) => {
       return;
     }
 
-    const openSymbols = new Set((posResult.data || []).map(p => p.symbol));
-    const knownSymbols = new Set<string>();
-
-    // Collect symbols from execution queue (both current and historical)
-    for (const order of mexcExecutionQueue) {
-      knownSymbols.add(spotSymbolToFutures(order.symbol));
-    }
-    // Also include open position symbols
-    for (const s of openSymbols) {
-      knownSymbols.add(s);
-    }
-
-    let cancelled = 0;
+    const positions = posResult.data || [];
+    const openSymbols = new Set(positions.map(p => p.symbol));
+    let cancelledSymbols = 0;
+    let recreatedSL = 0;
     const cleaned: string[] = [];
 
-    // For each known symbol, check if it has plan orders but no open position
-    for (const symbol of knownSymbols) {
-      if (openSymbols.has(symbol)) continue; // Skip symbols with active positions
-
+    // 1. Cancel ALL plan orders for every open position (removes duplicates)
+    for (const pos of positions) {
       try {
-        const result = await client.cancelAllPlanOrders(symbol);
-        if (result.success) {
-          cancelled++;
-          cleaned.push(symbol);
-          console.log(`[CLEANUP] Cancelled orphaned plan orders for ${symbol}`);
-        }
+        await client.cancelAllPlanOrders(pos.symbol);
+        cancelledSymbols++;
+        cleaned.push(pos.symbol);
+        console.log(`[CLEANUP] Cancelled all plan orders for ${pos.symbol}`);
       } catch (e) {
-        // Ignore errors (symbol may have no plan orders)
+        console.error(`[CLEANUP] Failed to cancel plan orders for ${pos.symbol}:`, (e as Error).message);
       }
     }
 
-    res.json({ success: true, cancelled, cleaned, openPositions: openSymbols.size });
-    console.log(`[CLEANUP] Done: cleaned ${cancelled} symbols, ${openSymbols.size} positions remain`);
+    // 2. Also cancel plan orders for symbols NOT in open positions (truly orphaned)
+    const knownSymbols = new Set<string>();
+    for (const order of mexcExecutionQueue) {
+      knownSymbols.add(spotSymbolToFutures(order.symbol));
+    }
+    for (const symbol of knownSymbols) {
+      if (openSymbols.has(symbol)) continue;
+      try {
+        await client.cancelAllPlanOrders(symbol);
+        cancelledSymbols++;
+        cleaned.push(symbol + ' (orphaned)');
+        console.log(`[CLEANUP] Cancelled orphaned plan orders for ${symbol}`);
+      } catch (e) { /* ignore */ }
+    }
+
+    // 3. Recreate one clean SL plan order per open position
+    for (const pos of positions) {
+      try {
+        const direction = pos.positionType === 1 ? 'long' : 'short';
+        const leverage = pos.leverage || serverSettings.mexcMaxLeverage;
+        const slPriceDistance = 8 / 100 / leverage; // 8% ROE
+        const slPrice = direction === 'long'
+          ? pos.holdAvgPrice * (1 - slPriceDistance)
+          : pos.holdAvgPrice * (1 + slPriceDistance);
+
+        // Check if trailing manager has a better (tighter) SL
+        const tracked = trailingManager.getPosition(pos.symbol);
+        const finalSlPrice = tracked ? tracked.currentStopPrice : slPrice;
+
+        const slResult = await client.setStopLoss(pos.symbol, finalSlPrice);
+        if (slResult.success) {
+          recreatedSL++;
+          console.log(`[CLEANUP] Recreated SL for ${pos.symbol} @ $${finalSlPrice.toFixed(4)}`);
+
+          // Update trailing manager with new plan order ID
+          if (tracked && slResult.data?.id) {
+            tracked.planOrderId = String(slResult.data.id);
+          }
+        }
+      } catch (e) {
+        console.error(`[CLEANUP] Failed to recreate SL for ${pos.symbol}:`, (e as Error).message);
+      }
+    }
+
+    res.json({
+      success: true,
+      cancelledSymbols,
+      recreatedSL,
+      cleaned,
+      openPositions: positions.length,
+    });
+    console.log(`[CLEANUP] Done: cancelled orders for ${cancelledSymbols} symbols, recreated ${recreatedSL} SL orders, ${positions.length} positions`);
   } catch (err) {
     res.json({ success: false, error: (err as Error).message });
   }
@@ -6315,7 +6354,10 @@ async function main() {
             ? pos.holdAvgPrice * (1 - slPriceDistance)
             : pos.holdAvgPrice * (1 + slPriceDistance);
 
-          // Create a plan order on MEXC so the trailing manager can modify it
+          // Cancel any existing plan orders first to avoid duplicates on restart
+          await client.cancelAllPlanOrders(pos.symbol);
+
+          // Create a fresh plan order on MEXC so the trailing manager can modify it
           const slResult = await client.setStopLoss(pos.symbol, slPrice);
           if (!slResult.success) {
             console.warn(`[RECONCILE] Failed to create SL plan order for ${pos.symbol}: ${slResult.error}`);

@@ -268,10 +268,8 @@ export class MexcTrailingManager {
     console.log(`[TRAIL-MGR] Renewing plan order for ${pos.symbol} (age: ${((Date.now() - pos.planOrderCreatedAt) / 86400000).toFixed(1)} days)`);
 
     try {
-      // Cancel old plan order
-      if (pos.planOrderId) {
-        await client.cancelPlanOrder(pos.planOrderId);
-      }
+      // Cancel ALL plan orders for this symbol to prevent duplicates
+      await client.cancelAllPlanOrders(pos.symbol);
 
       // Create new plan order at current stop price
       // Import OrderSide values: CLOSE_LONG = 4, CLOSE_SHORT = 2
