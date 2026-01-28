@@ -1029,6 +1029,11 @@ function isSoundEnabled(): boolean {
   return serverSettings.soundEnabled;
 }
 
+function isBotNotificationEnabled(botId: string): boolean {
+  if (!serverSettings.notificationsEnabled) return false;
+  return serverSettings.botNotifications[botId] !== false;
+}
+
 /**
  * Update the initial balance for all trading bots
  * Called when user syncs their real MEXC investment amount
@@ -1108,10 +1113,7 @@ async function notifyGPPositionOpened(
   isV2: boolean
 ): Promise<void> {
   // Check if notifications are enabled (global + per-bot)
-  if (!isNotificationsEnabled()) {
-    return;
-  }
-  if (serverSettings.botNotifications[botId] === false) {
+  if (!isBotNotificationEnabled(botId)) {
     return;
   }
 
@@ -2835,6 +2837,59 @@ app.post('/api/mexc/emergency-close', express.json(), async (req, res) => {
       total: positionsResult.data.length,
       errors: errors.length > 0 ? errors : undefined,
     });
+  } catch (err) {
+    res.json({ success: false, error: (err as Error).message });
+  }
+});
+
+// Clean up orphaned plan orders (SL/TP/Trigger) that don't belong to any open position
+app.post('/api/mexc/cleanup-orders', express.json(), async (req, res) => {
+  const client = initMexcClient();
+  if (!client) {
+    res.json({ success: false, error: 'MEXC client not configured' });
+    return;
+  }
+
+  try {
+    const posResult = await client.getOpenPositions();
+    if (!posResult.success) {
+      res.json({ success: false, error: 'Failed to fetch positions' });
+      return;
+    }
+
+    const openSymbols = new Set((posResult.data || []).map(p => p.symbol));
+    const knownSymbols = new Set<string>();
+
+    // Collect symbols from execution queue (both current and historical)
+    for (const order of mexcExecutionQueue) {
+      knownSymbols.add(spotSymbolToFutures(order.symbol));
+    }
+    // Also include open position symbols
+    for (const s of openSymbols) {
+      knownSymbols.add(s);
+    }
+
+    let cancelled = 0;
+    const cleaned: string[] = [];
+
+    // For each known symbol, check if it has plan orders but no open position
+    for (const symbol of knownSymbols) {
+      if (openSymbols.has(symbol)) continue; // Skip symbols with active positions
+
+      try {
+        const result = await client.cancelAllPlanOrders(symbol);
+        if (result.success) {
+          cancelled++;
+          cleaned.push(symbol);
+          console.log(`[CLEANUP] Cancelled orphaned plan orders for ${symbol}`);
+        }
+      } catch (e) {
+        // Ignore errors (symbol may have no plan orders)
+      }
+    }
+
+    res.json({ success: true, cancelled, cleaned, openPositions: openSymbols.size });
+    console.log(`[CLEANUP] Done: cleaned ${cancelled} symbols, ${openSymbols.size} positions remain`);
   } catch (err) {
     res.json({ success: false, error: (err as Error).message });
   }
@@ -6773,6 +6828,14 @@ async function main() {
                   order.closedAt = Date.now();
                   logBotDecision(order.bot, order.symbol, 'position_closed', `MEXC position no longer open (had SL: ${hadSL}, TP: ${hadTP})`);
                   console.log(`[MEXC-SYNC] ${order.symbol} position closed on MEXC — marking queue order as closed`);
+
+                  // Clean up orphaned plan orders (SL/TP) for this symbol
+                  try {
+                    await client.cancelAllPlanOrders(futuresSymbol);
+                    console.log(`[MEXC-SYNC] Cleaned up plan orders for ${futuresSymbol}`);
+                  } catch (e) {
+                    console.error(`[MEXC-SYNC] Failed to cancel plan orders for ${futuresSymbol}:`, (e as Error).message);
+                  }
                 }
               }
 

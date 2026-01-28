@@ -83,3 +83,8 @@
 - **Instruction**: Never send `stopLossPrice: 0` or `takeProfitPrice: 0` to MEXC. A value of 0 is semantically "no price" but MEXC interprets it as a literal price of $0, which is invalid. Always check for falsy values (`if (price)` not `if (price !== undefined)`) before including SL/TP in the order payload.
 - **Added after**: Iteration 33 - PROVEUSDT order failed with "The price of stop-limit order error" because takeProfitPrice was 0
 
+### Sign: Stop Loss Must Be ROI-Based, Not Price-Based (with Leverage)
+- **Trigger**: When setting stop loss distance in any paper trading or shadow bot with leverage > 1x
+- **Instruction**: A stop loss at "X% of price" with leverage Y means X*Y% ROI loss. At 20x leverage, an 8% price SL = 160% ROI loss, which is past liquidation. The correct formula: `SL_price_distance = entry * (SL_ROI_percent / 100 / leverage)`. Also ALWAYS add a liquidation check: `if (unrealizedPnlPercent <= -100) → liquidate`. Without this, paper bots report phantom profits from positions that would have been liquidated in reality.
+- **Added after**: Iteration 35 - exp-bb-sysB reported +$7,140 PnL with 41.6% WR, but the 8% price SL at 20x leverage meant positions could survive -160% ROI and bounce back. Candle-based backtest showed the bot IS still profitable ($2,881) but with very different characteristics (43.6% WR, more SL exits).
+

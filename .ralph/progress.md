@@ -4,123 +4,72 @@
 
 ## Summary
 
-- Iterations completed: 37
-- Current status: Exchange-Side Trailing Stops + GUI Position Adoption Complete
+- Iterations completed: 36
+- Current status: Live SL Investigation Complete — Moving to Notification Filtering
 
-## Current Task: Exchange-Side Trailing Stops + GUI Position Adoption
+## Current Task: Notification Bot Filtering Fix
 
-### Iteration 37 — Exchange-Side Trailing Stops + GUI Position Adoption
+### Iteration 36 - Live MEXC SL Investigation (Closed — No Action)
+**Date**: 2026-01-27
+**Status**: ✅ Complete — No Fix Needed
+
+**Goal**: Investigate premature stop-loss exits on LIVE MEXC positions (not paper trades).
+
+**Key Findings**:
+- ALL 251 live events from exp-bb-sysB only (no other bot executes on MEXC)
+- 73 stop_loss exits: ALL show exactly -8.08% PnL and 0.400% price delta
+- 129 trailing_stop wins: Average +15.59% PnL
+- Fast exit examples: ZKCUSDT 1.5s, MERLUSDT 3.5s, JSTUSDT 4.2s
+- SL is set ON MEXC exchange itself via `stopLossPrice` parameter
+- Formula: `entryPrice × (8% / 100 / 20x) = 0.4%` price distance — math is correct
+- VVVUSDT specifically was a WINNER (+9.94% ROI, trailing_stop)
+
+**Decision**: Leave as-is. Bot is profitable with current parameters. Widening stops would reduce premature exits but increase per-loss severity. The tight stop is part of the strategy.
+
+---
+
+## Previous Task: Stop Loss Bug Investigation & Backtest
+
+### Iteration 35 - SL Correction Backtest for exp-bb-sysB
 **Date**: 2026-01-27
 **Status**: ✅ Complete
 
-**Goal**: Replace static MEXC plan orders with server-managed exchange-side trailing stops. Add ability to adopt unmanaged MEXC positions from the GUI.
+**Goal**: Backtest exp-bb-sysB over the last 7 days with corrected stop loss logic after discovering that paper trading bots set SL as a raw price percentage (8%) instead of ROI-based, causing positions at 20x leverage to survive past liquidation and bounce back as phantom wins.
 
-**Problem Solved**: Paper bots had dynamic in-memory trailing stops while MEXC had static plan orders that never updated. This was the #1 cause of paper vs live P&L divergence. Additionally, manually-opened MEXC positions had no SL management.
+**The Bug**:
+- `ExperimentalShadowBot` line 316: `stopDistance = entryPrice * (initialStopPercent / 100)` — this is 8% of PRICE
+- At 20x leverage: 8% price move = 160% ROI loss. Liquidation happens at ~5% price (100% ROI loss).
+- No liquidation check in `updatePrices()` method — zombie positions could drop -160% and bounce back.
+- This inflated win rates and PnL across all leveraged paper bots.
 
-**Changes Implemented**:
+**Backtest Methodology**:
+- Queried 477 matched open/close trade pairs from Turso (last 7 days)
+- Fetched 5m candle data from MEXC for each trade window (93.3% coverage)
+- Replayed each trade through two correction scenarios:
+  - SC1: Corrected SL at 8% ROI = 0.4% price distance at 20x
+  - SC2: Original 8% price SL + liquidation enforcement at ~4.75%
 
-1. **MexcTrailingManager** (`src/mexc-trailing-manager.ts` — NEW):
-   - Server-side trailing stop manager using MEXC plan orders as source of truth
-   - ROE-based trail activation: `(priceDiff / entryPrice) * 100 * leverage`
-   - Dynamically ratchets SL via `modifyStopOrder()` as price moves favorably
-   - Configurable: `trailTriggerPct`, `trailStepPct`, `initialStopPct`, `renewalDays`
-   - Plan order verification + renewal before 7-day expiry
-   - SL sanity check on startup: tightens any SL wider than `initialStopPct` from entry
+**Key Results**:
+| Metric | Original (Buggy) | SC1 (Corrected SL) | SC2 (Liq Enforced) |
+|--------|------------------|---------------------|--------------------|
+| PnL | $1,793.79 | $2,881.55 | $5,833.48 |
+| Win Rate | 18.0% | 43.6% | 76.7% |
+| Avg Trade | $3.76 | $6.04 | $12.23 |
+| SL/Liq exits | 82 | 249 | 22 liquidated |
 
-2. **Web Server Integration** (`src/web-server.ts`):
-   - Instantiated trailing manager with defaults (10% trigger, 5% step, 8% SL)
-   - `autoExecuteOrder()` → starts trailing tracking after successful MEXC execution
-   - Price updates in experimental bot loop → trailing manager price updates
-   - Paper bot close → trailing manager stop tracking + MEXC close
-   - External close detection in MEXC sync loop
-   - Startup reconciliation: Turso restore → MEXC verify → adopt untracked → remove stale
-   - Leverage sync: paper bot leverage matches MEXC settings on startup
+**Surprising Finding**: The corrected bot is MORE profitable, not less. The bug was actually HURTING performance:
+- 37 trades were phantom wins (profitable with bug, losing with fix) totaling $859 inflated profit
+- BUT the tighter SL (0.4% price) cuts losses much faster, reducing avg loss from ~$8 to ~$15
+- The trailing stops still captured the same big wins ($33.20 avg win)
+- Net effect: R:R ratio of 2.22 with 43.6% WR = positive expectancy of $6.04/trade
+- Bug was letting losers run past liquidation; some bounced back, but many bled out slowly
 
-3. **Position Adoption API** (`src/web-server.ts`):
-   - `POST /api/mexc/adopt-position`: adopt unmanaged MEXC positions
-   - Creates SL plan order + starts trailing stop management
-   - Defaults: 8% SL, 10% trail trigger, 5% trail step, botId: 'adopted'
-   - Enriched `/api/mexc/positions` with `managed`, `currentStopPrice`, `trailActivated`, `highestRoePct`
+**Files Created**:
+- `scripts/backtest-sl-correction.ts` — Full candle-based backtest with two scenarios
+- `scripts/query-backtest-trades.ts` — Turso query for trade data
+- `scripts/debug-timestamps.ts` — Timestamp format investigation
 
-4. **Dashboard GUI** (`src/views/js/dashboard.js`):
-   - Added "Status" column to MEXC positions table
-   - Managed positions: green checkmark + trail status + current SL price
-   - Unmanaged positions: orange "Manage" button
-   - `adoptPosition(symbol)` function with confirm dialog, POST, toast feedback
-
-5. **Turso Persistence** (`src/turso-db.ts`):
-   - `server_settings` table for Render restart survival
-   - `trailing_positions` table for trailing stop state persistence
-   - `saveServerSettingsToTurso()` / `loadServerSettingsFromTurso()`
-   - `saveTrailingPosition()` / `loadTrailingPositions()` / `deleteTrailingPosition()`
-
-6. **Experimental Bot Enhancements** (`src/experimental-shadow-bots.ts`):
-   - Added `setLeverage()` / `getLeverage()` methods for leverage sync
-
-**Files Modified**:
-- `src/mexc-trailing-manager.ts` — NEW (exchange-side trailing stop manager)
-- `src/web-server.ts` — Trailing manager integration + adopt endpoint + settings persistence (+330 lines)
-- `src/views/js/dashboard.js` — Status column + adoptPosition function (+50 lines)
-- `src/turso-db.ts` — server_settings + trailing_positions tables (+117 lines)
-- `src/experimental-shadow-bots.ts` — setLeverage/getLeverage (+13 lines)
-
-**Build**: ✅ Passes
-**Commit**: `011eed4` "feat: Exchange-side trailing stops + GUI position adoption"
-**Pushed**: ✅ to GitHub (epic-lewin branch)
-
----
-
-## Previous Task: Persistent Live Trade Logging + Experimental Bot State Recovery
-
-### Iteration 36 — Execution Mode Logging + Experimental Bot Persistence
-**Date**: 2026-01-26
-**Status**: ✅ Complete
-
-**Goal**: Add `execution_mode` column to Turso so paper vs live trades can be distinguished, and persist experimental bot state (trailing stops, positions) so MEXC live position management survives server restarts.
-
-**Changes Implemented**:
-
-1. **`execution_mode` column in Turso** (`src/turso-db.ts`):
-   - Added `'execution_mode TEXT'` to ALTER TABLE migration array
-   - Added `executionMode?: string` to insertTradeEvent parameter type
-   - Added `execution_mode` to INSERT SQL + args
-
-2. **TradeEvent executionMode threading** (`src/data-persistence.ts`):
-   - Added `executionMode?: string` to `TradeEvent` interface
-   - Updated `logTradeOpen()` — new 4th parameter `executionMode?: string`
-   - Updated `logTradeClose()` — new 3rd parameter `executionMode?: string`
-   - Both pass executionMode through to Turso
-
-3. **Execution mode determination** (`src/web-server.ts`):
-   - Added `getExecutionModeForBot(botId)` helper function
-   - Returns 'live' if bot in mexcSelectedBots + mode is live
-   - Returns 'shadow' if in shadow mode, 'paper' otherwise
-   - Updated all 6 logTradeOpen/logTradeClose call sites
-   - Syncs mode to experimental bots on: startup, mode change, bot selection change
-
-4. **ExperimentalShadowBot persistence** (`src/experimental-shadow-bots.ts`):
-   - Added `executionMode` field + `setExecutionMode()` method
-   - All internal logTradeOpen/logTradeClose calls pass executionMode
-   - Added `saveState()` — serializes positions Map, balance, peakBalance, closed positions
-   - Added `restoreState()` — rebuilds Map from serialized entries, logs restore info
-
-5. **Save/restore integration** (`src/web-server.ts`):
-   - Save: Added experimental bots to `saveAllBotStates()` (every 5 min + shutdown)
-   - Restore: Added after `loadServerSettings()` on startup, before main loop
-
-**Build**: ✅ Passes
-
----
-
-### Iteration 35 — HTF-Based Impulse Detection + Enable 15m Trading
-**Date**: 2026-01-26
-**Status**: ✅ Complete
-
-**Goal**: Move impulse detection from entry timeframe to higher timeframe per TCG methodology. Enable 15m trading.
-
-(See RALPH_TASK.md previous task section for full details)
-
----
+**Added Guardrail**: "Stop Loss Must Be ROI-Based, Not Price-Based (with Leverage)"
 
 ## Previous Task: Futures-Only Asset Discovery & Commodity Screening
 
