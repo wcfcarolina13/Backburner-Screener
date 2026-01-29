@@ -57,9 +57,44 @@ export class MexcTrailingManager {
   private config: TrailingManagerConfig;
   private lastModifyTime = new Map<string, number>();
   private onPositionClosed?: (symbol: string, reason: string) => void;
+  private recentCloses: Array<{
+    symbol: string;
+    direction: string;
+    entryPrice: number;
+    exitPrice?: number;
+    reason: string;
+    closedAt: string;
+    roe?: number;
+  }> = [];
 
   constructor(config?: Partial<TrailingManagerConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
+  }
+
+  /**
+   * Get recent closed positions for debugging/comparison
+   */
+  getRecentCloses(): typeof this.recentCloses {
+    return this.recentCloses.slice(-20);  // Last 20
+  }
+
+  /**
+   * Record a position close for tracking
+   */
+  recordClose(symbol: string, direction: string, entryPrice: number, reason: string, exitPrice?: number, roe?: number): void {
+    this.recentCloses.push({
+      symbol,
+      direction,
+      entryPrice,
+      exitPrice,
+      reason,
+      closedAt: new Date().toISOString(),
+      roe,
+    });
+    // Keep only last 50
+    if (this.recentCloses.length > 50) {
+      this.recentCloses = this.recentCloses.slice(-50);
+    }
   }
 
   /**
@@ -322,10 +357,12 @@ export class MexcTrailingManager {
    */
   detectExternalCloses(mexcOpenSymbols: Set<string>): string[] {
     const closedSymbols: string[] = [];
-    for (const [symbol] of this.positions) {
+    for (const [symbol, pos] of this.positions) {
       if (!mexcOpenSymbols.has(symbol)) {
         closedSymbols.push(symbol);
         console.log(`[TRAIL-MGR] ${symbol} no longer on MEXC — position was closed externally`);
+        // Record the close for debugging (no actual exit price captured yet - TODO: fetch from order history)
+        this.recordClose(symbol, pos.direction, pos.entryPrice, 'external_close');
         this.stopTracking(symbol);
         if (this.onPositionClosed) {
           this.onPositionClosed(symbol, 'external_close');
@@ -354,6 +391,13 @@ export class MexcTrailingManager {
    */
   getPosition(symbol: string): TrackedPosition | undefined {
     return this.positions.get(symbol);
+  }
+
+  /**
+   * Get all tracked positions (for debugging/comparison)
+   */
+  getAllPositions(): TrackedPosition[] {
+    return Array.from(this.positions.values());
   }
 
   /**

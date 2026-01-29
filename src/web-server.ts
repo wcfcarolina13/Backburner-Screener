@@ -3223,6 +3223,157 @@ async function autoExecuteOrder(order: QueuedOrder): Promise<void> {
 }
 
 // ============================================================
+// Paper vs Live Comparison API - for debugging discrepancies
+// ============================================================
+
+app.get('/api/debug/paper-vs-live', async (req, res) => {
+  try {
+    // Get paper positions from exp-bb-sysB (primary shadow bot)
+    const paperBot = experimentalBots.get('exp-bb-sysB');
+    const paperState = paperBot?.getState();
+    const paperPositions = paperState?.openPositions || [];
+    const paperStats = paperState?.stats || { totalPnl: 0, totalTrades: 0, winRate: 0 };
+
+    // Get MEXC live positions
+    const livePositions = trailingManager.getAllPositions();
+
+    // Get MEXC queue for pending orders
+    const pendingQueue = mexcExecutionQueue.filter((o: QueuedOrder) => o.status === 'pending');
+    const recentQueue = mexcExecutionQueue.slice(-20);  // Last 20 orders for context
+
+    // Get recent closed trades from trailing manager
+    const recentMexcCloses = trailingManager.getRecentCloses();
+
+    // Calculate sizing comparison
+    const paperPositionSize = 2000 * 0.10;  // $2000 * 10%
+    const livePositionSize = serverSettings.mexcPositionSizeMode === 'percent'
+      ? cachedMexcAvailableBalance * (serverSettings.mexcPositionSizePct / 100)
+      : serverSettings.mexcPositionSizeUsd;
+    const sizeRatio = paperPositionSize / (livePositionSize || 1);
+
+    // Compare matching positions (paper vs live)
+    interface PositionComparison {
+      symbol: string;
+      paper: any;
+      live: any;
+      entryPriceDiff?: number;
+      slPriceDiff?: number | null;
+      sizeDiff?: number;
+    }
+    const comparison: PositionComparison[] = [];
+
+    for (const paperPos of paperPositions) {
+      const livePos = livePositions.find((l: { symbol: string }) => l.symbol === paperPos.symbol);
+      const comp: PositionComparison = {
+        symbol: paperPos.symbol,
+        paper: {
+          direction: paperPos.direction,
+          entryPrice: paperPos.entryPrice,
+          stopLoss: paperPos.stopLoss,
+          size: paperPos.positionSize,
+          roe: paperPos.unrealizedPnlPercent,
+          trailActivated: paperPos.trailActivated,
+        },
+        live: livePos ? {
+          direction: livePos.direction,
+          entryPrice: livePos.entryPrice,  // From MEXC holdAvgPrice
+          stopLoss: livePos.currentStopPrice,
+          size: livePositionSize,
+          peakRoe: livePos.highestRoePct,
+          trailActivated: livePos.trailActivated,
+        } : null,
+      };
+
+      if (livePos) {
+        comp.entryPriceDiff = ((livePos.entryPrice - paperPos.entryPrice) / paperPos.entryPrice) * 100;
+        comp.slPriceDiff = livePos.currentStopPrice && paperPos.stopLoss
+          ? ((livePos.currentStopPrice - paperPos.stopLoss) / paperPos.stopLoss) * 100
+          : null;
+        comp.sizeDiff = (livePositionSize / paperPos.positionSize) * 100;
+        // Add live peak ROE for comparison
+        comp.live.peakRoe = livePos.highestRoePct;
+      }
+
+      comparison.push(comp);
+    }
+
+    // Add live positions not in paper
+    for (const livePos of livePositions) {
+      if (!paperPositions.find((p: { symbol: string }) => p.symbol === livePos.symbol)) {
+        comparison.push({
+          symbol: livePos.symbol,
+          paper: null,
+          live: {
+            direction: livePos.direction,
+            entryPrice: livePos.entryPrice,
+            stopLoss: livePos.currentStopPrice,
+            size: livePositionSize,
+            peakRoe: livePos.highestRoePct,
+          },
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+
+      sizing: {
+        paperMode: 'percent',
+        paperPercent: 10,
+        paperBalance: 2000,
+        paperPositionSize,
+        liveMode: serverSettings.mexcPositionSizeMode,
+        livePercent: serverSettings.mexcPositionSizePct,
+        liveBalance: cachedMexcAvailableBalance,
+        livePositionSize,
+        sizeRatio: `${sizeRatio.toFixed(1)}:1 (paper is ${sizeRatio.toFixed(1)}x larger)`,
+      },
+
+      paperSummary: {
+        balance: paperState?.balance || 0,
+        totalPnl: paperStats.totalPnl || 0,
+        totalTrades: paperStats.totalTrades || 0,
+        winRate: paperStats.winRate || 0,
+        openPositions: paperPositions.length,
+      },
+
+      liveSummary: {
+        cachedBalance: cachedMexcAvailableBalance,
+        openPositions: livePositions.length,
+        pendingOrders: pendingQueue.length,
+        recentCloses: recentMexcCloses.length,
+      },
+
+      positionComparison: comparison,
+
+      recentMexcCloses,
+
+      mexcQueue: recentQueue.map((o: QueuedOrder) => ({
+        symbol: o.symbol,
+        side: o.side,
+        size: o.size,
+        leverage: o.leverage,
+        status: o.status,
+        entryPrice: o.entryPrice,
+        error: o.error,
+        timestamp: o.timestamp,
+      })),
+
+      insights: [
+        sizeRatio > 5 ? `⚠️ Paper positions are ${sizeRatio.toFixed(1)}x larger than live - scale paper PnL by /${sizeRatio.toFixed(1)} for comparison` : null,
+        comparison.some(c => c.entryPriceDiff && Math.abs(c.entryPriceDiff) > 0.1) ? '⚠️ Entry price differences detected between paper and live' : null,
+        comparison.some(c => c.slPriceDiff && Math.abs(c.slPriceDiff) > 0.5) ? '⚠️ Stop loss price differences detected' : null,
+        comparison.some(c => c.paper && !c.live) ? '⚠️ Some paper positions have no live equivalent' : null,
+        comparison.some(c => c.live && !c.paper) ? '⚠️ Some live positions have no paper equivalent (orphaned)' : null,
+      ].filter(Boolean),
+    });
+  } catch (error) {
+    res.json({ success: false, error: (error as Error).message });
+  }
+});
+
+// ============================================================
 // MEXC Bot Selection API
 // ============================================================
 
