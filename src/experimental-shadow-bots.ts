@@ -834,6 +834,15 @@ class ExperimentalShadowBot extends EventEmitter {
     this.closedPositions = state.closedPositions || [];
     console.log(`[EXP:${this.config.botId}] Restored state: balance=$${this.balance.toFixed(2)}, ${this.positions.size} open positions, ${this.closedPositions.length} closed`);
   }
+
+  // Bootstrap recent closes for stress detection (from Turso historical data)
+  bootstrapRecentCloses(closes: Array<{ timestamp: number; isWin: boolean }>): void {
+    // Filter to last 2 hours only
+    const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+    const recent = closes.filter(c => c.timestamp > twoHoursAgo);
+    this.recentCloses = recent;
+    console.log(`[EXP:${this.config.botId}] Bootstrapped ${recent.length} recent closes for stress detection`);
+  }
 }
 
 // ============= Bot Factory =============

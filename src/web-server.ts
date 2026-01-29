@@ -6687,6 +6687,40 @@ async function main() {
     }
   }
 
+  // Bootstrap stress detection from Turso historical trade data
+  // This ensures stress detection works immediately after server restart
+  if (isTursoConfigured()) {
+    (async () => {
+      try {
+        const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+        const result = await executeReadQuery(
+          `SELECT timestamp, realized_pnl_percent, exit_reason
+           FROM trade_events
+           WHERE bot_id = ? AND event_type = 'close' AND timestamp >= ?
+           ORDER BY timestamp DESC
+           LIMIT 100`,
+          ['exp-bb-sysB', twoHoursAgo]
+        );
+
+        if (result.success && result.rows && result.rows.length > 0) {
+          const closes = (result.rows as Array<Record<string, unknown>>).map(row => ({
+            timestamp: new Date(row.timestamp as string).getTime(),
+            isWin: (row.exit_reason === 'trailing_stop' || (row.realized_pnl_percent as number) > 0),
+          }));
+
+          const bot = experimentalBots.get('exp-bb-sysB');
+          if (bot) {
+            bot.bootstrapRecentCloses(closes);
+          }
+        } else {
+          console.log('[STRESS] No recent trades found in Turso for stress detection');
+        }
+      } catch (err) {
+        console.error('[STRESS] Failed to bootstrap stress detection:', (err as Error).message);
+      }
+    })();
+  }
+
   // Reconcile trailing manager with MEXC positions on startup
   (async () => {
     try {
