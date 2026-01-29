@@ -2975,10 +2975,29 @@ export function addToMexcQueue(
     size = maxSize;
   }
 
-  // Enforce leverage cap
+  // Enforce leverage cap — MUST recalculate SL when capping
+  // The SL was calculated for the original leverage: SL_price_dist = ROE% / original_leverage
+  // When we cap leverage, we need to widen the SL to maintain the same ROE%
   const maxLev = serverSettings.mexcMaxLeverage;
   if (leverage > maxLev) {
     console.log(`[MEXC] Capping leverage: ${leverage}x → ${maxLev}x`);
+
+    // Recalculate SL to maintain the same ROE% loss with the new leverage
+    if (stopLossPrice && entryPrice && entryPrice > 0) {
+      const oldSlDistance = Math.abs(stopLossPrice - entryPrice) / entryPrice; // as decimal
+      const impliedRoePct = oldSlDistance * leverage * 100; // ROE% that original SL represented
+      const newSlDistance = impliedRoePct / 100 / maxLev; // Price distance for same ROE% at new leverage
+
+      // Recalculate SL price with wider distance
+      const oldSl = stopLossPrice;
+      if (side === 'long') {
+        stopLossPrice = entryPrice * (1 - newSlDistance);
+      } else {
+        stopLossPrice = entryPrice * (1 + newSlDistance);
+      }
+      console.log(`[MEXC] Widening SL for capped leverage: ${impliedRoePct.toFixed(1)}% ROE @ ${leverage}x → ${maxLev}x | SL: $${oldSl.toFixed(6)} → $${stopLossPrice.toFixed(6)}`);
+    }
+
     leverage = maxLev;
   }
 
