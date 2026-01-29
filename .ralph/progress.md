@@ -4,10 +4,49 @@
 
 ## Summary
 
-- Iterations completed: 36
-- Current status: Live SL Investigation Complete — Moving to Notification Filtering
+- Iterations completed: 37
+- Current status: Scaling-In Backtests Complete
 
-## Current Task: Notification Bot Filtering Fix
+## Current Task: Scaling-In Strategy Backtests (COMPLETE)
+
+### Iteration 37 - Entry Scaling & Insurance Backtests
+**Date**: 2026-01-29
+**Status**: ✅ Complete
+
+**Goal**: Backtest three approaches to improve entry timing during selloffs.
+
+**Results**:
+
+| Backtest | Conclusion | Improvement |
+|----------|------------|-------------|
+| 1. Regime-Conditional Insurance | ✅ HELPS | +$706 (apply insurance only during stress) |
+| 2. Two-Tranche Scaling-In | ⚠️ PROMISING | +$1,463 est (needs candle replay for accuracy) |
+| 3. BTC Correlation Filter | ❌ HURTS | -$512 (BTC dips = better entries for contrarian!) |
+
+**Key Findings**:
+
+1. **Conditional Insurance** (only during <50% WR hours):
+   - Baseline: $8,873 | With insurance: $9,579 | **+$706**
+   - Insurance turns -$280 stress losses into +$426 gains
+   - Insurance HURTS during bull periods (-$3,566) but we skip it then
+
+2. **Scaling-In Entry** (50% at signal, 50% at additional drop):
+   - Estimated improvement of +$1,463 in stress periods
+   - Requires candle replay for accurate simulation
+
+3. **BTC Filter** (skip entries when BTC down):
+   - **COUNTERINTUITIVE**: Entries during BTC dips have 100% WR!
+   - Entries during BTC pumps have only 18% WR
+   - For contrarian RSI strategy, BTC dips = oversold alts = good entries
+
+**Scripts Created**:
+- `scripts/backtest-regime-insurance.ts`
+- `scripts/backtest-scaling-in.ts`
+- `scripts/backtest-btc-filter.ts`
+
+---
+
+## Previous Task: Notification Bot Filtering Fix
 
 ### Iteration 36 - Live MEXC SL Investigation (Closed — No Action)
 **Date**: 2026-01-27

@@ -115,6 +115,95 @@ At 20x leverage, even a 20% ROI SL only gives 1% price distance. The fix needs t
 - Stop Loss Bug Backtest
 - Result: Bot IS profitable with corrected SL ($2,881 over 7 days)
 
+## Current Task: Scaling-In Strategy Backtests
+
+**Priority**: Active
+**Status**: In Progress
+
+### Observation from Insurance Analysis (2026-01-28)
+- Insurance strategy HURTS overall PnL (-$143 at 2% threshold over 7 days)
+- BUT performance is **regime-dependent**:
+  - Jan 26-28: 56-99% WR → Insurance hurts (let winners run)
+  - Jan 29: 43% WR during selloff → Insurance might help
+- Key data: 66% of SL trades were up 2%+ ROE before failing (avg peak +5.1%)
+
+### Success Criteria
+
+1. [x] **Backtest 1: Regime-Conditional Insurance** ✅
+   - Only activate insurance during detected market stress
+   - Stress signal used: Alt win rate <50% in current hour
+   - **Results** (1,140 trades with peak data over 7 days):
+     - Full Ride: $8,872.81
+     - Always Insurance @2%: $6,012.76 (-$2,860 vs full ride)
+     - **Conditional Insurance @2%: $9,578.79 (+$706 vs full ride)**
+   - **Finding**: Insurance HELPS during stress (+$706 savings) but HURTS during bull (-$3,566 cost)
+   - **Conclusion**: Conditional insurance at 2% ROE during <50% WR hours improves overall returns
+   - Script: `scripts/backtest-regime-insurance.ts`
+
+2. [x] **Backtest 2: Two-Tranche Scaling-In Entry** ✅
+   - First RSI <30 trigger: Enter 50% position
+   - Second trigger (RSI <25 OR additional 1-2% drop): Enter remaining 50%
+   - **Results** (estimated without candle replay, 1,426 trades):
+     - Stress period baseline: -$1,716 PnL
+     - With 1% drop second entry: -$253 PnL (+$1,463 improvement)
+     - With 2% drop second entry: -$169 PnL (+$1,546 improvement)
+     - Normal period also benefits: +$478 to +$740
+   - **Caveat**: This is a heuristic estimate. Proper implementation needs:
+     1. Candle replay from entry time
+     2. RSI recalculation at each candle
+     3. Handle case where second entry never triggers (half position)
+   - **Conclusion**: Shows promise, especially during stress periods. Worth implementing properly.
+   - Script: `scripts/backtest-scaling-in.ts`
+
+3. [x] **Backtest 3: BTC Correlation Filter** ✅
+   - Hypothesis: Skip entries during BTC selloffs to avoid catching falling knives
+   - **Results** (1,426 trades, 7 days):
+     - Baseline (all trades): 71.4% WR, $8,744 PnL
+     - Skip if BTC < -1%: 71.0% WR, $8,232 PnL (**WORSE** by $512)
+     - Skip if BTC < -0.5%: 71.9% WR, $7,841 PnL (**WORSE** by $903)
+   - **Surprising finding**: Trades during BTC dips OUTPERFORM!
+     | BTC 1h Change | Win Rate | Avg ROE |
+     |---------------|----------|---------|
+     | BTC -2% to -1% | **100%** | +19.0% |
+     | BTC -1% to 0% | 69% | +3.1% |
+     | BTC 0% to +1% | 78% | +4.4% |
+     | BTC +1% to +2% | **18%** | -2.4% |
+   - **Conclusion**: For contrarian RSI oversold strategy, BTC dips = better entries
+     The filter would HURT us. If anything, skip entries when BTC is UP 1%+.
+   - Script: `scripts/backtest-btc-filter.ts`
+
+---
+
+## Previous Backtest Results (Parking Lot)
+
+### TCG Insurance Sale Strategy (TESTED - NEGATIVE)
+- **Concept**: Sell 50% of position at first bounce (+1-2% ROE), move SL to breakeven on remaining 50%
+- **Backtest Result** (2026-01-28): Insurance HURTS performance for exp-bb-sysB
+  - Current strategy: $574.81 PnL (7 days)
+  - Insurance @ 2%: $431.77 (-$143, -25%)
+  - Insurance @ 3%: $446.71 (-$128, -22%)
+  - Insurance @ 5%: $498.10 (-$77, -13%)
+- **Why**: Current trailing stop system already protects winners. Insurance cuts big wins in half.
+- Saved 88 trades from full loss at 2% threshold, but cost half of every big winner
+
+### Position Size Scaling
+- Test Kelly Criterion sizing vs fixed sizing
+- Existing data: focus-kelly lost $1,321 in one day despite 66.7% win rate (variance)
+
+### Leverage Optimization
+- Current: 20x on paper, but MEXC caps to 10x for most assets
+- Test: What if paper matched MEXC leverage exactly?
+
+### MEXC Position Sizing Investigation (Parking Lot)
+- **Observation**: Some positions are undersized (ETH: $2.96 margin vs expected $4.70)
+- **Cause**: When target USD < 1 contract's value, only minimum 1 contract is bought
+  - Example: ETH contract = $29.59, target = $5 → buy 1 contract = $2.96 margin
+- **Also noted**: Leverage doesn't increase margin used; it increases notional exposure
+  - 10% balance sizing = $4.80 margin regardless of 10x or 20x leverage
+  - Higher leverage = same dollar risk, but tighter stop in price terms
+
+---
+
 ## Older Tasks (Complete)
 - HTF-Based Impulse Detection + 15m Trading (cca674a)
 - Futures-Only Asset Discovery & Commodity Screening (0e95826, d669874)

@@ -93,3 +93,8 @@
 - **Instruction**: If you cap leverage from X to Y, you MUST recalculate the SL price. The SL was calculated for leverage X, so capping to Y without adjustment makes the SL too tight. Formula: `newSlDistance = (|oldSL - entry| / entry) * (oldLeverage / cappedLeverage)`. At 20x, 8% ROE = 0.4% price distance. At 3x, same ROE = 2.67% price distance.
 - **Added after**: Iteration 36 - exp-bb-sysB positions (NIL, SPX, SAHARA, GRASS, IP, PENDLE, etc.) were stopping out within 1-8 seconds. Bot calculated SL for 20x (0.4% distance), but `mexcMaxLeverage=3` capped leverage without recalculating SL. Result: 0.4% distance at 3x = only 1.2% ROE, easily triggered by normal volatility.
 
+### Sign: TCG Insurance Sale Doesn't Help With Trailing Stops
+- **Trigger**: When considering "sell half early, move SL to breakeven" strategy
+- **Instruction**: If you already have a trailing stop system, adding an "insurance sale" at first bounce (1-3% ROE) HURTS performance. Backtest showed -42% to -44% worse results. The trailing stop already protects winners; insurance just cuts your winning trades in half.
+- **Added after**: Iteration 37 - Backtested TCG's insurance sale strategy on 408 exp-bb-sysB trades. Current: $190.96 PnL. With insurance: $107-110 PnL. Insurance saved 62-99 trades from full losses but cost half of every big winner (+15% avg trailing stop wins).
+
