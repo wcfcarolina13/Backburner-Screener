@@ -793,6 +793,13 @@ class ExperimentalShadowBot extends EventEmitter {
     this.closedPositions = [];
     this.balance = this.config.initialBalance;
     this.peakBalance = this.config.initialBalance;
+    this.recentCloses = [];
+  }
+
+  // Set the initial balance (for when user syncs real MEXC investment)
+  setInitialBalance(amount: number): void {
+    this.config.initialBalance = amount;
+    console.log(`[EXP:${this.config.botId}] Initial balance updated to $${amount}`);
   }
 
   // Serialize bot state for persistence (survives restarts)

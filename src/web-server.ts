@@ -1099,6 +1099,11 @@ function updateAllBotsInitialBalance(amount: number): void {
     bot.setInitialBalance(amount);
   }
 
+  // Experimental bots (exp-bb-sysB, etc.)
+  for (const [, bot] of experimentalBots) {
+    bot.setInitialBalance(amount);
+  }
+
   // Save the setting
   serverSettings.investmentAmount = amount;
   saveServerSettings();
@@ -6728,6 +6733,14 @@ async function main() {
       if (!client) {
         console.log('[RECONCILE] Skipping — MEXC client not available');
         return;
+      }
+
+      // 0. Fetch MEXC balance immediately on startup (needed for percent sizing)
+      const balResult = await fetchMexcBalance();
+      if (balResult) {
+        console.log(`[STARTUP] MEXC balance cached: $${balResult.available.toFixed(2)} available`);
+      } else {
+        console.log(`[STARTUP] Failed to fetch MEXC balance — percent sizing will fall back to fixed USD`);
       }
 
       // 1. Load trailing positions from Turso

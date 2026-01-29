@@ -98,3 +98,23 @@
 - **Instruction**: If you already have a trailing stop system, adding an "insurance sale" at first bounce (1-3% ROE) HURTS performance. Backtest showed -42% to -44% worse results. The trailing stop already protects winners; insurance just cuts your winning trades in half.
 - **Added after**: Iteration 37 - Backtested TCG's insurance sale strategy on 408 exp-bb-sysB trades. Current: $190.96 PnL. With insurance: $107-110 PnL. Insurance saved 62-99 trades from full losses but cost half of every big winner (+15% avg trailing stop wins).
 
+### Sign: In-Memory State Resets on Server Restart
+- **Trigger**: When tracking any data that needs to persist across server restarts (recent closes, win rates, stress detection, etc.)
+- **Instruction**: NEVER rely solely on in-memory state for important data. Always bootstrap from Turso on startup. Any `Array<>` or `Map<>` that tracks historical data must be populated from the database at startup using `executeReadQuery()`. Otherwise, restarts wipe the data (e.g., stress detection showed `sampleSize: 0` after restart).
+- **Added after**: Iteration 39 - Stress period detection relied on in-memory `recentCloses` array that reset on restart, causing insurance logic to never trigger.
+
+### Sign: Field Name Case Sensitivity in TypeScript
+- **Trigger**: When mapping between different interfaces (e.g., ClosedPosition → PaperPosition)
+- **Instruction**: Check field name casing carefully. TypeScript interfaces in different parts of the codebase may use different conventions: `realizedPnl` vs `realizedPnL` (lowercase vs uppercase L). Using `as any` casts hides these mismatches, causing data to be logged as empty/null in the database.
+- **Added after**: Iteration 39 - Paper trades logged to Turso with empty PnL because `ClosedPosition` used `realizedPnl` (lowercase) but `logTradeClose()` expected `realizedPnL` (uppercase).
+
+### Sign: Turso Auth Token Required for Database Queries
+- **Trigger**: When running scripts that query Turso locally
+- **Instruction**: Local scripts need `TURSO_AUTH_TOKEN` environment variable. Check Render env vars or the deployed server for the token. The server gets it from Render's environment, not from local `.env`. For local testing, either: (1) export the token, (2) use the server's API endpoints instead of direct Turso queries.
+- **Added after**: Iteration 39 - Script failed with HTTP 401 when trying to query Turso locally without auth token.
+
+### Sign: Use Server API Endpoints, Not Direct File Paths
+- **Trigger**: When debugging running Render server
+- **Instruction**: For Render deployments, use HTTP endpoints (e.g., `/api/export-trades`, `/api/debug/paper-vs-live`) rather than trying to read files or query Turso directly. The server is the authoritative source and has the tokens/connections. Before creating new endpoints, check what already exists by grepping for `app.get` or `app.post`.
+- **Added after**: Iteration 39 - Tried multiple nonexistent endpoints before finding `/api/export-trades` already existed.
+
