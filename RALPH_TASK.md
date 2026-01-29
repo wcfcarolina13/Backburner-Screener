@@ -90,6 +90,25 @@ At 20x leverage, even a 20% ROI SL only gives 1% price distance. The fix needs t
   2. Added `POST /api/mexc/cleanup-orders` endpoint for manual one-time cleanup
 - **Files**: `src/web-server.ts` (lifecycle detector ~line 6424, cleanup endpoint ~line 2705)
 
+### Task 4: Instant Close Bug (Leverage Cap SL Mismatch)
+- **Status**: Complete (commit 371c351)
+- **Symptoms**: NILUSDT, SPXUSDT, SAHARAUSDT positions opening and closing within seconds on live MEXC
+- **Root Cause**: `addToMexcQueue()` capped leverage (e.g., 20x → 3x per `mexcMaxLeverage`) but did NOT recalculate SL price
+  - Paper bot calculated SL for 20x leverage: 8% ROE = 0.4% price distance
+  - Live execution at 3x leverage: 0.4% price distance = only 1.2% ROE (not 8%)
+  - Normal volatility easily triggers SL within seconds
+- **Fix**: When capping leverage, recalculate SL to maintain same ROE%:
+  ```
+  oldSlDistance = |SL - entry| / entry
+  impliedRoePct = oldSlDistance * originalLeverage * 100
+  newSlDistance = impliedRoePct / 100 / cappedLeverage
+  newSL = entry * (1 ± newSlDistance)  // + for short, - for long
+  ```
+- **Example**:
+  - Original: 8% ROE at 20x → 0.4% SL distance
+  - Fixed: 8% ROE at 3x → 2.67% SL distance (appropriate for 3x)
+- **Files**: `src/web-server.ts` (addToMexcQueue ~line 2978-3000)
+
 ---
 
 ## Previous Task (Complete)
