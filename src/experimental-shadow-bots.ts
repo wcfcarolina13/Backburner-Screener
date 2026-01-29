@@ -614,22 +614,31 @@ class ExperimentalShadowBot extends EventEmitter {
       }
 
       // Stop loss (only if not already liquidated)
+      // Apply exit slippage: real SL fills are typically worse than trigger price
+      // Use 2x entry slippage for exits (SL fills in volatile conditions = more slippage)
+      const exitSlippagePct = this.config.slippagePercent * 2;
+
       if (!exitReason && position.direction === 'long' && currentPrice <= position.stopLoss) {
         exitReason = position.trailActivated ? 'trailing_stop' : 'stop_loss';
-        exitPrice = position.stopLoss;
+        // Long exit slippage = lower fill price
+        exitPrice = position.stopLoss * (1 - exitSlippagePct / 100);
       } else if (!exitReason && position.direction === 'short' && currentPrice >= position.stopLoss) {
         exitReason = position.trailActivated ? 'trailing_stop' : 'stop_loss';
-        exitPrice = position.stopLoss;
+        // Short exit slippage = higher fill price
+        exitPrice = position.stopLoss * (1 + exitSlippagePct / 100);
       }
 
       // Take profit
+      // TP also gets slippage (though typically less severe than SL)
       if (position.takeProfit > 0) {
         if (position.direction === 'long' && currentPrice >= position.takeProfit) {
           exitReason = 'take_profit';
-          exitPrice = position.takeProfit;
+          // Long TP slippage = lower fill than target
+          exitPrice = position.takeProfit * (1 - this.config.slippagePercent / 100);
         } else if (position.direction === 'short' && currentPrice <= position.takeProfit) {
           exitReason = 'take_profit';
-          exitPrice = position.takeProfit;
+          // Short TP slippage = higher fill than target
+          exitPrice = position.takeProfit * (1 + this.config.slippagePercent / 100);
         }
       }
 
@@ -875,7 +884,7 @@ export function createExperimentalBots(initialBalance: number = 2000): Map<strin
     allowedQuadrants: ALL_PROFITABLE_QUADRANTS,
     longOnly: false,
     feePercent: 0.04,
-    slippagePercent: 0.05,
+    slippagePercent: 0.15,  // Realistic alt slippage (was 0.05)
     // Conditional insurance: only during stress periods (WR < 50%)
     useConditionalInsurance: true,
     insuranceThresholdPercent: 2,
@@ -900,7 +909,7 @@ export function createExperimentalBots(initialBalance: number = 2000): Map<strin
     allowedQuadrants: CONTRARIAN_QUADRANTS,
     longOnly: false,
     feePercent: 0.04,
-    slippagePercent: 0.05,
+    slippagePercent: 0.15,  // Realistic alt slippage (was 0.05)
   }));
 
   // ============= Golden Pocket + Regime Experiments =============
@@ -923,7 +932,7 @@ export function createExperimentalBots(initialBalance: number = 2000): Map<strin
     allowedQuadrants: CONTRARIAN_QUADRANTS,
     longOnly: false,
     feePercent: 0.04,
-    slippagePercent: 0.05,
+    slippagePercent: 0.15,  // Realistic alt slippage (was 0.05)
   }));
 
   // GP + System A bias
@@ -944,7 +953,7 @@ export function createExperimentalBots(initialBalance: number = 2000): Map<strin
     allowedQuadrants: ALL_PROFITABLE_QUADRANTS,
     longOnly: false,
     feePercent: 0.04,
-    slippagePercent: 0.05,
+    slippagePercent: 0.15,  // Realistic alt slippage (was 0.05)
   }));
 
   // GP + System B bias
@@ -965,7 +974,7 @@ export function createExperimentalBots(initialBalance: number = 2000): Map<strin
     allowedQuadrants: ALL_PROFITABLE_QUADRANTS,
     longOnly: false,
     feePercent: 0.04,
-    slippagePercent: 0.05,
+    slippagePercent: 0.15,  // Realistic alt slippage (was 0.05)
   }));
 
   // GP + System B + Contrarian regime (double filter)
@@ -986,7 +995,7 @@ export function createExperimentalBots(initialBalance: number = 2000): Map<strin
     allowedQuadrants: CONTRARIAN_QUADRANTS,
     longOnly: false,
     feePercent: 0.04,
-    slippagePercent: 0.05,
+    slippagePercent: 0.15,  // Realistic alt slippage (was 0.05)
   }));
 
   return bots;
