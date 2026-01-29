@@ -4,10 +4,68 @@
 
 ## Summary
 
-- Iterations completed: 38
-- Current status: Conditional Insurance Implemented
+- Iterations completed: 39
+- Current status: Paper vs Live Trading Investigation & Fixes
 
-## Current Task: Conditional Insurance Implementation (COMPLETE)
+## Current Task: Paper vs Live Discrepancy Investigation (COMPLETE)
+
+### Iteration 39 - Paper vs Live Trading Fixes
+**Date**: 2026-01-29
+**Status**: ✅ Complete
+
+**Goal**: Investigate why paper trading shows +$1,318 profit while live MEXC shows -$15 loss.
+
+**Root Causes Found**:
+
+1. **Paper trade logging had field name mismatch**:
+   - `ClosedPosition` used `realizedPnl` (lowercase l)
+   - `PaperPosition` expected `realizedPnL` (uppercase L)
+   - Result: Paper trades logged to Turso with empty PnL fields
+
+2. **Stress period detection reset on server restart**:
+   - `recentCloses` array was in-memory only
+   - Server restart = no historical data = `sampleSize: 0` = no stress detection
+   - Insurance logic couldn't trigger without stress period detection
+
+3. **Paper simulation had zero exit slippage**:
+   - SL/TP exits at exact target prices (unrealistic)
+   - Entry slippage was too optimistic (0.05% vs real 0.2-0.5%)
+
+**Fixes Implemented**:
+
+1. **Paper Trade Logging Fix** (`experimental-shadow-bots.ts`):
+   - Map `ClosedPosition` fields to `PaperPosition` format before logging
+   - `positionSize` → `marginUsed`
+   - `realizedPnl` → `realizedPnL`
+   - `realizedPnlPercent` → `realizedPnLPercent`
+
+2. **Stress Detection Bootstrap** (`web-server.ts`):
+   - On startup, query Turso for last 2 hours of closes
+   - Bootstrap `recentCloses` array from historical data
+   - Stress detection works immediately after restart
+
+3. **Exit Slippage** (`experimental-shadow-bots.ts`):
+   - SL exits: 2x entry slippage (volatility = worse fills)
+   - TP exits: 1x entry slippage
+   - Increased base slippage: 0.05% → 0.15%
+
+**MANTA Investigation Results**:
+- MANTA closed via SL at -8.08% ROE (both paper AND live)
+- Entry: $0.0744672, Exit: $0.0741693 (SL), Current: $0.07519
+- Both paper and live had identical exit reason/price
+- No paper vs live discrepancy on this specific trade
+- Total live 3-day stats: 370 trailing wins, 291 SL losses
+
+**Commits**:
+- `acad0e0` fix: Paper trade logging field name mismatch
+- `f88e3dd` fix: Bootstrap stress detection from Turso historical data
+- `2cc0600` fix: Add realistic exit slippage to paper simulation
+
+**Deployed to Render**: Pushed to main, auto-deploy triggered
+
+---
+
+## Previous Task: Conditional Insurance Implementation (COMPLETE)
 
 ### Iteration 38 - Conditional Insurance Toggle
 **Date**: 2026-01-29
