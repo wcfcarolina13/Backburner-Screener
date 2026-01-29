@@ -692,9 +692,20 @@ class ExperimentalShadowBot extends EventEmitter {
           this.peakBalance = this.balance;
         }
 
-        // Log trade close
+        // Log trade close - map ClosedPosition fields to PaperPosition format
         const dataPersistence = getDataPersistence();
-        dataPersistence.logTradeClose(this.config.botId, closedPos as any, this.executionMode);
+        const paperPosFormat = {
+          ...closedPos,
+          marketType: 'futures' as const,
+          timeframe: '5m',
+          marginUsed: closedPos.positionSize,  // Map positionSize to marginUsed
+          notionalSize: closedPos.positionSize * closedPos.leverage,
+          realizedPnL: closedPos.realizedPnl,  // Map lowercase to uppercase
+          realizedPnLPercent: closedPos.realizedPnlPercent,  // Map lowercase to uppercase
+          highestPnlPercent: closedPos.highestPnlPercent,
+          trailActivated: closedPos.trailActivated,
+        };
+        dataPersistence.logTradeClose(this.config.botId, paperPosFormat as any, this.executionMode);
       }
     }
 
