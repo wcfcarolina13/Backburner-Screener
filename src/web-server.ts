@@ -278,6 +278,8 @@ interface ServerSettings {
   mexcMaxLeverage: number;            // Override: cap leverage at this value
   mexcAutoExecute: boolean;           // Full automation: auto-execute in live mode
   mexcExecutionMode: 'dry_run' | 'shadow' | 'live';  // Persisted execution mode
+  // Conditional Insurance - only activate during stress periods
+  conditionalInsuranceEnabled: boolean;
 }
 
 // Default bot notification settings - top performers enabled by default
@@ -319,6 +321,8 @@ const serverSettings: ServerSettings = {
   mexcMaxLeverage: 20,
   mexcAutoExecute: false,
   mexcExecutionMode: 'dry_run',
+  // Conditional insurance: enabled by default (backtest showed +$706 improvement)
+  conditionalInsuranceEnabled: true,
 };
 
 // Load server settings from disk first, then Turso fallback (for Render ephemeral filesystem)
@@ -3331,6 +3335,54 @@ app.post('/api/mexc/bot-selection', express.json(), (req, res) => {
     positionSizePct: serverSettings.mexcPositionSizePct,
     maxLeverage: serverSettings.mexcMaxLeverage,
     autoExecute: serverSettings.mexcAutoExecute,
+  });
+});
+
+// Toggle conditional insurance (stress-period protection)
+app.post('/api/mexc/conditional-insurance', express.json(), (req, res) => {
+  const { enabled } = req.body;
+
+  if (typeof enabled !== 'boolean') {
+    res.json({ success: false, error: 'enabled must be a boolean' });
+    return;
+  }
+
+  serverSettings.conditionalInsuranceEnabled = enabled;
+
+  // Apply to all experimental bots that support insurance
+  for (const [botId, bot] of experimentalBots) {
+    if (bot.isConditionalInsuranceEnabled !== undefined) {
+      bot.setConditionalInsurance(enabled);
+    }
+  }
+
+  saveServerSettings();
+
+  const { winRate, sampleSize } = experimentalBots.get('exp-bb-sysB')?.getRecentWinRate() || { winRate: 0, sampleSize: 0 };
+
+  console.log(`[INSURANCE] Conditional insurance ${enabled ? 'ENABLED' : 'DISABLED'} | Current WR: ${winRate.toFixed(0)}% (${sampleSize} trades)`);
+
+  res.json({
+    success: true,
+    enabled: serverSettings.conditionalInsuranceEnabled,
+    currentWinRate: winRate,
+    sampleSize,
+  });
+});
+
+// Get conditional insurance status
+app.get('/api/mexc/conditional-insurance', (req, res) => {
+  const bot = experimentalBots.get('exp-bb-sysB');
+  const { winRate, sampleSize } = bot?.getRecentWinRate() || { winRate: 0, sampleSize: 0 };
+  const isStress = winRate < 50 && sampleSize >= 3;
+
+  res.json({
+    enabled: serverSettings.conditionalInsuranceEnabled,
+    currentWinRate: winRate,
+    sampleSize,
+    isStressPeriod: isStress,
+    thresholdPercent: 2,  // Hardcoded for now, could make configurable
+    stressWinRateThreshold: 50,
   });
 });
 
@@ -6404,6 +6456,14 @@ async function main() {
 
   // Wire up insurance callbacks for experimental bots (MEXC half-close on stress period gains)
   wireUpInsuranceCallbacks();
+
+  // Sync conditional insurance setting from persisted settings
+  for (const [botId, bot] of experimentalBots) {
+    if (bot.setConditionalInsurance) {
+      bot.setConditionalInsurance(serverSettings.conditionalInsuranceEnabled);
+    }
+  }
+  console.log(`[INSURANCE] Conditional insurance: ${serverSettings.conditionalInsuranceEnabled ? 'ENABLED' : 'DISABLED'}`);
 
   // Restore experimental bot state (critical for trailing stop persistence across restarts)
   for (const [botId, bot] of experimentalBots) {
