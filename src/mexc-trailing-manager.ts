@@ -64,7 +64,7 @@ export class MexcTrailingManager {
     exitPrice?: number;
     reason: string;
     closedAt: string;
-    roe?: number;
+    realizedPnl?: number;  // Actual $ PnL from MEXC
   }> = [];
 
   constructor(config?: Partial<TrailingManagerConfig>) {
@@ -81,7 +81,7 @@ export class MexcTrailingManager {
   /**
    * Record a position close for tracking
    */
-  recordClose(symbol: string, direction: string, entryPrice: number, reason: string, exitPrice?: number, roe?: number): void {
+  recordClose(symbol: string, direction: string, entryPrice: number, reason: string, exitPrice?: number, realizedPnl?: number): void {
     this.recentCloses.push({
       symbol,
       direction,
@@ -89,7 +89,7 @@ export class MexcTrailingManager {
       exitPrice,
       reason,
       closedAt: new Date().toISOString(),
-      roe,
+      realizedPnl,
     });
     // Keep only last 50
     if (this.recentCloses.length > 50) {

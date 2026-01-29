@@ -2502,6 +2502,12 @@ let cachedMexcAvailableBalance: number = 0;
 let cachedMexcEquity: number = 0;
 let lastBalanceFetchTime: number = 0;
 
+// Track cumulative MEXC realized PnL (for comparison with paper bot)
+let mexcTotalRealizedPnl: number = 0;
+let mexcTotalTrades: number = 0;
+let mexcWins: number = 0;
+let mexcLosses: number = 0;
+
 async function fetchMexcBalance(): Promise<{ equity: number; available: number } | null> {
   const client = initMexcClient();
   if (!client) return null;
@@ -3343,6 +3349,12 @@ app.get('/api/debug/paper-vs-live', async (req, res) => {
         openPositions: livePositions.length,
         pendingOrders: pendingQueue.length,
         recentCloses: recentMexcCloses.length,
+        // ACTUAL MEXC results (not paper simulation)
+        mexcRealizedPnl: mexcTotalRealizedPnl,
+        mexcTotalTrades,
+        mexcWins,
+        mexcLosses,
+        mexcWinRate: mexcTotalTrades > 0 ? (mexcWins / mexcTotalTrades * 100) : 0,
       },
 
       positionComparison: comparison,
@@ -3360,13 +3372,24 @@ app.get('/api/debug/paper-vs-live', async (req, res) => {
         timestamp: o.timestamp,
       })),
 
-      insights: [
-        sizeRatio > 5 ? `⚠️ Paper positions are ${sizeRatio.toFixed(1)}x larger than live - scale paper PnL by /${sizeRatio.toFixed(1)} for comparison` : null,
-        comparison.some(c => c.entryPriceDiff && Math.abs(c.entryPriceDiff) > 0.1) ? '⚠️ Entry price differences detected between paper and live' : null,
-        comparison.some(c => c.slPriceDiff && Math.abs(c.slPriceDiff) > 0.5) ? '⚠️ Stop loss price differences detected' : null,
-        comparison.some(c => c.paper && !c.live) ? '⚠️ Some paper positions have no live equivalent' : null,
-        comparison.some(c => c.live && !c.paper) ? '⚠️ Some live positions have no paper equivalent (orphaned)' : null,
-      ].filter(Boolean),
+      insights: (() => {
+        const paperPnl = Number(paperStats.totalPnl) || 0;
+        const scaledPaperPnl = paperPnl / sizeRatio;
+        return [
+          sizeRatio > 5 ? `⚠️ Paper positions are ${sizeRatio.toFixed(1)}x larger than live - scale paper PnL by /${sizeRatio.toFixed(1)} for comparison` : null,
+          comparison.some(c => c.entryPriceDiff && Math.abs(c.entryPriceDiff) > 0.1) ? '⚠️ Entry price differences detected between paper and live' : null,
+          comparison.some(c => c.slPriceDiff && Math.abs(c.slPriceDiff) > 0.5) ? '⚠️ Stop loss price differences detected' : null,
+          comparison.some(c => c.paper && !c.live) ? '⚠️ Some paper positions have no live equivalent' : null,
+          comparison.some(c => c.live && !c.paper) ? '⚠️ Some live positions have no paper equivalent (orphaned)' : null,
+          // Compare paper scaled PnL vs actual MEXC PnL
+          mexcTotalTrades > 0 && paperPnl > 0
+            ? `📊 Paper PnL: $${paperPnl.toFixed(2)} → Scaled (/${sizeRatio.toFixed(1)}): $${scaledPaperPnl.toFixed(2)} | ACTUAL MEXC: $${mexcTotalRealizedPnl.toFixed(2)}`
+            : null,
+          mexcTotalTrades > 0 && Math.abs(scaledPaperPnl - mexcTotalRealizedPnl) > 5
+            ? `🚨 DISCREPANCY: Scaled paper ($${scaledPaperPnl.toFixed(2)}) vs MEXC ($${mexcTotalRealizedPnl.toFixed(2)}) = $${(scaledPaperPnl - mexcTotalRealizedPnl).toFixed(2)} unexplained`
+            : null,
+        ].filter(Boolean);
+      })(),
     });
   } catch (error) {
     res.json({ success: false, error: (error as Error).message });
@@ -7220,6 +7243,52 @@ async function main() {
                   const hadTP = order.takeProfitPrice && order.takeProfitPrice > 0;
                   order.status = 'closed';
                   order.closedAt = Date.now();
+
+                  // CRITICAL: Fetch actual MEXC trade history to get real PnL
+                  try {
+                    const history = await client.getOrderHistory(futuresSymbol, 1, 10);
+                    if (history.success && history.data && history.data.length > 0) {
+                      // Find the close order (side 2 = close short, side 4 = close long)
+                      const closeOrders = history.data.filter(o =>
+                        (o.side === 2 || o.side === 4) && o.state === 3 // state 3 = filled
+                      );
+                      if (closeOrders.length > 0) {
+                        const lastClose = closeOrders[0];
+                        order.closedPnl = lastClose.profit;
+                        const exitPrice = lastClose.dealAvgPrice;
+                        const fees = (lastClose.takerFee || 0) + (lastClose.makerFee || 0);
+                        console.log(`[MEXC-SYNC] ${order.symbol} ACTUAL MEXC RESULT: PnL=$${lastClose.profit.toFixed(4)} | Exit=$${exitPrice.toFixed(6)} | Fees=$${fees.toFixed(4)}`);
+                        logBotDecision(order.bot, order.symbol, 'mexc_close_result', `REAL PnL: $${lastClose.profit.toFixed(4)} | Exit: $${exitPrice.toFixed(6)} | Fees: $${fees.toFixed(4)}`);
+
+                        // Update cumulative MEXC stats
+                        mexcTotalRealizedPnl += lastClose.profit;
+                        mexcTotalTrades++;
+                        if (lastClose.profit > 0) {
+                          mexcWins++;
+                        } else {
+                          mexcLosses++;
+                        }
+                        const mexcWinRate = mexcTotalTrades > 0 ? (mexcWins / mexcTotalTrades * 100) : 0;
+                        console.log(`[MEXC-STATS] Cumulative: $${mexcTotalRealizedPnl.toFixed(2)} | ${mexcTotalTrades} trades | WR: ${mexcWinRate.toFixed(0)}%`);
+
+                        // Track in trailing manager for comparison API
+                        const trackedPos = trailingManager.getPosition(futuresSymbol);
+                        if (trackedPos) {
+                          trailingManager.recordClose(
+                            futuresSymbol,
+                            trackedPos.direction,
+                            trackedPos.entryPrice,
+                            'mexc_sl_or_close',
+                            exitPrice,
+                            lastClose.profit
+                          );
+                        }
+                      }
+                    }
+                  } catch (historyErr) {
+                    console.error(`[MEXC-SYNC] Failed to fetch order history for ${futuresSymbol}:`, (historyErr as Error).message);
+                  }
+
                   logBotDecision(order.bot, order.symbol, 'position_closed', `MEXC position no longer open (had SL: ${hadSL}, TP: ${hadTP})`);
                   console.log(`[MEXC-SYNC] ${order.symbol} position closed on MEXC — marking queue order as closed`);
 
