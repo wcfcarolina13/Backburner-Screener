@@ -115,10 +115,43 @@ At 20x leverage, even a 20% ROI SL only gives 1% price distance. The fix needs t
 - Stop Loss Bug Backtest
 - Result: Bot IS profitable with corrected SL ($2,881 over 7 days)
 
-## Current Task: Scaling-In Strategy Backtests
+## Current Task: Advanced Strategy Backtests
 
 **Priority**: Active
 **Status**: In Progress
+
+### Queued Backtests
+
+4. [x] **Backtest 4: Combined Insurance + Two-Tranche Scaling-In** ✅
+   - **Results** (1,146 trades with peak data):
+     - Baseline: $8,904.65
+     - Insurance only: $9,610.64 (+$706)
+     - Scaling only: $9,771.90 (+$867)
+     - **Combined: $10,004.76 (+$1,100)**
+   - **Finding**: Combined is BEST but shows diminishing returns (-$473 vs additive)
+   - Both strategies protect similar trades → overlap reduces synergy
+   - Script: `scripts/backtest-combined-strategies.ts`
+
+5. [x] **Backtest 5: BTC Price Action as Stress Signal** ❌
+   - **Results**: BTC-based stress UNDERPERFORMS hourly WR by $652
+     - Hourly WR <50%: $9,610.64 (+$706, 266 triggers)
+     - BTC >= +1%: $8,958.31 (+$54, 32 triggers)
+   - **Problem**: BTC threshold triggers too rarely (only 32 vs 266)
+   - **Conclusion**: Hourly WR catches more stress periods → keep it
+   - Script: `scripts/backtest-btc-stress-signal.ts`
+
+6. [x] **Backtest 6: Volume-Based Stress Detection** ❌
+   - **Results**: ALL volume-based strategies HURT performance
+     - Vol >= 1.5x: -$767 vs baseline
+     - Vol >= 2.0x: -$582 vs baseline
+     - Vol + BTC direction: Still negative
+   - **Distribution insight**: Vol > 3x actually has 100% WR (10 trades)
+   - **Conclusion**: Volume spikes don't reliably indicate stress for this strategy
+   - Script: `scripts/backtest-volume-stress.ts`
+
+---
+
+### Completed Backtests
 
 ### Observation from Insurance Analysis (2026-01-28)
 - Insurance strategy HURTS overall PnL (-$143 at 2% threshold over 7 days)
