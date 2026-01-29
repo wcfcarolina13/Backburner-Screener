@@ -7173,29 +7173,42 @@ async function main() {
           broadcast('position_closed', { bot: botId, position: closedPos });
 
           // Close corresponding MEXC live position if this bot is selected for execution
+          // IMPORTANT: Only close MEXC for trailing_stop exits (we manage trailing ourselves)
+          // For stop_loss exits, let MEXC's own SL trigger - paper bot uses different leverage math
+          // and would close MEXC positions prematurely (paper=20x, MEXC=10x means paper SL triggers sooner)
           if (getMexcExecutionMode() === 'live' && serverSettings.mexcSelectedBots.includes(botId)) {
-            const client = initMexcClient();
-            if (client) {
-              const futuresSymbol = spotSymbolToFutures(closedPos.symbol);
-              try {
-                const closeResult = await client.closePosition(futuresSymbol);
-                if (closeResult.success) {
-                  console.log(`[MEXC-EXIT] Closed ${futuresSymbol} ${closedPos.direction} | Reason: ${closedPos.exitReason} | Paper PnL: $${closedPos.realizedPnl.toFixed(2)}`);
-                } else {
-                  console.error(`[MEXC-EXIT] Failed to close ${futuresSymbol}: ${closeResult.error}`);
-                }
-              } catch (err) {
-                console.error(`[MEXC-EXIT] Error closing ${futuresSymbol}:`, (err as Error).message);
-              }
+            const futuresSymbol = spotSymbolToFutures(closedPos.symbol);
 
-              // Stop trailing manager tracking for this position
-              if (trailingManager.isTracking(futuresSymbol)) {
-                trailingManager.stopTracking(futuresSymbol);
-                if (isTursoConfigured()) {
-                  deleteTrailingPosition(futuresSymbol).catch(e =>
-                    console.error(`[TRAIL-MGR] Turso delete failed for ${futuresSymbol}:`, e)
-                  );
+            // Only actively close MEXC for trailing stops (we manage those)
+            // SL exits: MEXC has its own SL order that will fire - don't double-close
+            const shouldCloseMexc = closedPos.exitReason === 'trailing_stop' ||
+                                    closedPos.exitReason === 'insurance_be';
+
+            if (shouldCloseMexc) {
+              const client = initMexcClient();
+              if (client) {
+                try {
+                  const closeResult = await client.closePosition(futuresSymbol);
+                  if (closeResult.success) {
+                    console.log(`[MEXC-EXIT] Closed ${futuresSymbol} ${closedPos.direction} | Reason: ${closedPos.exitReason} | Paper PnL: $${closedPos.realizedPnl.toFixed(2)}`);
+                  } else {
+                    console.error(`[MEXC-EXIT] Failed to close ${futuresSymbol}: ${closeResult.error}`);
+                  }
+                } catch (err) {
+                  console.error(`[MEXC-EXIT] Error closing ${futuresSymbol}:`, (err as Error).message);
                 }
+              }
+            } else {
+              console.log(`[MEXC-EXIT] Skipping close for ${futuresSymbol} (${closedPos.exitReason}) — letting MEXC SL handle it`);
+            }
+
+            // Stop trailing manager tracking for this position regardless
+            if (trailingManager.isTracking(futuresSymbol)) {
+              trailingManager.stopTracking(futuresSymbol);
+              if (isTursoConfigured()) {
+                deleteTrailingPosition(futuresSymbol).catch(e =>
+                  console.error(`[TRAIL-MGR] Turso delete failed for ${futuresSymbol}:`, e)
+                );
               }
             }
           }
