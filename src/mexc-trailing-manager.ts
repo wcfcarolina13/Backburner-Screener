@@ -30,6 +30,10 @@ export interface TrackedPosition {
   planOrderCreatedAt: number;  // Timestamp for 7-day renewal
   botId: string;               // Which bot owns this
   startedAt: number;           // When tracking began
+  // Insurance tracking (conditional half-close during stress periods)
+  halfClosed?: boolean;        // Whether insurance was triggered
+  halfClosedAt?: number;       // When insurance was triggered
+  halfClosedPnl?: number;      // Locked profit from half close
 }
 
 export interface TrailingManagerConfig {

@@ -4,10 +4,49 @@
 
 ## Summary
 
-- Iterations completed: 37
-- Current status: Scaling-In Backtests Complete
+- Iterations completed: 38
+- Current status: Conditional Insurance Implemented
 
-## Current Task: Scaling-In Strategy Backtests (COMPLETE)
+## Current Task: Conditional Insurance Implementation (COMPLETE)
+
+### Iteration 38 - Conditional Insurance Toggle
+**Date**: 2026-01-29
+**Status**: ✅ Complete
+
+**Goal**: Implement conditional insurance as a toggle in the exp-bb-sysB bot.
+
+**Implementation**:
+
+1. **Paper Bot Logic** (`experimental-shadow-bots.ts`):
+   - Added config: `useConditionalInsurance`, `insuranceThresholdPercent`, `insuranceStressWinRateThreshold`
+   - Added position tracking: `insuranceTaken`, `insuranceTakenAt`, `insurancePnlLocked`, `originalPositionSize`
+   - Added `isStressPeriod()` method using rolling 2-hour win rate
+   - Added insurance trigger in `updatePrices()`: when ROE >= threshold AND stress period
+   - Insurance action: halve position, lock profit, move SL to breakeven
+
+2. **MEXC Integration** (`web-server.ts`):
+   - Added `handleInsuranceTriggered()` function for live execution
+   - Closes half position on MEXC, moves SL to breakeven
+   - Wired up via `onInsuranceTriggered` callback
+
+3. **Trailing Manager** (`mexc-trailing-manager.ts`):
+   - Added `halfClosed`, `halfClosedAt`, `halfClosedPnl` fields
+
+**Bot Configuration**:
+```typescript
+// exp-bb-sysB now runs with:
+useConditionalInsurance: true,
+insuranceThresholdPercent: 2,     // Lock profit at 2% ROE
+insuranceStressWinRateThreshold: 50  // Only during WR < 50% hours
+```
+
+**Expected Impact** (from backtest):
+- +$706 improvement over 7 days
+- Turns -$280 stress losses into +$426 gains
+
+---
+
+## Previous Task: Scaling-In Strategy Backtests (COMPLETE)
 
 ### Iteration 37 - Entry Scaling & Insurance Backtests
 **Date**: 2026-01-29

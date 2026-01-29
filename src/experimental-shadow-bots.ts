@@ -55,6 +55,11 @@ interface ShadowPosition {
   highestPnlPercent: number;
   entryBias?: BiasLevel;
   entryQuadrant?: Quadrant;
+  // Insurance tracking
+  insuranceTaken: boolean;
+  insuranceTakenAt?: number;
+  insurancePnlLocked?: number;  // $ locked in from insurance sell
+  originalPositionSize?: number;  // Size before insurance halved it
 }
 
 interface ClosedPosition extends ShadowPosition {
@@ -107,7 +112,15 @@ interface ExperimentalBotConfig {
   // Fees
   feePercent: number;
   slippagePercent: number;
+
+  // Conditional Insurance settings (optional - defaults to disabled)
+  useConditionalInsurance?: boolean;
+  insuranceThresholdPercent?: number;  // ROE% at which to take insurance (e.g., 2)
+  insuranceStressWinRateThreshold?: number;  // WR% below which is "stress" (e.g., 50)
 }
+
+// Internal config with all optional fields resolved to required
+type ResolvedBotConfig = Required<ExperimentalBotConfig>;
 
 // ============= Signal Ratio Regime Detector =============
 
@@ -174,8 +187,14 @@ class SignalRatioRegimeDetector {
 
 // ============= Base Experimental Shadow Bot =============
 
+// Track recent closes for hourly win rate calculation
+interface HourlyCloseRecord {
+  timestamp: number;
+  isWin: boolean;
+}
+
 class ExperimentalShadowBot extends EventEmitter {
-  protected config: ExperimentalBotConfig;
+  protected config: ResolvedBotConfig;
   protected positions: Map<string, ShadowPosition> = new Map();
   protected closedPositions: ClosedPosition[] = [];
   protected balance: number;
@@ -184,9 +203,21 @@ class ExperimentalShadowBot extends EventEmitter {
   protected lastBiasResult: SystemBBiasResult | null = null;
   protected executionMode: string = 'paper';
 
+  // For conditional insurance: track recent closes to calculate hourly win rate
+  protected recentCloses: HourlyCloseRecord[] = [];
+
+  // Callback for when insurance is triggered (used by web-server to close half on MEXC)
+  public onInsuranceTriggered?: (position: ShadowPosition, lockedPnl: number) => void;
+
   constructor(config: ExperimentalBotConfig) {
     super();
-    this.config = config;
+    // Apply defaults for optional insurance settings
+    this.config = {
+      ...config,
+      useConditionalInsurance: config.useConditionalInsurance ?? false,
+      insuranceThresholdPercent: config.insuranceThresholdPercent ?? 2,
+      insuranceStressWinRateThreshold: config.insuranceStressWinRateThreshold ?? 50,
+    };
     this.balance = config.initialBalance;
     this.peakBalance = config.initialBalance;
     this.regimeDetector = new SignalRatioRegimeDetector();
@@ -213,6 +244,43 @@ class ExperimentalShadowBot extends EventEmitter {
   // Update current bias from System B
   updateBias(biasResult: SystemBBiasResult): void {
     this.lastBiasResult = biasResult;
+  }
+
+  // Check if we're in a "stress" period (low hourly win rate)
+  protected isStressPeriod(): boolean {
+    if (!this.config.useConditionalInsurance) return false;
+
+    // Keep only last 2 hours of closes for rolling window
+    const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+    this.recentCloses = this.recentCloses.filter(c => c.timestamp > twoHoursAgo);
+
+    // Need at least 3 closes to make a determination
+    if (this.recentCloses.length < 3) return false;
+
+    const wins = this.recentCloses.filter(c => c.isWin).length;
+    const winRate = (wins / this.recentCloses.length) * 100;
+
+    return winRate < this.config.insuranceStressWinRateThreshold;
+  }
+
+  // Get current hourly win rate (for display/logging)
+  getRecentWinRate(): { winRate: number; sampleSize: number } {
+    const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+    const recent = this.recentCloses.filter(c => c.timestamp > twoHoursAgo);
+    if (recent.length === 0) return { winRate: 0, sampleSize: 0 };
+    const wins = recent.filter(c => c.isWin).length;
+    return { winRate: (wins / recent.length) * 100, sampleSize: recent.length };
+  }
+
+  // Check if conditional insurance is enabled
+  isConditionalInsuranceEnabled(): boolean {
+    return this.config.useConditionalInsurance;
+  }
+
+  // Toggle conditional insurance on/off
+  setConditionalInsurance(enabled: boolean): void {
+    this.config.useConditionalInsurance = enabled;
+    console.log(`[EXP:${this.config.botId}] Conditional insurance ${enabled ? 'ENABLED' : 'DISABLED'}`);
   }
 
   // Check if setup passes bias filter
@@ -348,6 +416,7 @@ class ExperimentalShadowBot extends EventEmitter {
       highestPnlPercent: 0,
       entryBias: biasCheck.bias,
       entryQuadrant: regimeCheck.quadrant,
+      insuranceTaken: false,
     };
 
     this.positions.set(existingKey, position);
@@ -434,6 +503,7 @@ class ExperimentalShadowBot extends EventEmitter {
       highestPnlPercent: 0,
       entryBias: biasCheck.bias,
       entryQuadrant: regimeCheck.quadrant,
+      insuranceTaken: false,
     };
 
     this.positions.set(existingKey, position);
@@ -466,6 +536,39 @@ class ExperimentalShadowBot extends EventEmitter {
       // Track highest P&L
       if (position.unrealizedPnlPercent > position.highestPnlPercent) {
         position.highestPnlPercent = position.unrealizedPnlPercent;
+      }
+
+      // CONDITIONAL INSURANCE: During stress periods, lock in half when hitting threshold
+      if (
+        this.config.useConditionalInsurance &&
+        !position.insuranceTaken &&
+        position.unrealizedPnlPercent >= this.config.insuranceThresholdPercent &&
+        this.isStressPeriod()
+      ) {
+        // Take insurance: sell half, lock in profit, move SL to breakeven
+        position.insuranceTaken = true;
+        position.insuranceTakenAt = Date.now();
+        position.originalPositionSize = position.positionSize;
+
+        // Calculate locked profit from half the position at insurance threshold
+        const halfSize = position.positionSize / 2;
+        const lockedPnlPercent = this.config.insuranceThresholdPercent;
+        const lockedPnl = halfSize * (lockedPnlPercent / 100);
+        position.insurancePnlLocked = lockedPnl;
+
+        // Reduce position size (remaining half rides)
+        position.positionSize = halfSize;
+
+        // Move stop loss to breakeven for remaining half
+        position.stopLoss = position.entryPrice;
+
+        const { winRate, sampleSize } = this.getRecentWinRate();
+        console.log(`[EXP:${this.config.botId}] 🛡️ INSURANCE triggered for ${position.symbol} @ ${position.unrealizedPnlPercent.toFixed(1)}% ROE | Locked $${lockedPnl.toFixed(2)} | Stress WR: ${winRate.toFixed(0)}% (${sampleSize} trades)`);
+
+        // Notify callback (used by web-server to close half on MEXC)
+        if (this.onInsuranceTriggered) {
+          this.onInsuranceTriggered(position, lockedPnl);
+        }
       }
 
       // Check trail activation
@@ -551,6 +654,19 @@ class ExperimentalShadowBot extends EventEmitter {
           netPnlPercent = (netPnl / position.positionSize) * 100;
         }
 
+        // If insurance was taken, add the locked profit to total PnL
+        if (position.insuranceTaken && position.insurancePnlLocked) {
+          netPnl += position.insurancePnlLocked;
+          // Recalculate percent based on original position size
+          const originalSize = position.originalPositionSize || position.positionSize * 2;
+          netPnlPercent = (netPnl / originalSize) * 100;
+
+          // Update exit reason to indicate insurance was used
+          if (exitReason === 'stop_loss') {
+            exitReason = 'insurance_be';  // Hit breakeven after insurance
+          }
+        }
+
         const closedPos: ClosedPosition = {
           ...position,
           exitPrice,
@@ -563,6 +679,12 @@ class ExperimentalShadowBot extends EventEmitter {
         this.closedPositions.push(closedPos);
         closedThisUpdate.push(closedPos);
         this.positions.delete(key);
+
+        // Track this close for win rate calculation (used by conditional insurance)
+        this.recentCloses.push({
+          timestamp: Date.now(),
+          isWin: netPnl > 0,
+        });
 
         // Update balance
         this.balance += netPnl;
@@ -715,6 +837,7 @@ export function createExperimentalBots(initialBalance: number = 2000): Map<strin
   // ============= Backburner + System B Experiments =============
 
   // BB + System B (Multi-Indicator) - All quadrants
+  // Conditional insurance: sell half at 2% ROE when hourly WR < 50%, move SL to breakeven
   bots.set('exp-bb-sysB', new ExperimentalShadowBot({
     botId: 'exp-bb-sysB',
     description: 'BB + System B bias filter',
@@ -733,6 +856,10 @@ export function createExperimentalBots(initialBalance: number = 2000): Map<strin
     longOnly: false,
     feePercent: 0.04,
     slippagePercent: 0.05,
+    // Conditional insurance: only during stress periods (WR < 50%)
+    useConditionalInsurance: true,
+    insuranceThresholdPercent: 2,
+    insuranceStressWinRateThreshold: 50,
   }));
 
   // BB + System B + Contrarian quadrants only

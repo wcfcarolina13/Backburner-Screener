@@ -2934,6 +2934,102 @@ app.post('/api/mexc/cleanup-orders', express.json(), async (req, res) => {
   }
 });
 
+// Handle insurance trigger from experimental bots
+// When insurance triggers: close half position on MEXC, update SL to breakeven
+async function handleInsuranceTriggered(
+  botId: string,
+  position: { symbol: string; direction: 'long' | 'short'; entryPrice: number },
+  lockedPnl: number
+): Promise<void> {
+  if (getMexcExecutionMode() !== 'live') {
+    console.log(`[INSURANCE] ${botId} triggered for ${position.symbol} but mode is not live - paper only`);
+    return;
+  }
+
+  if (!serverSettings.mexcSelectedBots.includes(botId)) {
+    console.log(`[INSURANCE] ${botId} not in selected bots - paper only`);
+    return;
+  }
+
+  const client = initMexcClient();
+  if (!client) {
+    console.log(`[INSURANCE] MEXC client not available`);
+    return;
+  }
+
+  // Convert to futures symbol format
+  const futuresSymbol = spotSymbolToFutures(position.symbol);
+
+  try {
+    // 1. Get current MEXC position
+    const posResult = await client.getPosition(futuresSymbol);
+    if (!posResult.success || !posResult.data) {
+      console.log(`[INSURANCE] No MEXC position found for ${futuresSymbol}`);
+      return;
+    }
+
+    const mexcPos = posResult.data;
+    const halfVol = Math.floor(mexcPos.holdVol / 2); // Floor to get integer contracts
+
+    if (halfVol < 1) {
+      console.log(`[INSURANCE] Position too small to split: ${mexcPos.holdVol} contracts`);
+      return;
+    }
+
+    const isLong = mexcPos.positionType === 1;
+
+    // 2. Close half the position (WITHOUT canceling plan orders)
+    console.log(`[INSURANCE] Closing half position: ${halfVol}/${mexcPos.holdVol} contracts of ${futuresSymbol}`);
+
+    const closeResult = isLong
+      ? await client.closeLong(futuresSymbol, halfVol, false) // false = don't cancel plan orders
+      : await client.closeShort(futuresSymbol, halfVol, false);
+
+    if (!closeResult.success) {
+      console.error(`[INSURANCE] Failed to close half: ${closeResult.error}`);
+      return;
+    }
+
+    console.log(`[INSURANCE] Half closed successfully. Locked ~$${lockedPnl.toFixed(2)} profit`);
+
+    // 3. Update SL to breakeven (entry price)
+    // First cancel existing SL, then create new one at entry price
+    await client.cancelAllPlanOrders(futuresSymbol);
+
+    const slResult = await client.setStopLoss(futuresSymbol, position.entryPrice);
+    if (slResult.success) {
+      console.log(`[INSURANCE] SL moved to breakeven @ $${position.entryPrice.toFixed(4)}`);
+    } else {
+      console.error(`[INSURANCE] Failed to set breakeven SL: ${slResult.error}`);
+    }
+
+    // Update trailing manager if it's tracking this position
+    const tracked = trailingManager.getPosition(futuresSymbol);
+    if (tracked) {
+      tracked.currentStopPrice = position.entryPrice;
+      tracked.halfClosed = true;
+      tracked.halfClosedAt = Date.now();
+      tracked.halfClosedPnl = lockedPnl;
+      if (slResult.data?.id) {
+        tracked.planOrderId = String(slResult.data.id);
+      }
+    }
+
+  } catch (err) {
+    console.error(`[INSURANCE] Error handling trigger:`, (err as Error).message);
+  }
+}
+
+// Wire up insurance callbacks for experimental bots
+function wireUpInsuranceCallbacks(): void {
+  for (const [botId, bot] of experimentalBots) {
+    bot.onInsuranceTriggered = (position, lockedPnl) => {
+      handleInsuranceTriggered(botId, position, lockedPnl);
+    };
+  }
+  console.log(`[INSURANCE] Wired up callbacks for ${experimentalBots.size} experimental bots`);
+}
+
 // Add order to execution queue (called by bots)
 export function addToMexcQueue(
   bot: string,
@@ -6305,6 +6401,9 @@ async function main() {
   for (const [botId, bot] of experimentalBots) {
     bot.setExecutionMode(getExecutionModeForBot(botId));
   }
+
+  // Wire up insurance callbacks for experimental bots (MEXC half-close on stress period gains)
+  wireUpInsuranceCallbacks();
 
   // Restore experimental bot state (critical for trailing stop persistence across restarts)
   for (const [botId, bot] of experimentalBots) {
