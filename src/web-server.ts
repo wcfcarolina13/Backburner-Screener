@@ -4986,6 +4986,29 @@ function getHtmlPage(): string {
 
           <hr style="border: none; border-top: 1px solid #30363d; margin: 20px 0;">
 
+          <h4 style="margin: 0 0 12px 0; color: #8b949e;">🛡️ Conditional Insurance</h4>
+          <p style="color: #6e7681; font-size: 12px; margin: 0 0 12px 0;">During stress periods (hourly win rate &lt;50%), automatically take partial profit at 2% ROE and move stop-loss to breakeven. Backtest showed +$706 improvement.</p>
+
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="conditionalInsuranceToggle" onchange="toggleConditionalInsurance(this.checked)" style="accent-color: #58a6ff; width: 18px; height: 18px;">
+              <span>Enable conditional insurance</span>
+            </label>
+          </div>
+
+          <div id="insuranceInfo" style="padding: 12px; background: #0d1117; border-radius: 8px; font-size: 12px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+              <span style="color: #8b949e;">Status:</span>
+              <span id="insuranceStatus" style="color: #6e7681;">Loading...</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: #8b949e;">Currently stressed:</span>
+              <span id="insuranceStressStatus" style="color: #6e7681;">-</span>
+            </div>
+          </div>
+
+          <hr style="border: none; border-top: 1px solid #30363d; margin: 20px 0;">
+
           <h4 style="margin: 0 0 12px 0; color: #8b949e;">💰 Investment Amount</h4>
           <p style="color: #6e7681; font-size: 12px; margin: 0 0 12px 0;">Sync your real MEXC investment to match ROI calculations with actual trades. This affects all tracked setups.</p>
 

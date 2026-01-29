@@ -154,6 +154,9 @@ function openSettings() {
   // Load daily reset settings from server
   loadDailyResetSettings();
 
+  // Load conditional insurance settings from server
+  loadConditionalInsuranceSettings();
+
   // Load notification settings from server
   loadNotificationSettings();
 
@@ -237,6 +240,58 @@ async function toggleDailyReset(enabled) {
     console.log('[Settings] Daily reset toggled:', data.enabled);
   } catch (err) {
     console.error('[Settings] Failed to toggle daily reset:', err);
+    alert('Failed to update setting: ' + err.message);
+  }
+}
+
+// Conditional Insurance functions
+async function loadConditionalInsuranceSettings() {
+  try {
+    const res = await fetch('/api/mexc/conditional-insurance');
+    const data = await res.json();
+
+    // Update checkbox
+    const toggle = document.getElementById('conditionalInsuranceToggle');
+    if (toggle) toggle.checked = data.enabled;
+
+    // Update status display
+    const statusEl = document.getElementById('insuranceStatus');
+    const stressEl = document.getElementById('insuranceStressStatus');
+
+    if (statusEl) {
+      statusEl.textContent = data.enabled ? 'Enabled' : 'Disabled';
+      statusEl.style.color = data.enabled ? '#3fb950' : '#6e7681';
+    }
+    if (stressEl) {
+      stressEl.textContent = data.currentlyStressed ? 'Yes (insurance active)' : 'No';
+      stressEl.style.color = data.currentlyStressed ? '#f0883e' : '#3fb950';
+    }
+
+    console.log('[Settings] Conditional insurance settings loaded:', data);
+  } catch (err) {
+    console.error('[Settings] Failed to load conditional insurance settings:', err);
+  }
+}
+
+async function toggleConditionalInsurance(enabled) {
+  try {
+    const res = await fetch('/api/mexc/conditional-insurance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled })
+    });
+    const data = await res.json();
+
+    // Update status display
+    const statusEl = document.getElementById('insuranceStatus');
+    if (statusEl) {
+      statusEl.textContent = data.enabled ? 'Enabled' : 'Disabled';
+      statusEl.style.color = data.enabled ? '#3fb950' : '#6e7681';
+    }
+
+    console.log('[Settings] Conditional insurance toggled:', data.enabled);
+  } catch (err) {
+    console.error('[Settings] Failed to toggle conditional insurance:', err);
     alert('Failed to update setting: ' + err.message);
   }
 }
