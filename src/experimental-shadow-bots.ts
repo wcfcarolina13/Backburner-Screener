@@ -628,6 +628,13 @@ class ExperimentalShadowBot extends EventEmitter {
             ? position.entryPrice + trailDistance
             : position.entryPrice - trailDistance;
 
+          const wouldUpdate = position.direction === 'long' ? newStop > position.stopLoss : newStop < position.stopLoss;
+
+          // Debug logging for high-profit positions
+          if (position.highestPnlPercent > 30 && wouldUpdate) {
+            console.log(`[TRAIL-DEBUG] ${position.symbol} peak=${position.highestPnlPercent.toFixed(1)}% trailStep=${currentTrailStep}% trailPnl=${trailPnl.toFixed(1)}% oldSL=$${position.stopLoss.toFixed(6)} newSL=$${newStop.toFixed(6)}`);
+          }
+
           if (position.direction === 'long' && newStop > position.stopLoss) {
             position.stopLoss = newStop;
           } else if (position.direction === 'short' && newStop < position.stopLoss) {
@@ -660,10 +667,22 @@ class ExperimentalShadowBot extends EventEmitter {
         exitReason = position.trailActivated ? 'trailing_stop' : 'stop_loss';
         // Long exit slippage = lower fill price
         exitPrice = position.stopLoss * (1 - exitSlippagePct / 100);
+        // Debug high-profit exits
+        if (position.highestPnlPercent > 20) {
+          const currentRoePct = ((currentPrice - position.entryPrice) / position.entryPrice) * 100 * position.leverage;
+          const slRoePct = ((position.stopLoss - position.entryPrice) / position.entryPrice) * 100 * position.leverage;
+          console.log(`[EXIT-DEBUG] ${position.symbol} LONG ${exitReason} | peak=${position.highestPnlPercent.toFixed(1)}% | SL ROE=${slRoePct.toFixed(1)}% | currentPrice ROE=${currentRoePct.toFixed(1)}% | entry=$${position.entryPrice} SL=$${position.stopLoss.toFixed(6)} price=$${currentPrice.toFixed(6)}`);
+        }
       } else if (!exitReason && position.direction === 'short' && currentPrice >= position.stopLoss) {
         exitReason = position.trailActivated ? 'trailing_stop' : 'stop_loss';
         // Short exit slippage = higher fill price
         exitPrice = position.stopLoss * (1 + exitSlippagePct / 100);
+        // Debug high-profit exits
+        if (position.highestPnlPercent > 20) {
+          const currentRoePct = ((position.entryPrice - currentPrice) / position.entryPrice) * 100 * position.leverage;
+          const slRoePct = ((position.entryPrice - position.stopLoss) / position.entryPrice) * 100 * position.leverage;
+          console.log(`[EXIT-DEBUG] ${position.symbol} SHORT ${exitReason} | peak=${position.highestPnlPercent.toFixed(1)}% | SL ROE=${slRoePct.toFixed(1)}% | currentPrice ROE=${currentRoePct.toFixed(1)}% | entry=$${position.entryPrice} SL=$${position.stopLoss.toFixed(6)} price=$${currentPrice.toFixed(6)}`);
+        }
       }
 
       // Take profit
