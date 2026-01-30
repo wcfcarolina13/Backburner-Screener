@@ -3900,6 +3900,22 @@ async function checkCookieHealth(): Promise<boolean> {
   }
 }
 
+// Debug: Raw MEXC order history for a symbol
+app.get('/api/mexc/raw-history/:symbol', async (req, res) => {
+  const client = initMexcClient();
+  if (!client) {
+    res.json({ success: false, error: 'MEXC client not configured' });
+    return;
+  }
+  const symbol = req.params.symbol;
+  try {
+    const history = await client.getOrderHistory(symbol, 1, 50);
+    res.json({ symbol, ...history });
+  } catch (err) {
+    res.json({ success: false, error: (err as Error).message });
+  }
+});
+
 // MEXC order history endpoint - fetches real trade history from MEXC
 app.get('/api/mexc/history', async (req, res) => {
   const client = initMexcClient();
