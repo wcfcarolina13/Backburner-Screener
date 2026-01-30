@@ -42,12 +42,15 @@ export function getTurso(): Client | null {
   return db;
 }
 
-// Initialize database schema
+// Initialize database schema with timeout protection for cold starts
 export async function initSchema(): Promise<void> {
   const client = initTurso();
   if (!client) return;
 
-  try {
+  // Wrap schema init in a timeout to prevent cold start hangs
+  const SCHEMA_TIMEOUT_MS = 30000; // 30 seconds
+
+  const schemaInit = async () => {
     // Trade events table
     await client.execute(`
       CREATE TABLE IF NOT EXISTS trade_events (
@@ -190,8 +193,19 @@ export async function initSchema(): Promise<void> {
     await client.execute(`CREATE INDEX IF NOT EXISTS idx_market_snapshots_date ON market_snapshots(date)`);
 
     console.log('[TURSO] Schema initialized');
+  };
+
+  // Create timeout promise
+  const timeout = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error('Turso schema init timed out after 30s')), SCHEMA_TIMEOUT_MS);
+  });
+
+  try {
+    await Promise.race([schemaInit(), timeout]);
   } catch (error) {
     console.error('[TURSO] Failed to initialize schema:', error);
+    console.log('[TURSO] Server will continue without database - trades will not be persisted');
+    // Don't throw - let server start anyway
   }
 }
 

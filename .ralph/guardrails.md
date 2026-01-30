@@ -113,6 +113,26 @@
 - **Instruction**: Local scripts need `TURSO_AUTH_TOKEN` environment variable. Check Render env vars or the deployed server for the token. The server gets it from Render's environment, not from local `.env`. For local testing, either: (1) export the token, (2) use the server's API endpoints instead of direct Turso queries.
 - **Added after**: Iteration 39 - Script failed with HTTP 401 when trying to query Turso locally without auth token.
 
+### Sign: Worktrees Are NOT Main — Check Before Deploying
+- **Trigger**: When working in a git worktree (path contains `.claude-worktrees` or working directory differs from `/Users/roti/gemini_projects/Backburner`)
+- **Instruction**:
+  1. **Check your location**: Run `pwd` and `git branch --show-current` at the start of each session
+  2. **Worktrees are sandboxes**: Changes in worktrees (e.g., `lucid-bardeen`) don't deploy until merged to `main`
+  3. **To deploy**: Must merge worktree branch → main, then push main to GitHub
+  4. **The correct flow**:
+     ```bash
+     # From worktree: commit changes
+     git add -A && git commit -m "message"
+     git push origin <branch-name>
+     # From MAIN repo: merge and push
+     cd /Users/roti/gemini_projects/Backburner
+     git fetch origin && git merge origin/<branch-name>
+     git push origin main
+     ```
+  5. **Never assume** the worktree branch IS main or that pushing the worktree deploys anything
+  6. **Check Render URL**: Production is `backburner.onrender.com`, NOT `lucid-bardeen.onrender.com`
+- **Added after**: Iteration 40 - Repeatedly confused worktree branch with main, tried to access wrong Render URL, and didn't realize changes weren't deployed. Wasted time debugging a "down" server that was actually just accessed at wrong URL.
+
 ### Sign: Use Server API Endpoints, Not Direct File Paths
 - **Trigger**: When debugging running Render server
 - **Instruction**: For Render deployments, use HTTP endpoints (e.g., `/api/export-trades`, `/api/debug/paper-vs-live`) rather than trying to read files or query Turso directly. The server is the authoritative source and has the tokens/connections. Before creating new endpoints, check what already exists by grepping for `app.get` or `app.post`.
