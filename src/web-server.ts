@@ -3895,6 +3895,96 @@ async function checkCookieHealth(): Promise<boolean> {
   }
 }
 
+// MEXC order history endpoint - fetches real trade history from MEXC
+app.get('/api/mexc/history', async (req, res) => {
+  const client = initMexcClient();
+  if (!client) {
+    res.json({ success: false, error: 'MEXC client not configured' });
+    return;
+  }
+
+  try {
+    // Get all symbols we might have traded
+    const positions = await client.getOpenPositions();
+    const symbols = new Set<string>();
+
+    // Add current positions
+    if (positions.success && positions.data) {
+      for (const pos of positions.data) {
+        symbols.add(pos.symbol);
+      }
+    }
+
+    // Fetch order history for each symbol
+    const allTrades: Array<{
+      symbol: string;
+      side: string;
+      entryPrice: number;
+      exitPrice: number;
+      volume: number;
+      profit: number;
+      leverage: number;
+      createTime: number;
+      closeTime: number;
+    }> = [];
+
+    // Also check recently closed symbols from our tracking
+    const recentSymbols = ['LRC_USDT', 'ZRO_USDT', 'FUN_USDT', 'INIT_USDT', 'GPS_USDT', 'FORM_USDT'];
+    for (const s of recentSymbols) symbols.add(s);
+
+    for (const symbol of symbols) {
+      try {
+        const history = await client.getOrderHistory(symbol, 1, 50);
+        if (history.success && history.data) {
+          for (const order of history.data) {
+            // Only include closed orders with realized profit
+            if (order.state === 3 && order.profit !== 0) { // state 3 = filled
+              allTrades.push({
+                symbol: order.symbol,
+                side: order.side === 1 || order.side === 4 ? 'long' : 'short',
+                entryPrice: order.price,
+                exitPrice: order.dealAvgPrice,
+                volume: order.vol,
+                profit: order.profit,
+                leverage: order.leverage,
+                createTime: order.createTime,
+                closeTime: order.updateTime,
+              });
+            }
+          }
+        }
+        // Rate limit between requests
+        await new Promise(r => setTimeout(r, 200));
+      } catch (e) {
+        console.error(`[MEXC-HISTORY] Failed to fetch history for ${symbol}:`, (e as Error).message);
+      }
+    }
+
+    // Sort by close time, most recent first
+    allTrades.sort((a, b) => b.closeTime - a.closeTime);
+
+    // Calculate summary
+    const totalProfit = allTrades.reduce((sum, t) => sum + t.profit, 0);
+    const wins = allTrades.filter(t => t.profit > 0).length;
+    const losses = allTrades.filter(t => t.profit < 0).length;
+
+    res.json({
+      success: true,
+      summary: {
+        totalTrades: allTrades.length,
+        totalProfit,
+        wins,
+        losses,
+        winRate: allTrades.length > 0 ? (wins / allTrades.length * 100).toFixed(1) : 0,
+      },
+      trades: allTrades.slice(0, 100), // Return last 100 trades
+    });
+  } catch (error) {
+    console.error('[MEXC-HISTORY] Error:', error);
+    res.json({ success: false, error: (error as Error).message });
+  }
+});
+
 // Cookie health check endpoint
 app.get('/api/mexc/cookie-health', async (req, res) => {
   // Run a fresh check if requested
