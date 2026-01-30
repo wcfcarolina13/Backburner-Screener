@@ -949,10 +949,8 @@ export function createExperimentalBots(initialBalance: number = 2000): Map<strin
     longOnly: false,
     feePercent: 0.04,
     slippagePercent: 0.15,  // Realistic alt slippage (was 0.05)
-    // Conditional insurance: only during stress periods (WR < 50%)
-    useConditionalInsurance: true,
-    insuranceThresholdPercent: 2,
-    insuranceStressWinRateThreshold: 50,
+    // DISABLED - insurance was cutting big winners in half (84% peak -> 40% exit)
+    useConditionalInsurance: false,
   }));
 
   // BB + System B + Contrarian quadrants only
