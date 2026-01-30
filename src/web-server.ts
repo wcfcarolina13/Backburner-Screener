@@ -3916,6 +3916,29 @@ app.get('/api/mexc/raw-history/:symbol', async (req, res) => {
   }
 });
 
+// Get closed position history from MEXC (cookie-based web endpoint)
+app.get('/api/mexc/position-history', async (req, res) => {
+  const client = initMexcClient();
+  if (!client) {
+    res.json({ success: false, error: 'MEXC client not configured' });
+    return;
+  }
+  try {
+    // Try both endpoints
+    const [historyResult, altResult] = await Promise.all([
+      client.getPositionHistory(1, 50),
+      client.getHistoricalPositions(),
+    ]);
+
+    res.json({
+      positionHistory: historyResult,
+      historicalPositions: altResult,
+    });
+  } catch (err) {
+    res.json({ success: false, error: (err as Error).message });
+  }
+});
+
 // MEXC order history endpoint - fetches real trade history from MEXC
 app.get('/api/mexc/history', async (req, res) => {
   const client = initMexcClient();

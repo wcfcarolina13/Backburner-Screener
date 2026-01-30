@@ -319,6 +319,24 @@ export class MexcFuturesClient {
   }
 
   /**
+   * Get closed position history (last N days)
+   * This uses the web interface endpoint for position history
+   */
+  async getPositionHistory(pageNum = 1, pageSize = 20): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    return this.makeRequest<any[]>('GET', '/private/position/list/history_positions', {
+      page_num: pageNum.toString(),
+      page_size: pageSize.toString(),
+    });
+  }
+
+  /**
+   * Alternative: Get all historical positions
+   */
+  async getHistoricalPositions(): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    return this.makeRequest<any[]>('GET', '/private/position/history_positions');
+  }
+
+  /**
    * Get position for a specific symbol
    */
   async getPosition(symbol: string): Promise<{ success: boolean; data?: MexcPosition; error?: string }> {
