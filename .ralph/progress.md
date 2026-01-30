@@ -4,8 +4,63 @@
 
 ## Summary
 
-- Iterations completed: 41
-- Current status: Real MEXC Trade Persistence + Profit-Tiered Trailing
+- Iterations completed: 43
+- Current status: MEXC Position History Backfill to Turso
+
+## Current Task: MEXC Position History Persistence
+
+### Iteration 44 - MEXC Position History Backfill to Turso
+**Date**: 2026-01-30
+**Status**: ✅ Complete
+
+**Goal**: Backfill closed MEXC positions to Turso on startup so we have historical trade data.
+
+**Background**:
+- MEXC standard order history API returns "Not Found" (broken since 2022)
+- Found `/private/position/list/history_positions` endpoint works via cookie auth
+- Created `/api/mexc/position-history` endpoint to fetch closed positions
+- Needed to persist this data to Turso for historical analysis
+
+**Implementation**:
+
+1. **Startup Backfill** (`src/web-server.ts`):
+   - Added step 5 to reconciliation IIFE: MEXC position history backfill
+   - Fetches last 100 closed positions via `getPositionHistory()`
+   - Queries Turso for existing `position_id` values with `bot_id='mexc-live'`
+   - Only inserts positions not already in database (deduplication)
+   - Maps MEXC position fields to `trade_events` schema
+
+2. **Data Mapping**:
+   - `positionId` → `position_id` (for deduplication)
+   - `positionType: 1` → `direction: 'long'`, `2` → `'short'`
+   - `holdAvgPrice` → `entry_price`
+   - `closeAvgPrice` → `exit_price`
+   - `realised` → `realized_pnl`
+   - Calculates `margin_used`, `notional_size`, `realized_pnl_percent`
+
+3. **Logging**:
+   - `[MEXC-BACKFILL] Found N closed positions to check`
+   - `[MEXC-BACKFILL] Inserted N new closed positions to Turso`
+   - `[MEXC-BACKFILL] All N positions already in Turso` (if no new ones)
+
+**Files Modified**:
+- `src/web-server.ts` - Added import for `insertTradeEvent`, `getTurso`; added backfill logic in reconciliation
+
+---
+
+### Iteration 43 - Insurance Disabled + MEXC Persistence Fix
+**Date**: 2026-01-30
+**Status**: ✅ Complete
+
+**Problem**: Paper bot lost $3,132 on Jan 30 despite having trades with 84% peak ROE. Insurance was halving big winners.
+
+**Root Cause**: Insurance triggers at 2% ROE, closes half position, moves SL to breakeven. Remaining half trails to 79%, but combined exit = (2% + 79%)/2 = 40.5% instead of 79%.
+
+**Fixes**:
+1. **Disabled insurance** in `src/experimental-shadow-bots.ts` - default changed to `false`
+2. **MEXC persistence fix** - Added persistence in trailing manager's external close detection
+
+---
 
 ## Current Task: Data Collection Gaps & Profit-Tiered Trailing
 
