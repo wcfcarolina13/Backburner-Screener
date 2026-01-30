@@ -7679,8 +7679,17 @@ async function main() {
                         order.closedPnl = lastClose.profit;
                         const exitPrice = lastClose.dealAvgPrice;
                         const fees = (lastClose.takerFee || 0) + (lastClose.makerFee || 0);
-                        console.log(`[MEXC-SYNC] ${order.symbol} ACTUAL MEXC RESULT: PnL=$${lastClose.profit.toFixed(4)} | Exit=$${exitPrice.toFixed(6)} | Fees=$${fees.toFixed(4)}`);
-                        logBotDecision(order.bot, order.symbol, 'mexc_close_result', `REAL PnL: $${lastClose.profit.toFixed(4)} | Exit: $${exitPrice.toFixed(6)} | Fees: $${fees.toFixed(4)}`);
+
+                        // Detect HOW the position was closed
+                        // orderType 1 = limit, 5 = market (manual), 6 = plan order (SL/TP triggered)
+                        // category 1 = open, 2 = close
+                        const closeType = lastClose.orderType === 5 ? 'MANUAL' :
+                                         lastClose.orderType === 6 ? 'TRIGGERED' :
+                                         lastClose.orderType === 1 ? 'LIMIT' : `TYPE_${lastClose.orderType}`;
+                        const isManualClose = lastClose.orderType === 5;
+
+                        console.log(`[MEXC-SYNC] ${order.symbol} ACTUAL MEXC RESULT: PnL=$${lastClose.profit.toFixed(4)} | Exit=$${exitPrice.toFixed(6)} | Type=${closeType} | Fees=$${fees.toFixed(4)}`);
+                        logBotDecision(order.bot, order.symbol, isManualClose ? 'manual_close' : 'mexc_close_result', `${closeType} PnL: $${lastClose.profit.toFixed(4)} | Exit: $${exitPrice.toFixed(6)} | Fees: $${fees.toFixed(4)}`);
 
                         // Update cumulative MEXC stats
                         mexcTotalRealizedPnl += lastClose.profit;
@@ -7709,6 +7718,11 @@ async function main() {
                           const durationMs = lastClose.updateTime - entryTime;
 
                           const dataPersistence = getDataPersistence();
+                          // Determine exit reason from order type
+                          const mexcExitReason = lastClose.orderType === 5 ? 'manual_close' :
+                                                  lastClose.orderType === 6 ? 'mexc_triggered' :
+                                                  'mexc_close';
+
                           dataPersistence.logTradeClose('mexc-live', {
                             id: `mexc-${futuresSymbol}-${lastClose.updateTime}`,
                             symbol: futuresSymbol.replace('_USDT', 'USDT'),
@@ -7719,7 +7733,7 @@ async function main() {
                             entryTime: entryTime,
                             exitPrice: exitPrice,
                             exitTime: lastClose.updateTime,
-                            exitReason: 'mexc_close',
+                            exitReason: mexcExitReason,
                             marginUsed: marginUsed,
                             notionalSize: marginUsed * leverage,
                             leverage: leverage,
