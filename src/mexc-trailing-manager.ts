@@ -36,13 +36,32 @@ export interface TrackedPosition {
   halfClosedPnl?: number;      // Locked profit from half close
 }
 
+// Profit-tiered trailing: tighter trail as profits increase
+// Based on data analysis showing high-profit trades give back 5-12% before trail fires
+export interface ProfitTier {
+  minRoePct: number;   // Minimum ROE% to trigger this tier
+  trailStepPct: number; // Trail step at this tier
+}
+
 export interface TrailingManagerConfig {
   trailTriggerPct: number;     // Default: 10 (10% ROE to activate)
-  trailStepPct: number;        // Default: 5 (5% ROE trailing step)
+  trailStepPct: number;        // Default: 5 (5% ROE trailing step) - used as fallback
   initialStopPct: number;      // Default: 8 (8% ROE loss, converted to price% via leverage)
   renewalDays: number;         // Default: 6 (renew plan orders after 6 days)
   minModifyIntervalMs: number; // Default: 5000 (don't spam MEXC API)
+  useProfitTieredTrail: boolean; // Default: true - enable profit-tiered trailing
+  profitTiers: ProfitTier[];   // Profit tiers for dynamic trail step
 }
+
+// Profit tiers based on backtest analysis:
+// - 30%+ peaks give back 5-12% before current 5% trail fires
+// - Tighter trail at higher profits captures more gains
+const DEFAULT_PROFIT_TIERS: ProfitTier[] = [
+  { minRoePct: 50, trailStepPct: 2 },  // 50%+ ROE: very tight 2% trail
+  { minRoePct: 30, trailStepPct: 3 },  // 30-50% ROE: tight 3% trail
+  { minRoePct: 20, trailStepPct: 4 },  // 20-30% ROE: moderate 4% trail
+  { minRoePct: 0, trailStepPct: 5 },   // 0-20% ROE: standard 5% trail
+];
 
 const DEFAULT_CONFIG: TrailingManagerConfig = {
   trailTriggerPct: 10,
@@ -50,6 +69,8 @@ const DEFAULT_CONFIG: TrailingManagerConfig = {
   initialStopPct: 8,
   renewalDays: 6,
   minModifyIntervalMs: 5000,
+  useProfitTieredTrail: true,
+  profitTiers: DEFAULT_PROFIT_TIERS,
 };
 
 export class MexcTrailingManager {
@@ -69,6 +90,26 @@ export class MexcTrailingManager {
 
   constructor(config?: Partial<TrailingManagerConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
+  }
+
+  /**
+   * Get the current trail step % based on peak ROE (profit-tiered trailing)
+   * Higher profits = tighter trail to capture more gains
+   */
+  private getCurrentTrailStep(peakRoePct: number): number {
+    if (!this.config.useProfitTieredTrail) {
+      return this.config.trailStepPct;
+    }
+
+    // Find the applicable tier (tiers are sorted highest to lowest minRoePct)
+    for (const tier of this.config.profitTiers) {
+      if (peakRoePct >= tier.minRoePct) {
+        return tier.trailStepPct;
+      }
+    }
+
+    // Fallback to default trail step
+    return this.config.trailStepPct;
   }
 
   /**
@@ -211,10 +252,15 @@ export class MexcTrailingManager {
       // Check trail activation
       if (!pos.trailActivated && pos.highestRoePct >= pos.trailTriggerPct) {
         pos.trailActivated = true;
-        console.log(`[TRAIL-MGR] Trail ACTIVATED for ${symbol} | Peak ROE: ${pos.highestRoePct.toFixed(1)}% | Trigger: ${pos.trailTriggerPct}%`);
 
-        // Move SL to breakeven + buffer
-        const beBuffer = pos.entryPrice * ((pos.trailTriggerPct - pos.trailStepPct) / 100 / pos.leverage);
+        // Get dynamic trail step based on peak ROE
+        const activationTrailStep = this.getCurrentTrailStep(pos.highestRoePct);
+        pos.trailStepPct = activationTrailStep; // Set initial trail step for position
+
+        console.log(`[TRAIL-MGR] Trail ACTIVATED for ${symbol} | Peak ROE: ${pos.highestRoePct.toFixed(1)}% | Trigger: ${pos.trailTriggerPct}% | Trail: ${activationTrailStep}%`);
+
+        // Move SL to breakeven + buffer using dynamic trail step
+        const beBuffer = pos.entryPrice * ((pos.trailTriggerPct - activationTrailStep) / 100 / pos.leverage);
         const newStop = pos.direction === 'long'
           ? pos.entryPrice + beBuffer
           : pos.entryPrice - beBuffer;
@@ -223,9 +269,12 @@ export class MexcTrailingManager {
         if (didModify) modified.push(symbol);
       }
 
-      // Ratchet trailing stop
+      // Ratchet trailing stop with profit-tiered trail step
       if (pos.trailActivated) {
-        const trailPnl = pos.highestRoePct - pos.trailStepPct;
+        // Get dynamic trail step based on peak ROE (tighter at higher profits)
+        const currentTrailStep = this.getCurrentTrailStep(pos.highestRoePct);
+        const trailPnl = pos.highestRoePct - currentTrailStep;
+
         if (trailPnl > 0) {
           const trailDistance = pos.entryPrice * (trailPnl / 100 / pos.leverage);
           const newStop = pos.direction === 'long'
@@ -238,6 +287,11 @@ export class MexcTrailingManager {
             : newStop < pos.currentStopPrice;
 
           if (shouldUpdate) {
+            // Log tier change for monitoring
+            if (currentTrailStep !== pos.trailStepPct) {
+              console.log(`[TRAIL-MGR] ${pos.symbol} trail tightened: ${pos.trailStepPct}% → ${currentTrailStep}% (peak ROE: ${pos.highestRoePct.toFixed(1)}%)`);
+              pos.trailStepPct = currentTrailStep; // Update position's trail step
+            }
             const didModify = await this.modifyStopOnMexc(client, pos, newStop);
             if (didModify) modified.push(symbol);
           }

@@ -97,8 +97,12 @@ interface ExperimentalBotConfig {
   // Stop/Trail settings
   initialStopPercent: number;
   trailTriggerPercent: number;
-  trailStepPercent: number;
+  trailStepPercent: number;  // Default trail step (used when profit-tiered is disabled)
   takeProfitPercent: number;
+
+  // Profit-tiered trailing (tighter trail at higher profits)
+  useProfitTieredTrail?: boolean;  // Default: true
+  profitTiers?: Array<{ minRoePct: number; trailStepPct: number }>;
 
   // Filter settings
   useBiasFilter: boolean;
@@ -209,18 +213,47 @@ class ExperimentalShadowBot extends EventEmitter {
   // Callback for when insurance is triggered (used by web-server to close half on MEXC)
   public onInsuranceTriggered?: (position: ShadowPosition, lockedPnl: number) => void;
 
+  // Default profit tiers for paper trailing (matches MEXC trailing manager)
+  private static DEFAULT_PROFIT_TIERS = [
+    { minRoePct: 50, trailStepPct: 2 },
+    { minRoePct: 30, trailStepPct: 3 },
+    { minRoePct: 20, trailStepPct: 4 },
+    { minRoePct: 0, trailStepPct: 5 },
+  ];
+
   constructor(config: ExperimentalBotConfig) {
     super();
-    // Apply defaults for optional insurance settings
+    // Apply defaults for optional settings
     this.config = {
       ...config,
       useConditionalInsurance: config.useConditionalInsurance ?? false,
       insuranceThresholdPercent: config.insuranceThresholdPercent ?? 2,
       insuranceStressWinRateThreshold: config.insuranceStressWinRateThreshold ?? 50,
+      useProfitTieredTrail: config.useProfitTieredTrail ?? true,
+      profitTiers: config.profitTiers ?? ExperimentalShadowBot.DEFAULT_PROFIT_TIERS,
     };
     this.balance = config.initialBalance;
     this.peakBalance = config.initialBalance;
     this.regimeDetector = new SignalRatioRegimeDetector();
+  }
+
+  /**
+   * Get the current trail step % based on peak ROE (profit-tiered trailing)
+   * Higher profits = tighter trail to capture more gains
+   */
+  protected getCurrentTrailStep(peakRoePct: number): number {
+    if (!this.config.useProfitTieredTrail || !this.config.profitTiers) {
+      return this.config.trailStepPercent;
+    }
+
+    // Find the applicable tier (tiers are sorted highest to lowest minRoePct)
+    for (const tier of this.config.profitTiers) {
+      if (peakRoePct >= tier.minRoePct) {
+        return tier.trailStepPct;
+      }
+    }
+
+    return this.config.trailStepPercent;
   }
 
   getBotId(): string {
@@ -574,16 +607,21 @@ class ExperimentalShadowBot extends EventEmitter {
       // Check trail activation
       if (!position.trailActivated && position.unrealizedPnlPercent >= this.config.trailTriggerPercent) {
         position.trailActivated = true;
-        // Move stop to breakeven + small profit
-        const beDistance = position.entryPrice * ((this.config.trailTriggerPercent - this.config.trailStepPercent) / 100 / position.leverage);
+        // Get dynamic trail step based on peak ROE
+        const activationTrailStep = this.getCurrentTrailStep(position.highestPnlPercent);
+        // Move stop to breakeven + small profit using dynamic trail step
+        const beDistance = position.entryPrice * ((this.config.trailTriggerPercent - activationTrailStep) / 100 / position.leverage);
         position.stopLoss = position.direction === 'long'
           ? position.entryPrice + beDistance
           : position.entryPrice - beDistance;
       }
 
-      // Update trailing stop
+      // Update trailing stop with profit-tiered trail step
       if (position.trailActivated) {
-        const trailPnl = position.highestPnlPercent - this.config.trailStepPercent;
+        // Get dynamic trail step based on peak ROE (tighter at higher profits)
+        const currentTrailStep = this.getCurrentTrailStep(position.highestPnlPercent);
+        const trailPnl = position.highestPnlPercent - currentTrailStep;
+
         if (trailPnl > 0) {
           const trailDistance = position.entryPrice * (trailPnl / 100 / position.leverage);
           const newStop = position.direction === 'long'

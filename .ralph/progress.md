@@ -9,6 +9,50 @@
 
 ## Current Task: Data Collection Gaps & Profit-Tiered Trailing
 
+### Iteration 42 - Profit-Tiered Trailing Strategy
+**Date**: 2026-01-29
+**Status**: ✅ Complete
+
+**Goal**: Implement profit-tiered trailing stops as a risk reduction measure.
+
+**Background** (from data analysis):
+- Trades with 30%+ peaks give back 5-12% before 5% trail fires
+- Tighter trails at higher profits should capture more gains
+- Backtest scripts showed potential improvement from adaptive trailing
+
+**Implementation**:
+
+1. **MEXC Trailing Manager** (`src/mexc-trailing-manager.ts`):
+   - Added `ProfitTier` interface and `profitTiers` config
+   - Added `useProfitTieredTrail` boolean (default: true)
+   - Added `getCurrentTrailStep(peakRoePct)` helper method
+   - Updated `updatePrices()` to use dynamic trail step
+
+2. **Paper Shadow Bots** (`src/experimental-shadow-bots.ts`):
+   - Added same profit-tiered trailing logic for consistency
+   - Added `DEFAULT_PROFIT_TIERS` static array
+   - Updated constructor with profit-tier defaults
+   - Updated trailing logic in `updatePrices()`
+
+**Profit Tiers** (both MEXC and paper):
+| Peak ROE | Trail Step | Rationale |
+|----------|------------|-----------|
+| 50%+ | 2% | Very tight - lock in big winners |
+| 30-50% | 3% | Tight - capture more of peaks |
+| 20-30% | 4% | Moderate - balance risk/reward |
+| 0-20% | 5% | Standard - original trail step |
+
+**Logging**:
+- When trail step changes due to new profit tier: `[TRAIL-MGR] {symbol} trail tightened: 5% → 3% (peak ROE: 32.5%)`
+
+**Files Modified**:
+- `src/mexc-trailing-manager.ts` - Added profit-tiered trailing
+- `src/experimental-shadow-bots.ts` - Added profit-tiered trailing for paper bots
+
+**Build**: ✅ Passes
+
+---
+
 ### Iteration 41 - Fix Real MEXC Trade Persistence
 **Date**: 2026-01-29
 **Status**: ✅ Complete
