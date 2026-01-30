@@ -182,6 +182,10 @@ export class MexcFuturesClient {
   private apiKey: string;
   private baseUrl: string;
 
+  // Rate limiting for order cancellations to avoid 429 errors
+  private lastCancelTime = 0;
+  private static readonly CANCEL_DELAY_MS = 500; // 500ms between cancel operations
+
   constructor(config: MexcClientConfig) {
     this.apiKey = config.apiKey;
     this.baseUrl = config.isTestnet ? TESTNET_BASE : MAINNET_BASE;
@@ -189,6 +193,17 @@ export class MexcFuturesClient {
     if (!this.apiKey || !this.apiKey.startsWith('WEB')) {
       console.warn('[MEXC] Warning: API key should be a u_id cookie starting with "WEB"');
     }
+  }
+
+  /**
+   * Wait if needed to respect cancel rate limit
+   */
+  private async waitForCancelRateLimit(): Promise<void> {
+    const elapsed = Date.now() - this.lastCancelTime;
+    if (elapsed < MexcFuturesClient.CANCEL_DELAY_MS) {
+      await new Promise(resolve => setTimeout(resolve, MexcFuturesClient.CANCEL_DELAY_MS - elapsed));
+    }
+    this.lastCancelTime = Date.now();
   }
 
   /**
@@ -344,16 +359,18 @@ export class MexcFuturesClient {
   }
 
   /**
-   * Cancel an order
+   * Cancel an order (rate-limited to avoid 429 errors)
    */
   async cancelOrder(orderId: string): Promise<{ success: boolean; error?: string }> {
+    await this.waitForCancelRateLimit();
     return this.makeRequest('POST', '/private/order/cancel', { orderId });
   }
 
   /**
-   * Cancel all orders for a symbol
+   * Cancel all orders for a symbol (rate-limited to avoid 429 errors)
    */
   async cancelAllOrders(symbol: string): Promise<{ success: boolean; error?: string }> {
+    await this.waitForCancelRateLimit();
     return this.makeRequest('POST', '/private/order/cancel_all', { symbol });
   }
 
@@ -476,9 +493,10 @@ export class MexcFuturesClient {
   }
 
   /**
-   * Cancel a stop order
+   * Cancel a stop order (rate-limited to avoid 429 errors)
    */
   async cancelStopOrder(orderId: string): Promise<{ success: boolean; error?: string }> {
+    await this.waitForCancelRateLimit();
     return this.makeRequest('POST', '/private/stoporder/cancel', { orderId });
   }
 
@@ -508,16 +526,18 @@ export class MexcFuturesClient {
   }
 
   /**
-   * Cancel a plan order
+   * Cancel a plan order (rate-limited to avoid 429 errors)
    */
   async cancelPlanOrder(orderId: string): Promise<{ success: boolean; error?: string }> {
+    await this.waitForCancelRateLimit();
     return this.makeRequest('POST', '/private/planorder/cancel', { orderId });
   }
 
   /**
-   * Cancel all plan orders for a symbol
+   * Cancel all plan orders for a symbol (rate-limited to avoid 429 errors)
    */
   async cancelAllPlanOrders(symbol: string): Promise<{ success: boolean; error?: string }> {
+    await this.waitForCancelRateLimit();
     return this.makeRequest('POST', '/private/planorder/cancel_all', { symbol });
   }
 
