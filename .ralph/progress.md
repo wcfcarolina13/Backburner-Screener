@@ -4,10 +4,71 @@
 
 ## Summary
 
-- Iterations completed: 39
-- Current status: Paper vs Live Trading Investigation & Fixes
+- Iterations completed: 41
+- Current status: Real MEXC Trade Persistence + Profit-Tiered Trailing
 
-## Current Task: Paper vs Live Discrepancy Investigation (COMPLETE)
+## Current Task: Data Collection Gaps & Profit-Tiered Trailing
+
+### Iteration 41 - Fix Real MEXC Trade Persistence
+**Date**: 2026-01-29
+**Status**: ✅ Complete
+
+**Goal**: Fix critical data collection gap where real MEXC trades weren't being persisted to Turso.
+
+**Problem Discovered**:
+- Paper simulation showed +$658 profit
+- Real MEXC account showed -$22 loss over 48 hours
+- **~$680 discrepancy** - paper and real were diverging significantly
+- Root cause: Real MEXC trade results logged to console but never persisted to database
+
+**Root Causes**:
+1. **No Turso persistence for real MEXC trades**: The code at line ~7677 logged `[MEXC-SYNC]` results to console but never called `dataPersistence.logTradeClose()`
+2. **In-memory `mexcMirrorTracker`**: Only existed in RAM, lost on server restart
+3. **Paper logs masked as "live"**: Paper trades logged with `executionMode: 'live'` but used paper margin sizes
+
+**Fixes Implemented**:
+
+1. **Added real MEXC trade persistence to Turso**:
+   - When MEXC position closes, now logs to Turso with `bot_id='mexc-live'`
+   - Captures: entry price, exit price, realized PnL (actual from MEXC), duration, leverage
+   - Uses `executionMode: 'mexc-live'` to distinguish from paper trades
+   - Location: `src/web-server.ts` around line 7700
+
+2. **Added timestamp tracking to QueuedOrder interface**:
+   - `executedAt?: number` - When order was executed on MEXC
+   - `createdAt?: number` - When order was created in queue
+   - These enable accurate duration calculation for real trades
+
+3. **Added guardrails to Ralph**:
+   - "Paper Trading PnL ≠ Real Exchange PnL — Always Verify Both"
+   - "Verify Data Actually Reaches Database — Trace the Full Flow"
+
+**Query to check real vs paper performance**:
+```sql
+-- Real MEXC results
+SELECT * FROM trade_events WHERE bot_id = 'mexc-live' ORDER BY timestamp DESC;
+
+-- Paper results (for comparison)
+SELECT * FROM trade_events WHERE bot_id LIKE 'exp-%' ORDER BY timestamp DESC;
+```
+
+**Files Modified**:
+- `src/web-server.ts` - Added MEXC trade persistence, QueuedOrder timestamps
+- `.ralph/guardrails.md` - Added 2 new guardrails
+
+**Build**: ✅ Passes
+
+---
+
+### Iteration 40 - Worktree vs Main Clarification
+**Date**: 2026-01-29
+**Status**: ✅ Complete
+
+Added guardrail about worktrees not being main and the correct deployment flow.
+
+---
+
+## Previous Task: Paper vs Live Discrepancy Investigation (COMPLETE)
 
 ### Iteration 39 - Paper vs Live Trading Fixes
 **Date**: 2026-01-29

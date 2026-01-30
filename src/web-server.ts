@@ -2671,6 +2671,8 @@ interface QueuedOrder {
   error?: string;
   closedAt?: number;
   closedPnl?: number;
+  executedAt?: number;  // When the order was executed on MEXC
+  createdAt?: number;   // When the order was created in queue
 }
 const mexcExecutionQueue: QueuedOrder[] = [];
 
@@ -2994,6 +2996,7 @@ app.post('/api/mexc/queue/execute/:index', express.json(), async (req, res) => {
 
     if (result.success) {
       order.status = 'executed';
+      order.executedAt = Date.now();
       res.json({ success: true, order: result.data });
     } else {
       order.status = 'failed';
@@ -3350,6 +3353,7 @@ export function addToMexcQueue(
   if (getMexcExecutionMode() === 'shadow') {
     console.log(`[MEXC-SHADOW] Would execute: ${side} ${symbol} $${size} ${leverage}x${slStr}${tpStr}`);
     order.status = 'executed';
+    order.executedAt = Date.now();
   }
 
   // Auto-execute in live mode when full automation is enabled
@@ -3402,6 +3406,7 @@ async function autoExecuteOrder(order: QueuedOrder): Promise<void> {
 
     if (result.success) {
       order.status = 'executed';
+      order.executedAt = Date.now();
       console.log(`[MEXC-AUTO] Executed: ${order.side} ${order.symbol} $${order.size} ${order.leverage}x`);
       logBotDecision(order.bot, order.symbol, 'executed', `${order.side.toUpperCase()} $${order.size} ${order.leverage}x | SL: ${order.stopLossPrice || 'none'} | TP: ${order.takeProfitPrice || 'none'}`);
       // Refresh balance after execution
@@ -7690,6 +7695,47 @@ async function main() {
 
                         // Track in trailing manager for comparison API
                         const trackedPos = trailingManager.getPosition(futuresSymbol);
+
+                        // PERSIST REAL MEXC TRADE TO TURSO
+                        // This is the actual exchange result, not paper simulation
+                        if (isTursoConfigured()) {
+                          const entryPrice = trackedPos?.entryPrice || order.entryPrice || lastClose.price;
+                          const direction = trackedPos?.direction || order.side;
+                          const leverage = trackedPos?.leverage || order.leverage || 10;
+                          const marginUsed = Math.abs(lastClose.profit) / (Math.abs((exitPrice - entryPrice) / entryPrice) * leverage) || 5;
+
+                          // Calculate duration if we have entry time
+                          const entryTime = order.executedAt || order.timestamp || lastClose.createTime;
+                          const durationMs = lastClose.updateTime - entryTime;
+
+                          const dataPersistence = getDataPersistence();
+                          dataPersistence.logTradeClose('mexc-live', {
+                            id: `mexc-${futuresSymbol}-${lastClose.updateTime}`,
+                            symbol: futuresSymbol.replace('_USDT', 'USDT'),
+                            direction: direction,
+                            timeframe: '5m' as const,
+                            marketType: 'futures' as const,
+                            entryPrice: entryPrice,
+                            entryTime: entryTime,
+                            exitPrice: exitPrice,
+                            exitTime: lastClose.updateTime,
+                            exitReason: 'mexc_close',
+                            marginUsed: marginUsed,
+                            notionalSize: marginUsed * leverage,
+                            leverage: leverage,
+                            realizedPnL: lastClose.profit,
+                            realizedPnLPercent: lastClose.profit / marginUsed * 100,
+                            trailActivated: trackedPos?.trailActivated || false,
+                            highestPnlPercent: trackedPos?.highestRoePct || 0,
+                            takeProfitPrice: 0,
+                            stopLossPrice: 0,
+                            currentPrice: exitPrice,
+                            unrealizedPnL: 0,
+                            unrealizedPnLPercent: 0,
+                            durationMs: durationMs,
+                          } as any, 'mexc-live');
+                          console.log(`[MEXC-PERSIST] Logged real MEXC trade: ${futuresSymbol} PnL=$${lastClose.profit.toFixed(4)} duration=${Math.round(durationMs/1000)}s`);
+                        }
                         if (trackedPos) {
                           trailingManager.recordClose(
                             futuresSymbol,

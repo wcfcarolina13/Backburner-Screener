@@ -138,3 +138,13 @@
 - **Instruction**: For Render deployments, use HTTP endpoints (e.g., `/api/export-trades`, `/api/debug/paper-vs-live`) rather than trying to read files or query Turso directly. The server is the authoritative source and has the tokens/connections. Before creating new endpoints, check what already exists by grepping for `app.get` or `app.post`.
 - **Added after**: Iteration 39 - Tried multiple nonexistent endpoints before finding `/api/export-trades` already existed.
 
+### Sign: Paper Trading PnL ≠ Real Exchange PnL — Always Verify Both
+- **Trigger**: When analyzing bot performance or discussing PnL numbers
+- **Instruction**: Paper simulation results can diverge SIGNIFICANTLY from actual exchange results due to: (1) execution slippage, (2) funding fees, (3) liquidation mechanics, (4) timing differences in SL/TP execution. NEVER trust paper PnL alone. Always compare with ACTUAL exchange data using `/api/debug/paper-vs-live` or checking real MEXC account. Query `bot_id='mexc-live'` for actual exchange results vs `bot_id LIKE 'exp-%'` for paper results.
+- **Added after**: Iteration 41 - Paper simulation showed +$658 profit while actual MEXC showed -$22 loss over 48 hours (~$680 discrepancy). Root causes: (1) Real MEXC trades weren't being persisted to Turso, (2) Paper logs used paper margin sizes while calling it "live", (3) In-memory `mexcMirrorTracker` didn't persist across restarts.
+
+### Sign: Verify Data Actually Reaches Database — Trace the Full Flow
+- **Trigger**: When adding new data fields to track (especially for trade analytics)
+- **Instruction**: Data flow from source to database has MULTIPLE failure points. A field can exist in logging statements but never reach Turso if ANY step breaks the chain: source → object creation → function call → SQL INSERT. When adding new tracking, verify by: (1) Check the INSERT statement includes the column, (2) Query Turso to confirm data is actually stored, (3) Don't trust console.log statements alone — they prove the code ran, not that data persisted.
+- **Added after**: Iteration 41 - Real MEXC trade results were being logged to console (`[MEXC-SYNC]`) but never persisted to Turso. The code existed, ran, and logged — but the actual INSERT was missing.
+
