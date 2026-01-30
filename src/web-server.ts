@@ -44,7 +44,7 @@ import { createExperimentalBots, type ExperimentalShadowBot } from './experiment
 import { getCurrentRSI, calculateRSI, calculateSMA, detectDivergence } from './indicators.js';
 import { DEFAULT_CONFIG } from './config.js';
 import { getDataPersistence } from './data-persistence.js';
-import { initSchema as initTursoSchema, isTursoConfigured, executeReadQuery, getDatabaseStats, saveServerSettingsToTurso, loadServerSettingsFromTurso, saveTrailingPosition, loadTrailingPositions, deleteTrailingPosition } from './turso-db.js';
+import { initSchema as initTursoSchema, isTursoConfigured, executeReadQuery, getDatabaseStats, saveServerSettingsToTurso, loadServerSettingsFromTurso, saveTrailingPosition, loadTrailingPositions, deleteTrailingPosition, insertTradeEvent, getTurso } from './turso-db.js';
 import { MexcTrailingManager, type TrackedPosition } from './mexc-trailing-manager.js';
 import { getFocusModeHtml, getFocusModeApiData, calculateSmartTradeSetup } from './focus-mode-dashboard.js';
 import type { BackburnerSetup, Timeframe, MomentumExhaustionSignal } from './types.js';
@@ -7184,6 +7184,78 @@ async function main() {
       }
 
       console.log(`[RECONCILE] Done — tracking ${trailingManager.getTrackedPositions().length} positions`);
+
+      // 5. Backfill MEXC closed position history to Turso
+      if (isTursoConfigured()) {
+        try {
+          const historyResult = await client.getPositionHistory(1, 100); // Get last 100 closed positions
+          if (historyResult.success && historyResult.data && Array.isArray(historyResult.data)) {
+            const positions = historyResult.data;
+            console.log(`[MEXC-BACKFILL] Found ${positions.length} closed positions to check`);
+
+            // Check which positions are already in Turso (by position_id)
+            const tursoClient = getTurso();
+            if (tursoClient) {
+              const existingResult = await tursoClient.execute(
+                `SELECT position_id FROM trade_events WHERE bot_id = 'mexc-live' AND position_id IS NOT NULL`
+              );
+              const existingIds = new Set(existingResult.rows.map(r => String(r.position_id)));
+
+              let inserted = 0;
+              for (const pos of positions) {
+                const posId = String(pos.positionId || pos.position_id || pos.id);
+                if (existingIds.has(posId)) {
+                  continue; // Already in Turso
+                }
+
+                // Map MEXC position data to trade event
+                const direction = (pos.positionType === 1 || pos.position_type === 1) ? 'long' : 'short';
+                const entryPrice = pos.holdAvgPrice || pos.hold_avg_price || pos.openAvgPrice || pos.open_avg_price;
+                const exitPrice = pos.closeAvgPrice || pos.close_avg_price;
+                const pnl = pos.realised || pos.profit || pos.pnl || 0;
+                const leverage = pos.leverage || 20;
+                const volume = pos.holdVol || pos.hold_vol || pos.closeVol || pos.close_vol || 0;
+                const symbol = pos.symbol;
+                const closeTime = pos.updateTime || pos.update_time || pos.closeTime || pos.close_time || Date.now();
+
+                // Calculate margin and PnL percent
+                const notionalSize = entryPrice * volume;
+                const marginUsed = notionalSize / leverage;
+                const pnlPercent = marginUsed > 0 ? (pnl / marginUsed) * 100 : 0;
+
+                await insertTradeEvent({
+                  timestamp: new Date(closeTime).toISOString(),
+                  eventType: 'close',
+                  botId: 'mexc-live',
+                  positionId: posId,
+                  symbol,
+                  direction,
+                  entryPrice,
+                  exitPrice,
+                  marginUsed,
+                  notionalSize,
+                  leverage,
+                  realizedPnL: pnl,
+                  realizedPnLPercent: pnlPercent,
+                  exitReason: 'historical',
+                  executionMode: 'live',
+                });
+                inserted++;
+              }
+
+              if (inserted > 0) {
+                console.log(`[MEXC-BACKFILL] Inserted ${inserted} new closed positions to Turso`);
+              } else {
+                console.log(`[MEXC-BACKFILL] All ${positions.length} positions already in Turso`);
+              }
+            }
+          } else {
+            console.log(`[MEXC-BACKFILL] No position history available: ${historyResult.error || 'empty response'}`);
+          }
+        } catch (backfillErr) {
+          console.error('[MEXC-BACKFILL] Error backfilling position history:', (backfillErr as Error).message);
+        }
+      }
     } catch (err) {
       console.error('[RECONCILE] Error during startup reconciliation:', (err as Error).message);
     }
