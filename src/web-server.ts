@@ -1011,6 +1011,220 @@ const focusShadowBots = new Map<string, FocusModeShadowBot>([
 // See src/experimental-shadow-bots.ts for experiment details
 const experimentalBots = createExperimentalBots(2000);
 
+// ============================================================================
+// MEXC MIRROR TRACKER
+// Tracks paper positions with EXACT same params as live MEXC trades
+// Enables true 1:1 comparison between paper and live performance
+// ============================================================================
+interface MexcMirrorPosition {
+  id: string;
+  symbol: string;
+  direction: 'long' | 'short';
+  entryPrice: number;
+  entryTime: number;
+  leverage: number;
+  marginUsed: number;
+  notionalSize: number;
+  stopLossPrice: number;
+  takeProfitPrice: number;
+  trailTriggerPct: number;
+  trailStepPct: number;
+  // Tracking
+  highestPnlPct: number;
+  trailActivated: boolean;
+  currentStopPrice: number;
+  // Metadata
+  sourceBotId: string;
+  sourceOrderId: string;
+}
+
+interface MexcMirrorClosedPosition extends MexcMirrorPosition {
+  exitPrice: number;
+  exitTime: number;
+  exitReason: string;
+  realizedPnl: number;
+  realizedPnlPct: number;
+}
+
+class MexcMirrorTracker {
+  private positions = new Map<string, MexcMirrorPosition>();
+  private closedPositions: MexcMirrorClosedPosition[] = [];
+  private feePercent = 0.04;  // MEXC taker fee
+
+  // Create a mirror position when MEXC executes
+  openPosition(params: {
+    symbol: string;
+    direction: 'long' | 'short';
+    entryPrice: number;
+    leverage: number;
+    marginUsed: number;
+    stopLossPrice: number;
+    takeProfitPrice: number;
+    trailTriggerPct: number;
+    trailStepPct: number;
+    sourceBotId: string;
+    sourceOrderId: string;
+  }): MexcMirrorPosition {
+    const pos: MexcMirrorPosition = {
+      id: `mirror-${params.symbol}-${Date.now()}`,
+      symbol: params.symbol,
+      direction: params.direction,
+      entryPrice: params.entryPrice,
+      entryTime: Date.now(),
+      leverage: params.leverage,
+      marginUsed: params.marginUsed,
+      notionalSize: params.marginUsed * params.leverage,
+      stopLossPrice: params.stopLossPrice,
+      takeProfitPrice: params.takeProfitPrice,
+      trailTriggerPct: params.trailTriggerPct,
+      trailStepPct: params.trailStepPct,
+      highestPnlPct: 0,
+      trailActivated: false,
+      currentStopPrice: params.stopLossPrice,
+      sourceBotId: params.sourceBotId,
+      sourceOrderId: params.sourceOrderId,
+    };
+    this.positions.set(params.symbol, pos);
+    console.log(`[MIRROR] Opened ${params.direction} ${params.symbol} @ $${params.entryPrice} | ${params.leverage}x | SL: $${params.stopLossPrice.toFixed(6)}`);
+    return pos;
+  }
+
+  // Update prices and check for exits
+  updatePrices(priceMap: Map<string, number>): MexcMirrorClosedPosition[] {
+    const closed: MexcMirrorClosedPosition[] = [];
+
+    for (const [symbol, pos] of this.positions) {
+      const currentPrice = priceMap.get(symbol.replace('_USDT', 'USDT'));
+      if (!currentPrice) continue;
+
+      // Calculate current PnL%
+      const priceDiff = pos.direction === 'long'
+        ? (currentPrice - pos.entryPrice) / pos.entryPrice
+        : (pos.entryPrice - currentPrice) / pos.entryPrice;
+      const roePct = priceDiff * pos.leverage * 100;
+
+      // Track peak
+      if (roePct > pos.highestPnlPct) {
+        pos.highestPnlPct = roePct;
+      }
+
+      // Check trail activation
+      if (!pos.trailActivated && roePct >= pos.trailTriggerPct) {
+        pos.trailActivated = true;
+        // Lock in some profit via trailing stop
+        const lockPct = pos.trailTriggerPct - pos.trailStepPct;
+        const lockPriceDistance = (lockPct / 100) / pos.leverage;
+        pos.currentStopPrice = pos.direction === 'long'
+          ? pos.entryPrice * (1 + lockPriceDistance)
+          : pos.entryPrice * (1 - lockPriceDistance);
+        console.log(`[MIRROR] Trail activated for ${symbol} | New SL: $${pos.currentStopPrice.toFixed(6)} (locking ${lockPct}% ROE)`);
+      }
+
+      // Update trailing stop if activated and price improved
+      if (pos.trailActivated && roePct > pos.trailTriggerPct) {
+        const newLockPct = roePct - pos.trailStepPct;
+        const newLockPriceDistance = (newLockPct / 100) / pos.leverage;
+        const newStopPrice = pos.direction === 'long'
+          ? pos.entryPrice * (1 + newLockPriceDistance)
+          : pos.entryPrice * (1 - newLockPriceDistance);
+
+        const shouldUpdate = pos.direction === 'long'
+          ? newStopPrice > pos.currentStopPrice
+          : newStopPrice < pos.currentStopPrice;
+
+        if (shouldUpdate) {
+          pos.currentStopPrice = newStopPrice;
+        }
+      }
+
+      // Check for stop loss hit
+      const slHit = pos.direction === 'long'
+        ? currentPrice <= pos.currentStopPrice
+        : currentPrice >= pos.currentStopPrice;
+
+      if (slHit) {
+        const exitReason = pos.trailActivated ? 'trailing_stop' : 'stop_loss';
+        closed.push(this.closePosition(symbol, pos.currentStopPrice, exitReason));
+      }
+
+      // Check for take profit hit (if set)
+      if (pos.takeProfitPrice > 0) {
+        const tpHit = pos.direction === 'long'
+          ? currentPrice >= pos.takeProfitPrice
+          : currentPrice <= pos.takeProfitPrice;
+
+        if (tpHit) {
+          closed.push(this.closePosition(symbol, pos.takeProfitPrice, 'take_profit'));
+        }
+      }
+    }
+
+    return closed;
+  }
+
+  // Close a position
+  closePosition(symbol: string, exitPrice: number, exitReason: string): MexcMirrorClosedPosition {
+    const pos = this.positions.get(symbol);
+    if (!pos) throw new Error(`No mirror position for ${symbol}`);
+
+    const priceDiff = pos.direction === 'long'
+      ? (exitPrice - pos.entryPrice) / pos.entryPrice
+      : (pos.entryPrice - exitPrice) / pos.entryPrice;
+    const roePct = priceDiff * pos.leverage * 100;
+    const grossPnl = pos.marginUsed * (roePct / 100);
+    const fees = pos.notionalSize * (this.feePercent / 100) * 2;  // Entry + exit
+    const realizedPnl = grossPnl - fees;
+
+    const closedPos: MexcMirrorClosedPosition = {
+      ...pos,
+      exitPrice,
+      exitTime: Date.now(),
+      exitReason,
+      realizedPnl,
+      realizedPnlPct: roePct - (fees / pos.marginUsed * 100),
+    };
+
+    this.positions.delete(symbol);
+    this.closedPositions.push(closedPos);
+    console.log(`[MIRROR] Closed ${symbol} ${exitReason} | PnL: $${realizedPnl.toFixed(2)} (${roePct.toFixed(1)}% ROE)`);
+
+    return closedPos;
+  }
+
+  // Force close when MEXC position closes (SL fired on exchange)
+  forceClose(symbol: string, exitPrice: number, exitReason: string): MexcMirrorClosedPosition | null {
+    if (!this.positions.has(symbol)) return null;
+    return this.closePosition(symbol, exitPrice, exitReason);
+  }
+
+  getPosition(symbol: string): MexcMirrorPosition | undefined {
+    return this.positions.get(symbol);
+  }
+
+  getAllPositions(): MexcMirrorPosition[] {
+    return Array.from(this.positions.values());
+  }
+
+  getClosedPositions(): MexcMirrorClosedPosition[] {
+    return this.closedPositions;
+  }
+
+  getStats(): { totalTrades: number; wins: number; losses: number; totalPnl: number; winRate: string } {
+    const wins = this.closedPositions.filter(p => p.realizedPnl > 0).length;
+    const losses = this.closedPositions.filter(p => p.realizedPnl <= 0).length;
+    const totalPnl = this.closedPositions.reduce((sum, p) => sum + p.realizedPnl, 0);
+    return {
+      totalTrades: this.closedPositions.length,
+      wins,
+      losses,
+      totalPnl,
+      winRate: this.closedPositions.length > 0 ? ((wins / this.closedPositions.length) * 100).toFixed(1) : '0',
+    };
+  }
+}
+
+const mexcMirrorTracker = new MexcMirrorTracker();
+
 // GP V2 Detector (loosened thresholds)
 const gpDetectorV2 = new GoldenPocketDetectorV2({
   minImpulsePercent: 4,      // V1: 5%
@@ -3219,6 +3433,22 @@ async function autoExecuteOrder(order: QueuedOrder): Promise<void> {
       } catch (err) {
         console.error(`[TRAIL-MGR] Failed to start tracking ${order.symbol}:`, (err as Error).message);
       }
+
+      // Create mirror paper position with exact same MEXC params
+      // This enables true 1:1 comparison between paper and live
+      mexcMirrorTracker.openPosition({
+        symbol: order.symbol,
+        direction: order.side,
+        entryPrice,
+        leverage: order.leverage,
+        marginUsed: order.size,
+        stopLossPrice: slPrice,
+        takeProfitPrice: order.takeProfitPrice || 0,
+        trailTriggerPct: 10,  // Match trailing manager defaults
+        trailStepPct: 5,
+        sourceBotId: order.bot,
+        sourceOrderId: order.id,
+      });
     } else {
       order.status = 'failed';
       order.error = result.error;
@@ -7278,6 +7508,43 @@ async function main() {
                 }
               }
             }
+
+            // Update MEXC mirror positions with same price data
+            const mirrorClosed = mexcMirrorTracker.updatePrices(futuresPriceMap);
+            for (const closedPos of mirrorClosed) {
+              console.log(`[MIRROR] Position closed: ${closedPos.symbol} ${closedPos.exitReason} | PnL: $${closedPos.realizedPnl.toFixed(2)}`);
+
+              // Log to Turso with execution_mode='live-mirror'
+              if (isTursoConfigured()) {
+                const dataPersistence = getDataPersistence();
+                const positionForClose = {
+                  id: closedPos.id,
+                  symbol: closedPos.symbol.replace('_USDT', 'USDT'),
+                  direction: closedPos.direction,
+                  timeframe: '5m' as const,
+                  marketType: 'futures' as const,
+                  entryPrice: closedPos.entryPrice,
+                  entryTime: closedPos.entryTime,
+                  exitPrice: closedPos.exitPrice,
+                  exitTime: closedPos.exitTime,
+                  exitReason: closedPos.exitReason,
+                  marginUsed: closedPos.marginUsed,
+                  notionalSize: closedPos.notionalSize,
+                  leverage: closedPos.leverage,
+                  realizedPnL: closedPos.realizedPnl,
+                  realizedPnLPercent: closedPos.realizedPnlPct,
+                  trailActivated: closedPos.trailActivated,
+                  highestPnlPercent: closedPos.highestPnlPct,
+                  // Required fields for PaperPosition (not used for Turso logging)
+                  takeProfitPrice: closedPos.takeProfitPrice,
+                  stopLossPrice: closedPos.stopLossPrice,
+                  currentPrice: closedPos.exitPrice,
+                  unrealizedPnL: 0,
+                  unrealizedPnLPercent: 0,
+                };
+                dataPersistence.logTradeClose('mexc-mirror', positionForClose as any, 'live-mirror');
+              }
+            }
           }
         } catch (err) {
           console.error('[TRAIL-MGR] Error updating prices:', (err as Error).message);
@@ -7342,6 +7609,39 @@ async function main() {
                             exitPrice,
                             lastClose.profit
                           );
+                        }
+
+                        // Force close mirror position with actual MEXC exit price
+                        const mirrorClosed = mexcMirrorTracker.forceClose(futuresSymbol, exitPrice, 'mexc_close');
+                        if (mirrorClosed && isTursoConfigured()) {
+                          const dataPersistence = getDataPersistence();
+                          const positionForClose = {
+                            id: mirrorClosed.id,
+                            symbol: mirrorClosed.symbol.replace('_USDT', 'USDT'),
+                            direction: mirrorClosed.direction,
+                            timeframe: '5m' as const,
+                            marketType: 'futures' as const,
+                            entryPrice: mirrorClosed.entryPrice,
+                            entryTime: mirrorClosed.entryTime,
+                            exitPrice: mirrorClosed.exitPrice,
+                            exitTime: mirrorClosed.exitTime,
+                            exitReason: mirrorClosed.exitReason,
+                            marginUsed: mirrorClosed.marginUsed,
+                            notionalSize: mirrorClosed.notionalSize,
+                            leverage: mirrorClosed.leverage,
+                            realizedPnL: mirrorClosed.realizedPnl,
+                            realizedPnLPercent: mirrorClosed.realizedPnlPct,
+                            trailActivated: mirrorClosed.trailActivated,
+                            highestPnlPercent: mirrorClosed.highestPnlPct,
+                            // Required fields for PaperPosition (not used for Turso logging)
+                            takeProfitPrice: mirrorClosed.takeProfitPrice,
+                            stopLossPrice: mirrorClosed.stopLossPrice,
+                            currentPrice: mirrorClosed.exitPrice,
+                            unrealizedPnL: 0,
+                            unrealizedPnLPercent: 0,
+                          };
+                          dataPersistence.logTradeClose('mexc-mirror', positionForClose as any, 'live-mirror');
+                          console.log(`[MIRROR] Synced with MEXC close: ${futuresSymbol} | Mirror PnL: $${mirrorClosed.realizedPnl.toFixed(2)} vs MEXC: $${lastClose.profit.toFixed(2)}`);
                         }
                       }
                     }
