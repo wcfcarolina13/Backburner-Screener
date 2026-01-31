@@ -411,10 +411,18 @@ export class MexcTrailingManager {
    */
   detectExternalCloses(mexcOpenSymbols: Set<string>): string[] {
     const closedSymbols: string[] = [];
+    const now = Date.now();
     for (const [symbol, pos] of this.positions) {
+      // GRACE PERIOD: Don't mark as closed if tracking started less than 60 seconds ago
+      // This prevents race condition where MEXC API hasn't yet reflected the new position
+      const timeSinceStart = pos.startedAt ? now - pos.startedAt : Infinity;
+      if (timeSinceStart < 60000) {
+        continue; // Skip - too soon to determine if position is really closed
+      }
+
       if (!mexcOpenSymbols.has(symbol)) {
         closedSymbols.push(symbol);
-        console.log(`[TRAIL-MGR] ${symbol} no longer on MEXC — position was closed externally`);
+        console.log(`[TRAIL-MGR] ${symbol} no longer on MEXC — position was closed externally (tracked for ${Math.round(timeSinceStart / 1000)}s)`);
         // Record the close for debugging (no actual exit price captured yet - TODO: fetch from order history)
         this.recordClose(symbol, pos.direction, pos.entryPrice, 'external_close');
         this.stopTracking(symbol);
