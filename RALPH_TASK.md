@@ -10,6 +10,21 @@ test_command: "npm run build"
 
 ---
 
+## Iteration 44: 72-Hour Bug Impact Analysis
+
+### Summary
+
+Analyzed 815 trades over 72 hours to determine bug impact:
+- **Quick losses (<5min)**: 298 trades, -$54.58 (potentially bug-affected)
+- **Unmanaged runners (>4h)**: 30 trades, +$18.07 (paradoxically helped by bug)
+- **Net bug impact estimate**: -$36.51
+
+### Future Consideration (Not Urgent)
+
+📋 **Potential Backtest**: Widen trailing stop parameters to capture more gains like the unmanaged winners achieved (METIS/ETHFI hit 100%+ ROE because they weren't cut by trailing). Low priority — first observe how system performs with race condition fix in place for 24-48 hours.
+
+---
+
 ## Iteration 43: Race Condition Fix
 
 ### Success Criteria
