@@ -515,33 +515,54 @@ export class MexcTrailingManager {
   }
 
   /**
-   * Detect positions closed externally (SL fired on MEXC, manual close, etc.)
-   * Call with the current list of MEXC open position symbols.
+   * Detect positions that MIGHT be closed externally (not in MEXC API response).
+   * Returns symbols to check - caller MUST verify via order history before stopping tracking.
+   * Does NOT stop tracking - caller must call confirmExternalClose() after verification.
    */
-  detectExternalCloses(mexcOpenSymbols: Set<string>): string[] {
-    const closedSymbols: string[] = [];
+  detectPotentialCloses(mexcOpenSymbols: Set<string>): string[] {
+    const potentiallyClosedSymbols: string[] = [];
     const now = Date.now();
     for (const [symbol, pos] of this.positions) {
-      // GRACE PERIOD: Don't mark as closed if tracking started less than 90 seconds ago
-      // This prevents race condition where MEXC API hasn't yet reflected the new position
-      // Extended from 60s to 90s to account for high API load scenarios
+      // GRACE PERIOD: Don't check if tracking started less than 90 seconds ago
       const timeSinceStart = pos.startedAt ? now - pos.startedAt : Infinity;
       if (timeSinceStart < 90000) {
         continue; // Skip - too soon to determine if position is really closed
       }
 
       if (!mexcOpenSymbols.has(symbol)) {
-        closedSymbols.push(symbol);
-        console.log(`[TRAIL-MGR] ${symbol} no longer on MEXC — position was closed externally (tracked for ${Math.round(timeSinceStart / 1000)}s)`);
-        // Record the close for debugging (no actual exit price captured yet - TODO: fetch from order history)
-        this.recordClose(symbol, pos.direction, pos.entryPrice, 'external_close');
-        this.stopTracking(symbol);
-        if (this.onPositionClosed) {
-          this.onPositionClosed(symbol, 'external_close');
-        }
+        // Position not in MEXC API response - but DON'T stop tracking yet
+        // Caller must verify via order history before confirming close
+        potentiallyClosedSymbols.push(symbol);
+        console.log(`[TRAIL-MGR] ${symbol} not in getOpenPositions() — needs verification (tracked for ${Math.round(timeSinceStart / 1000)}s)`);
       }
     }
-    return closedSymbols;
+    return potentiallyClosedSymbols;
+  }
+
+  /**
+   * Confirm a position was actually closed after verification.
+   * Call this ONLY after verifying via order history that a close order exists.
+   */
+  confirmExternalClose(symbol: string, exitPrice?: number, realizedPnl?: number): void {
+    const pos = this.positions.get(symbol);
+    if (!pos) return;
+
+    console.log(`[TRAIL-MGR] ${symbol} VERIFIED closed externally — stopping tracking`);
+    this.recordClose(symbol, pos.direction, pos.entryPrice, 'external_close', exitPrice, realizedPnl);
+    this.stopTracking(symbol);
+    if (this.onPositionClosed) {
+      this.onPositionClosed(symbol, 'external_close');
+    }
+  }
+
+  /**
+   * @deprecated Use detectPotentialCloses + confirmExternalClose instead
+   * Legacy method that immediately stops tracking - kept for backward compatibility
+   */
+  detectExternalCloses(mexcOpenSymbols: Set<string>): string[] {
+    // WARNING: This method has a bug - it doesn't verify positions are actually closed
+    // Use detectPotentialCloses + confirmExternalClose for safe closure detection
+    return this.detectPotentialCloses(mexcOpenSymbols);
   }
 
   /**

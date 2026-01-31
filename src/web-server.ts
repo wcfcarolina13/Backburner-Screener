@@ -8098,84 +8098,99 @@ async function main() {
                 }
               }
 
-              // Detect trailing-manager positions closed externally (SL fired on MEXC, manual close)
+              // Detect trailing-manager positions potentially closed externally
+              // CRITICAL: Must verify via order history before stopping tracking
               if (trailingManager.getTrackedPositions().length > 0) {
-                const closedByExchange = trailingManager.detectExternalCloses(openSymbols);
-                for (const sym of closedByExchange) {
+                const potentiallyClosed = trailingManager.detectPotentialCloses(openSymbols);
+                for (const sym of potentiallyClosed) {
                   const trackedPos = trailingManager.getPosition(sym);
-                  logBotDecision('trail-mgr', sym, 'external_close', 'MEXC position gone — SL fired or manually closed');
+                  if (!trackedPos) continue;
 
-                  // CRITICAL: Fetch actual MEXC result and persist to Turso
+                  // VERIFY: Check order history for actual close order
                   try {
                     const history = await client.getOrderHistory(sym, 1, 10);
                     if (history.success && history.data && history.data.length > 0) {
+                      // Find close order that happened AFTER this position was opened
                       const closeOrders = history.data.filter(o =>
-                        (o.side === 2 || o.side === 4) && o.state === 3
+                        (o.side === 2 || o.side === 4) && o.state === 3 && // Close order, filled
+                        o.updateTime > (trackedPos.startedAt || 0) // Must be after we started tracking
                       );
-                      if (closeOrders.length > 0 && isTursoConfigured()) {
+
+                      if (closeOrders.length > 0) {
+                        // VERIFIED: Position was actually closed
                         const lastClose = closeOrders[0];
                         const exitPrice = lastClose.dealAvgPrice;
-                        const entryPrice = trackedPos?.entryPrice || lastClose.price;
-                        const direction = trackedPos?.direction || (lastClose.side === 4 ? 'long' : 'short');
-                        const leverage = trackedPos?.leverage || lastClose.leverage || 10;
+                        const entryPrice = trackedPos.entryPrice || lastClose.price;
+                        const direction = trackedPos.direction || (lastClose.side === 4 ? 'long' : 'short');
+                        const leverage = trackedPos.leverage || lastClose.leverage || 10;
                         const marginUsed = Math.abs(lastClose.profit) / (Math.abs((exitPrice - entryPrice) / entryPrice) * leverage) || 5;
-                        const entryTime = trackedPos?.startedAt || lastClose.createTime;
+                        const entryTime = trackedPos.startedAt || lastClose.createTime;
                         const durationMs = lastClose.updateTime - entryTime;
 
                         const mexcExitReason = lastClose.orderType === 5 ? 'manual_close' :
                                               lastClose.orderType === 6 ? 'mexc_triggered' : 'mexc_close';
 
-                        const dataPersistence = getDataPersistence();
-                        dataPersistence.logTradeClose('mexc-live', {
-                          id: `mexc-${sym}-${lastClose.updateTime}`,
-                          symbol: sym.replace('_USDT', 'USDT'),
-                          direction: direction,
-                          timeframe: '5m' as const,
-                          marketType: 'futures' as const,
-                          entryPrice: entryPrice,
-                          entryTime: entryTime,
-                          exitPrice: exitPrice,
-                          exitTime: lastClose.updateTime,
-                          exitReason: mexcExitReason,
-                          marginUsed: marginUsed,
-                          notionalSize: marginUsed * leverage,
-                          leverage: leverage,
-                          realizedPnL: lastClose.profit,
-                          realizedPnLPercent: lastClose.profit / marginUsed * 100,
-                          trailActivated: trackedPos?.trailActivated || false,
-                          highestPnlPercent: trackedPos?.highestRoePct || 0,
-                          takeProfitPrice: 0,
-                          stopLossPrice: trackedPos?.currentStopPrice || 0,
-                          currentPrice: exitPrice,
-                          unrealizedPnL: 0,
-                          unrealizedPnLPercent: 0,
-                          durationMs: durationMs,
-                        } as any, 'mexc-live');
+                        logBotDecision('trail-mgr', sym, 'external_close', `VERIFIED closed: ${mexcExitReason} PnL=$${lastClose.profit.toFixed(4)}`);
+
+                        // Persist to Turso
+                        if (isTursoConfigured()) {
+                          const dataPersistence = getDataPersistence();
+                          dataPersistence.logTradeClose('mexc-live', {
+                            id: `mexc-${sym}-${lastClose.updateTime}`,
+                            symbol: sym.replace('_USDT', 'USDT'),
+                            direction: direction,
+                            timeframe: '5m' as const,
+                            marketType: 'futures' as const,
+                            entryPrice: entryPrice,
+                            entryTime: entryTime,
+                            exitPrice: exitPrice,
+                            exitTime: lastClose.updateTime,
+                            exitReason: mexcExitReason,
+                            marginUsed: marginUsed,
+                            notionalSize: marginUsed * leverage,
+                            leverage: leverage,
+                            realizedPnL: lastClose.profit,
+                            realizedPnLPercent: lastClose.profit / marginUsed * 100,
+                            trailActivated: trackedPos.trailActivated || false,
+                            highestPnlPercent: trackedPos.highestRoePct || 0,
+                            takeProfitPrice: 0,
+                            stopLossPrice: trackedPos.currentStopPrice || 0,
+                            currentPrice: exitPrice,
+                            unrealizedPnL: 0,
+                            unrealizedPnLPercent: 0,
+                            durationMs: durationMs,
+                          } as any, 'mexc-live');
+                        }
 
                         const closeType = lastClose.orderType === 5 ? 'MANUAL' :
                                          lastClose.orderType === 6 ? 'TRIGGERED' : `TYPE_${lastClose.orderType}`;
-                        console.log(`[MEXC-PERSIST] ${sym} closed externally: ${closeType} PnL=$${lastClose.profit.toFixed(4)} peak=${(trackedPos?.highestRoePct || 0).toFixed(1)}%`);
+                        console.log(`[MEXC-PERSIST] ${sym} VERIFIED closed: ${closeType} PnL=$${lastClose.profit.toFixed(4)} peak=${(trackedPos.highestRoePct || 0).toFixed(1)}%`);
 
                         // Update cumulative stats
                         mexcTotalRealizedPnl += lastClose.profit;
                         mexcTotalTrades++;
                         if (lastClose.profit > 0) mexcWins++;
                         else mexcLosses++;
+
+                        // NOW stop tracking (after verification)
+                        trailingManager.confirmExternalClose(sym, exitPrice, lastClose.profit);
+
+                        if (isTursoConfigured()) {
+                          deleteTrailingPosition(sym).catch(e =>
+                            console.error(`[TRAIL-MGR] Turso delete failed for ${sym}:`, e)
+                          );
+                        }
+                      } else {
+                        // NO close order found - position may still be open (API inconsistency)
+                        console.warn(`[TRAIL-MGR] ${sym} not in getOpenPositions() but no close order found — keeping tracked (API inconsistency)`);
                       }
+                    } else {
+                      // Couldn't fetch history - keep tracking to be safe
+                      console.warn(`[TRAIL-MGR] ${sym} not in getOpenPositions() but couldn't verify — keeping tracked`);
                     }
                   } catch (histErr) {
-                    console.error(`[MEXC-PERSIST] Failed to fetch history for ${sym}:`, (histErr as Error).message);
-                  }
-
-                  // Record close in trailing manager
-                  if (trackedPos) {
-                    trailingManager.recordClose(sym, trackedPos.direction, trackedPos.entryPrice, 'external_close');
-                  }
-
-                  if (isTursoConfigured()) {
-                    deleteTrailingPosition(sym).catch(e =>
-                      console.error(`[TRAIL-MGR] Turso delete failed for ${sym}:`, e)
-                    );
+                    console.error(`[TRAIL-MGR] Failed to verify close for ${sym}:`, (histErr as Error).message);
+                    // Keep tracking on error - safer than false closure
                   }
                 }
               }
