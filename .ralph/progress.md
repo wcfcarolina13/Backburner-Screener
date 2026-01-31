@@ -4,10 +4,47 @@
 
 ## Summary
 
-- Iterations completed: 44
-- Current status: Race Condition Fix + 72-Hour Bug Impact Analysis
+- Iterations completed: 46
+- Current status: Starting Iteration 47 - Orphaned Order Recovery
 
 ## Current Task: MEXC Live Trading Stability
+
+### Iteration 47 - Orphaned Order Recovery on Startup
+**Date**: 2026-01-31
+**Status**: 🔄 In Progress
+
+**Goal**: Implement startup reconciliation to detect and recover orphaned MEXC positions.
+
+---
+
+### Iteration 46 - Paper Bot Parameter Sync & SL Slippage Fix
+**Date**: 2026-01-31
+**Status**: ✅ Complete
+
+**Problem Found**: Paper bots were using different parameters than MEXC live:
+- Paper bot (exp-bb-sysB): 20x leverage, $2000 balance, 10% position size
+- MEXC live: 10x leverage, ~$480 balance, 10% position size
+- SL was calculated based on expected entry, not actual fill (slippage caused SL drift)
+
+**Fixes Implemented**:
+1. SL Drift Correction After Fill - Recalculates SL based on actual fill price
+2. Paper Bot Leverage Sync - Syncs from `serverSettings.mexcMaxLeverage`
+3. Paper Bot Balance Sync - Periodic refresh syncs to paper bots
+4. Paper Bot Position Size Sync - Syncs from `serverSettings.mexcPositionSizePct`
+
+---
+
+### Iteration 45 - Comprehensive Race Condition & Rate Limit Audit
+**Date**: 2026-01-31
+**Status**: ✅ Complete
+
+**Fixes Implemented** (documented in `RACE_CONDITION_FIXES.md`):
+1. Plan Order Detection Race - Added `waitForPlanOrder()` with exponential backoff
+2. Grace Period Extended - 60s → 90s
+3. Plan Order Renewal Made Atomic - Creates new before canceling old
+4. Polling Loop Overlap Protection - Added lock to prevent concurrent ticks
+
+---
 
 ### Iteration 44 - 72-Hour Bug Impact Analysis
 **Date**: 2026-01-31

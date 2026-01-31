@@ -6,11 +6,42 @@ test_command: "npm run build"
 # Task: MEXC Live Trading Stability
 
 **Priority**: Critical
-**Status**: Complete
+**Status**: In Progress
 
 ---
 
-## Iteration 44: 72-Hour Bug Impact Analysis
+## Iteration 47: Orphaned Order Recovery on Startup
+
+### Context
+
+From `RACE_CONDITION_FIXES.md` Issue #2 (HIGH priority):
+- If server crashes between order execution and `startTracking()`, position is orphaned on MEXC
+- No current mechanism to detect and reconcile orphaned positions on startup
+
+### Success Criteria
+
+1. [ ] **Detect orphaned positions on startup**
+   - Query MEXC `getOpenPositions()` on server start
+   - Compare against in-memory tracking state (empty on fresh start)
+   - Any MEXC position not in tracking = orphaned
+
+2. [ ] **Reconcile orphaned positions**
+   - For each orphaned position:
+     - Check if it has a plan order (SL) set
+     - If no SL, create one based on standard parameters
+     - Add to trailing manager for tracking
+   - Log reconciliation actions
+
+3. [ ] **Persist order state to Turso**
+   - Save executed orders to Turso BEFORE starting tracking
+   - Include: orderId, symbol, side, entryPrice, leverage, status
+   - On startup, load from Turso to know what SHOULD be tracked
+
+4. [ ] **Build passes and deploy**
+
+---
+
+## Previous: Iteration 44-46 (Complete)
 
 ### Summary
 
