@@ -241,6 +241,7 @@ class MexcRateLimiter {
 | # | Issue | Fix Applied |
 |---|-------|-------------|
 | 1 | Plan Order Detection Race | Added `waitForPlanOrder()` with exponential backoff (2s, 4s, 6s, 8s) + manual SL creation fallback |
+| 2 | Orphaned Order Recovery | **Already implemented** in startup reconciliation (lines 7276-7314): detects untracked MEXC positions, creates SL, starts tracking |
 | 3 | Grace Period Insufficient | Extended from 60s → 90s in both trailing manager and queue lifecycle |
 | 4 | Plan Order Renewal Gap | Now creates new order BEFORE canceling old one (atomic renewal) |
 | 5 | Polling Loop Overlap | Added `priceUpdateInProgress` lock to prevent concurrent 10s ticks |
@@ -249,7 +250,6 @@ class MexcRateLimiter {
 
 | # | Issue | Priority |
 |---|-------|----------|
-| 2 | Orphaned Order Recovery | HIGH - Implement startup reconciliation |
 | 6 | Global API Rate Limiter | MEDIUM - Coordinate all MEXC calls |
 | 7 | Startup Verification Delay | LOW |
 | 8 | Screener Batch Size | LOW |

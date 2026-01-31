@@ -18,26 +18,29 @@ From `RACE_CONDITION_FIXES.md` Issue #2 (HIGH priority):
 - If server crashes between order execution and `startTracking()`, position is orphaned on MEXC
 - No current mechanism to detect and reconcile orphaned positions on startup
 
-### Success Criteria
+### Findings
 
-1. [ ] **Detect orphaned positions on startup**
-   - Query MEXC `getOpenPositions()` on server start
-   - Compare against in-memory tracking state (empty on fresh start)
-   - Any MEXC position not in tracking = orphaned
+**Already Implemented!** The startup reconciliation in `web-server.ts` (lines 7237-7406) already handles this:
 
-2. [ ] **Reconcile orphaned positions**
-   - For each orphaned position:
-     - Check if it has a plan order (SL) set
-     - If no SL, create one based on standard parameters
-     - Add to trailing manager for tracking
-   - Log reconciliation actions
+1. [x] **Detect orphaned positions on startup** ✅
+   - Lines 7266-7274: Fetches all MEXC positions via `client.getOpenPositions()`
+   - Lines 7273-7275: Compares against `trackedSymbols` from trailing manager
 
-3. [ ] **Persist order state to Turso**
-   - Save executed orders to Turso BEFORE starting tracking
-   - Include: orderId, symbol, side, entryPrice, leverage, status
-   - On startup, load from Turso to know what SHOULD be tracked
+2. [x] **Reconcile orphaned positions** ✅
+   - Lines 7276-7314: For each untracked MEXC position:
+     - Calculates correct SL price (8% ROE-based)
+     - Cancels any stale plan orders
+     - Creates fresh SL on MEXC
+     - Starts trailing manager tracking
+     - Persists to Turso
 
-4. [ ] **Build passes and deploy**
+3. [x] **Persist order state to Turso** ✅
+   - Lines 7306-7313: Saves trailing position to Turso after reconciliation
+   - Also handles positions closed while server was down (lines 7317-7328)
+
+4. [x] **Build passes** ✅
+
+### Status: Complete (verified existing implementation)
 
 ---
 
