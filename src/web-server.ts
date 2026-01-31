@@ -7533,7 +7533,17 @@ async function main() {
 
     // Periodic real-time price updates for ALL positions (every 10 seconds)
     // This ensures P&L is calculated from live ticker data, not stale candle closes
+    // RACE CONDITION FIX: Lock to prevent overlapping updates during high API load
+    let priceUpdateInProgress = false;
     setInterval(async () => {
+      // Prevent overlap: if previous update is still running, skip this tick
+      if (priceUpdateInProgress) {
+        console.warn('[POLL] Previous price update still running, skipping this tick');
+        return;
+      }
+      priceUpdateInProgress = true;
+
+      try {
       // Helper to track and broadcast position closures
       const trackClosures = <T extends { id?: string; status?: string }>(
         botId: string,
@@ -7914,10 +7924,11 @@ async function main() {
               for (const order of mexcExecutionQueue) {
                 if (order.status !== 'executed') continue;
 
-                // GRACE PERIOD: Don't mark as closed if executed less than 60 seconds ago
+                // GRACE PERIOD: Don't mark as closed if executed less than 90 seconds ago
                 // This prevents race condition where MEXC API hasn't yet reflected the new position
+                // Extended from 60s to 90s to account for high API load scenarios
                 const timeSinceExecution = order.executedAt ? Date.now() - order.executedAt : Infinity;
-                if (timeSinceExecution < 60000) {
+                if (timeSinceExecution < 90000) {
                   continue; // Skip - too soon to determine if position is really closed
                 }
 
@@ -8182,6 +8193,9 @@ async function main() {
       }
 
       broadcastState(); // Update clients with new prices
+      } finally {
+        priceUpdateInProgress = false;
+      }
     }, 10000);
   } catch (error) {
     console.error('Failed to start screener:', error);

@@ -4,10 +4,50 @@
 
 ## Summary
 
-- Iterations completed: 44
-- Current status: Race Condition Fix + 72-Hour Bug Impact Analysis
+- Iterations completed: 45
+- Current status: Additional Race Condition Fixes
 
 ## Current Task: MEXC Live Trading Stability
+
+### Iteration 45 - Comprehensive Race Condition & Rate Limit Audit
+**Date**: 2026-01-31
+**Status**: ✅ Complete
+
+**Goal**: Audit entire system for race conditions and rate limit issues that could be causing money loss.
+
+**Audit Results** (documented in `RACE_CONDITION_FIXES.md`):
+- Found 10 potential issues ranked by money impact
+- Fixed 4 of them this session, 5 remaining for future work
+
+**Fixes Implemented**:
+
+1. **Plan Order Detection Race (Critical #1)** ✅
+   - Added `waitForPlanOrder()` helper with exponential backoff (2s, 4s, 6s, 8s delays)
+   - If retries fail, creates SL manually instead of leaving position unprotected
+   - File: `src/mexc-trailing-manager.ts`
+
+2. **Grace Period Extended (Medium #3)** ✅
+   - Extended from 60s → 90s in both:
+     - `src/mexc-trailing-manager.ts` (detectExternalCloses)
+     - `src/web-server.ts` (queue lifecycle detector)
+   - Handles high MEXC API load scenarios
+
+3. **Plan Order Renewal Made Atomic (Medium #4)** ✅
+   - Now creates NEW order BEFORE canceling old one
+   - Eliminates gap where position has no SL protection
+   - File: `src/mexc-trailing-manager.ts` (`renewPlanOrder()`)
+
+4. **Polling Loop Overlap Protection (Medium #5)** ✅
+   - Added `priceUpdateInProgress` lock to 10-second interval
+   - Prevents concurrent API calls when previous tick runs long
+   - File: `src/web-server.ts` (line ~7464)
+
+**Still TODO** (documented for future sessions):
+- #2: Orphaned Order Recovery (startup reconciliation)
+- #6: Global API Rate Limiter
+- #7, #8, #9: Low priority optimizations
+
+---
 
 ### Iteration 44 - 72-Hour Bug Impact Analysis
 **Date**: 2026-01-31

@@ -146,8 +146,48 @@ export class MexcTrailingManager {
   }
 
   /**
+   * Wait for a plan order to appear in MEXC API with retries.
+   * MEXC has API lag - orders created don't immediately appear in getPlanOrders().
+   */
+  private async waitForPlanOrder(
+    client: MexcFuturesClient,
+    symbol: string,
+    direction: 'long' | 'short',
+    maxRetries: number = 4
+  ): Promise<string> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      if (attempt > 0) {
+        // Exponential backoff: 2s, 4s, 6s, 8s
+        const delayMs = 2000 * attempt;
+        console.log(`[TRAIL-MGR] Waiting ${delayMs/1000}s for plan order to appear for ${symbol} (attempt ${attempt}/${maxRetries})...`);
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+
+      try {
+        const planOrders = await client.getPlanOrders(symbol);
+        if (planOrders.success && planOrders.data && planOrders.data.length > 0) {
+          // Find the SL plan order (for longs: triggerType=2 means <=, for shorts: triggerType=1 means >=)
+          const slOrder = planOrders.data.find((o: any) =>
+            direction === 'long' ? o.triggerType === 2 : o.triggerType === 1
+          );
+          if (slOrder) {
+            console.log(`[TRAIL-MGR] Found plan order for ${symbol} on attempt ${attempt + 1}`);
+            return String(slOrder.id);
+          }
+          // Take the first plan order as fallback
+          console.log(`[TRAIL-MGR] Found fallback plan order for ${symbol} on attempt ${attempt + 1}`);
+          return String(planOrders.data[0].id);
+        }
+      } catch (err) {
+        console.error(`[TRAIL-MGR] Error fetching plan orders for ${symbol}:`, (err as Error).message);
+      }
+    }
+    return ''; // Not found after all retries
+  }
+
+  /**
    * Start tracking a newly opened MEXC position.
-   * Fetches the SL plan order ID from MEXC.
+   * Fetches the SL plan order ID from MEXC with retry logic for API lag.
    */
   async startTracking(
     client: MexcFuturesClient,
@@ -166,29 +206,28 @@ export class MexcTrailingManager {
   ): Promise<boolean> {
     const { symbol } = params;
 
-    // Fetch plan orders to find the SL order ID
-    let planOrderId = '';
-    try {
-      const planOrders = await client.getPlanOrders(symbol);
-      if (planOrders.success && planOrders.data && planOrders.data.length > 0) {
-        // Find the SL plan order (for longs: triggerType=2 means <=, for shorts: triggerType=1 means >=)
-        const slOrder = planOrders.data.find((o: any) =>
-          params.direction === 'long' ? o.triggerType === 2 : o.triggerType === 1
-        );
-        if (slOrder) {
-          planOrderId = String(slOrder.id);
+    // Wait for plan order with retries (MEXC API has lag)
+    let planOrderId = await this.waitForPlanOrder(client, symbol, params.direction);
+
+    // If still no plan order found after retries, try to create one
+    if (!planOrderId) {
+      console.warn(`[TRAIL-MGR] No plan order found for ${symbol} after retries — creating SL manually`);
+      try {
+        const slResult = await client.setStopLoss(symbol, params.stopLossPrice);
+        if (slResult.success && slResult.data?.id) {
+          planOrderId = String(slResult.data.id);
+          console.log(`[TRAIL-MGR] Created manual SL for ${symbol}: ${planOrderId}`);
         } else {
-          // Take the first plan order as fallback
-          planOrderId = String(planOrders.data[0].id);
+          console.error(`[TRAIL-MGR] Failed to create manual SL for ${symbol}: ${slResult.error}`);
         }
+      } catch (err) {
+        console.error(`[TRAIL-MGR] Error creating manual SL for ${symbol}:`, (err as Error).message);
       }
-    } catch (err) {
-      console.error(`[TRAIL-MGR] Failed to fetch plan orders for ${symbol}:`, (err as Error).message);
     }
 
     if (!planOrderId) {
-      console.warn(`[TRAIL-MGR] No plan order found for ${symbol} — position is unprotected!`);
-      // Still track it — we can create a plan order later
+      console.error(`[TRAIL-MGR] ⚠️ CRITICAL: ${symbol} position is UNPROTECTED — no SL could be created!`);
+      // Still track it, but this is a serious issue that should be investigated
     }
 
     const tracked: TrackedPosition = {
@@ -358,11 +397,12 @@ export class MexcTrailingManager {
     client: MexcFuturesClient,
     pos: TrackedPosition
   ): Promise<void> {
-    console.log(`[TRAIL-MGR] Renewing plan order for ${pos.symbol} (age: ${((Date.now() - pos.planOrderCreatedAt) / 86400000).toFixed(1)} days)`);
+    const oldPlanOrderId = pos.planOrderId;
+    console.log(`[TRAIL-MGR] Renewing plan order for ${pos.symbol} (age: ${((Date.now() - pos.planOrderCreatedAt) / 86400000).toFixed(1)} days, old ID: ${oldPlanOrderId})`);
 
     try {
-      // Cancel ALL plan orders for this symbol to prevent duplicates
-      await client.cancelAllPlanOrders(pos.symbol);
+      // RACE CONDITION FIX: Create new order FIRST, then cancel old one
+      // This ensures we're never unprotected during the renewal window
 
       // Create new plan order at current stop price
       // Import OrderSide values: CLOSE_LONG = 4, CLOSE_SHORT = 2
@@ -381,11 +421,24 @@ export class MexcTrailingManager {
       });
 
       if (result.success && result.data) {
-        pos.planOrderId = String(result.data.id || result.data);
+        const newOrderId = String(result.data.id || result.data);
+        pos.planOrderId = newOrderId;
         pos.planOrderCreatedAt = Date.now();
-        console.log(`[TRAIL-MGR] Renewed plan order for ${pos.symbol}: new ID ${pos.planOrderId}`);
+        console.log(`[TRAIL-MGR] Created new plan order for ${pos.symbol}: ${newOrderId}`);
+
+        // Now safely cancel old order (we have the new one in place)
+        if (oldPlanOrderId) {
+          try {
+            await client.cancelPlanOrder(oldPlanOrderId);
+            console.log(`[TRAIL-MGR] Cancelled old plan order ${oldPlanOrderId} for ${pos.symbol}`);
+          } catch (cancelErr) {
+            // Old order might have expired or been triggered — not critical since new one is in place
+            console.warn(`[TRAIL-MGR] Could not cancel old order ${oldPlanOrderId}: ${(cancelErr as Error).message}`);
+          }
+        }
       } else {
-        console.error(`[TRAIL-MGR] Failed to renew plan order for ${pos.symbol}: ${result.error}`);
+        // New order failed — keep old order, don't cancel it
+        console.error(`[TRAIL-MGR] Failed to renew plan order for ${pos.symbol}: ${result.error} — keeping old order ${oldPlanOrderId}`);
       }
     } catch (err) {
       console.error(`[TRAIL-MGR] Error renewing plan order for ${pos.symbol}:`, (err as Error).message);
@@ -413,10 +466,11 @@ export class MexcTrailingManager {
     const closedSymbols: string[] = [];
     const now = Date.now();
     for (const [symbol, pos] of this.positions) {
-      // GRACE PERIOD: Don't mark as closed if tracking started less than 60 seconds ago
+      // GRACE PERIOD: Don't mark as closed if tracking started less than 90 seconds ago
       // This prevents race condition where MEXC API hasn't yet reflected the new position
+      // Extended from 60s to 90s to account for high API load scenarios
       const timeSinceStart = pos.startedAt ? now - pos.startedAt : Infinity;
-      if (timeSinceStart < 60000) {
+      if (timeSinceStart < 90000) {
         continue; // Skip - too soon to determine if position is really closed
       }
 
