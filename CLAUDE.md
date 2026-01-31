@@ -6,6 +6,24 @@ This project uses the **Ralph autonomous development methodology**. Ralph treats
 
 - **`/performance`** - Run full Turso database analysis to check bot performance, shadow bots, quadrant data, and data collection health. Use this at the start of sessions or when discussing trading results.
 
+## Maintenance Scripts
+
+### Archive Progress (when progress.md gets too large)
+```bash
+npx tsx scripts/archive-progress.ts              # Dry run (preview)
+npx tsx scripts/archive-progress.ts --execute    # Actually archive
+npx tsx scripts/archive-progress.ts --keep=10    # Keep last 10 iterations
+```
+- Automatically archives old iterations when file exceeds ~800 lines
+- Keeps last 15 iterations by default
+- Creates `.ralph/progress-archive-iterations-X-Y.md` files
+
+### Local Secrets
+Turso credentials and other secrets are stored in `.env.local` (gitignored):
+```bash
+source .env.local  # Load before running scripts that need DB access
+```
+
 ## Before Every Action
 
 **ALWAYS read these files first:**
