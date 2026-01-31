@@ -3924,15 +3924,19 @@ app.get('/api/mexc/position-history', async (req, res) => {
     return;
   }
   try {
+    const pageNum = parseInt(req.query.page as string) || 1;
+    const pageSize = Math.min(parseInt(req.query.limit as string) || 50, 100);
+
     // Try both endpoints
     const [historyResult, altResult] = await Promise.all([
-      client.getPositionHistory(1, 50),
+      client.getPositionHistory(pageNum, pageSize),
       client.getHistoricalPositions(),
     ]);
 
     res.json({
       positionHistory: historyResult,
       historicalPositions: altResult,
+      pagination: { page: pageNum, limit: pageSize },
     });
   } catch (err) {
     res.json({ success: false, error: (err as Error).message });
@@ -4025,6 +4029,146 @@ app.get('/api/mexc/history', async (req, res) => {
     });
   } catch (error) {
     console.error('[MEXC-HISTORY] Error:', error);
+    res.json({ success: false, error: (error as Error).message });
+  }
+});
+
+// Import MEXC position history to Turso
+// Fetches all pages of position history and imports to Turso (deduplicates by positionId)
+app.post('/api/mexc/import-history', async (req, res) => {
+  const client = initMexcClient();
+  if (!client) {
+    res.json({ success: false, error: 'MEXC client not configured' });
+    return;
+  }
+
+  if (!isTursoConfigured()) {
+    res.json({ success: false, error: 'Turso not configured' });
+    return;
+  }
+
+  try {
+    const dataPersistence = getDataPersistence();
+    const hoursBack = parseInt(req.query.hours as string) || 48;
+    const cutoffTime = Date.now() - (hoursBack * 60 * 60 * 1000);
+
+    console.log(`[IMPORT] Starting MEXC history import (last ${hoursBack} hours)...`);
+
+    // Fetch multiple pages of position history
+    let allPositions: any[] = [];
+    let pageNum = 1;
+    const pageSize = 100; // Max page size
+    let hasMore = true;
+
+    while (hasMore) {
+      const result = await client.getPositionHistory(pageNum, pageSize);
+      if (!result.success || !result.data || result.data.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      // Filter by time cutoff
+      const recentPositions = result.data.filter((p: any) => p.updateTime >= cutoffTime);
+      allPositions = allPositions.concat(recentPositions);
+
+      // If oldest position in this page is older than cutoff, we're done
+      const oldestInPage = result.data[result.data.length - 1];
+      if (oldestInPage && oldestInPage.updateTime < cutoffTime) {
+        hasMore = false;
+      } else if (result.data.length < pageSize) {
+        hasMore = false;
+      } else {
+        pageNum++;
+        // Rate limit
+        await new Promise(r => setTimeout(r, 200));
+      }
+    }
+
+    console.log(`[IMPORT] Fetched ${allPositions.length} positions from ${pageNum} page(s)`);
+
+    // Check existing mexc-live trades to avoid duplicates
+    const existingIds = new Set<string>();
+    try {
+      const existingResult = await executeReadQuery(
+        `SELECT position_id FROM trade_events WHERE bot_id = 'mexc-live' AND position_id IS NOT NULL`
+      );
+      if (existingResult.rows) {
+        for (const row of existingResult.rows) {
+          existingIds.add(String((row as any).position_id));
+        }
+      }
+    } catch (err) {
+      console.log('[IMPORT] Could not fetch existing IDs, will rely on upsert');
+    }
+
+    let imported = 0;
+    let skipped = 0;
+    let errors = 0;
+
+    for (const pos of allPositions) {
+      const positionId = String(pos.positionId);
+
+      // Skip if already exists
+      if (existingIds.has(positionId)) {
+        skipped++;
+        continue;
+      }
+
+      try {
+        const direction = pos.positionType === 1 ? 'long' : 'short';
+        const entryPrice = pos.openAvgPrice;
+        const exitPrice = pos.closeAvgPrice;
+        const leverage = pos.leverage || 10;
+        const marginUsed = Math.abs(pos.realised) / (Math.abs((exitPrice - entryPrice) / entryPrice) * leverage) || 5;
+        const durationMs = pos.updateTime - pos.createTime;
+
+        dataPersistence.logTradeClose('mexc-live', {
+          id: `mexc-${pos.symbol}-${pos.positionId}`,
+          symbol: pos.symbol.replace('_USDT', 'USDT'),
+          direction: direction,
+          timeframe: '5m' as const,
+          marketType: 'futures' as const,
+          entryPrice: entryPrice,
+          entryTime: pos.createTime,
+          exitPrice: exitPrice,
+          exitTime: pos.updateTime,
+          exitReason: 'historical',
+          marginUsed: marginUsed,
+          notionalSize: marginUsed * leverage,
+          leverage: leverage,
+          realizedPnL: pos.realised,
+          realizedPnLPercent: (pos.profitRatio || 0) * 100,
+          trailActivated: false,
+          highestPnlPercent: 0,
+          takeProfitPrice: 0,
+          stopLossPrice: 0,
+          currentPrice: exitPrice,
+          unrealizedPnL: 0,
+          unrealizedPnLPercent: 0,
+          durationMs: durationMs,
+          positionId: positionId,
+        } as any, 'mexc-live');
+
+        imported++;
+        existingIds.add(positionId); // Track to avoid duplicates in same batch
+      } catch (err) {
+        console.error(`[IMPORT] Error importing ${pos.symbol} ${positionId}:`, (err as Error).message);
+        errors++;
+      }
+    }
+
+    console.log(`[IMPORT] Complete: ${imported} imported, ${skipped} skipped (duplicates), ${errors} errors`);
+
+    res.json({
+      success: true,
+      hoursBack,
+      totalFetched: allPositions.length,
+      imported,
+      skipped,
+      errors,
+    });
+  } catch (error) {
+    console.error('[IMPORT] Error:', error);
     res.json({ success: false, error: (error as Error).message });
   }
 });
@@ -7697,6 +7841,14 @@ async function main() {
               // Check executed orders: if their symbol is no longer in open positions, mark as closed
               for (const order of mexcExecutionQueue) {
                 if (order.status !== 'executed') continue;
+
+                // GRACE PERIOD: Don't mark as closed if executed less than 60 seconds ago
+                // This prevents race condition where MEXC API hasn't yet reflected the new position
+                const timeSinceExecution = order.executedAt ? Date.now() - order.executedAt : Infinity;
+                if (timeSinceExecution < 60000) {
+                  continue; // Skip - too soon to determine if position is really closed
+                }
+
                 const futuresSymbol = spotSymbolToFutures(order.symbol);
                 if (!openSymbols.has(futuresSymbol)) {
                   // Position is gone from MEXC — was closed (SL, TP, or manual)

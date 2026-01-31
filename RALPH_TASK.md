@@ -1,11 +1,42 @@
 ---
-task: Premature Stop Loss Investigation + Bug Queue
+task: MEXC Live Trading Stability
 test_command: "npm run build"
 ---
 
-# Task: Premature Stop Loss Exits Investigation
+# Task: MEXC Live Trading Stability
 
 **Priority**: Critical
+**Status**: Complete
+
+---
+
+## Iteration 43: Race Condition Fix
+
+### Success Criteria
+
+1. [x] **Identified race condition in position tracking**
+   - 197/197 queue entries marked "closed" within 2-10 seconds of execution
+   - MEXC `getOpenPositions()` API has lag — new positions don't appear immediately
+   - Lifecycle detector (every 10s) falsely detected positions as "closed"
+
+2. [x] **Fixed with 60-second grace period**
+   - Queue lifecycle: skip closure check if `executedAt` < 60 seconds ago
+   - Trailing manager: skip `detectExternalCloses` if `startedAt` < 60 seconds ago
+   - Positions now stay tracked long enough for API to reflect them
+
+3. [x] **Added MEXC history import capabilities**
+   - `POST /api/mexc/import-history?hours=48` - Bulk import to Turso
+   - `GET /api/mexc/position-history?page=1&limit=100` - Pagination support
+   - `scripts/import-mexc-history.ts` - Standalone import script
+
+4. [x] **Documented in Ralph guardrails**
+   - "MEXC API Has Lag — Add Grace Periods for Position Detection"
+   - "MEXC Dashboard Uses UTC+8 Timezone"
+
+---
+
+## Previous Task: Premature Stop Loss Investigation
+
 **Status**: Complete — No Action Required
 
 **Context**: After the SL bug fix (commit 67ec711 on cranky-dewdney/epic-lewin branches), the ROE-based SL formula divides by leverage, making the stop distance very tight on high-leverage volatile altcoins. At 20x leverage with 8% SL, the price distance is only 0.4%, causing positions to stop out within seconds on normal volatility.

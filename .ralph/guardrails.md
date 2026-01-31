@@ -148,3 +148,13 @@
 - **Instruction**: Data flow from source to database has MULTIPLE failure points. A field can exist in logging statements but never reach Turso if ANY step breaks the chain: source → object creation → function call → SQL INSERT. When adding new tracking, verify by: (1) Check the INSERT statement includes the column, (2) Query Turso to confirm data is actually stored, (3) Don't trust console.log statements alone — they prove the code ran, not that data persisted.
 - **Added after**: Iteration 41 - Real MEXC trade results were being logged to console (`[MEXC-SYNC]`) but never persisted to Turso. The code existed, ran, and logged — but the actual INSERT was missing.
 
+### Sign: MEXC API Has Lag — Add Grace Periods for Position Detection
+- **Trigger**: When checking if a position exists on MEXC immediately after execution
+- **Instruction**: MEXC's `getOpenPositions()` API can take up to 30-60 seconds to reflect newly opened positions. If you check whether a position is "closed" too soon after execution, the API may not yet show it, causing false "position gone" detection. Always add a grace period (60+ seconds) before treating a missing position as actually closed. Check `order.executedAt` or `pos.startedAt` timestamps to enforce the grace period.
+- **Added after**: Iteration 43 - 197 out of 197 queue entries were marked "closed" within 2-10 seconds of execution because the lifecycle detector ran every 10 seconds and MEXC API hadn't yet reflected the new positions. This broke trailing stop management, Turso persistence, and profit-tiered trailing — positions were removed from tracking before they could be managed.
+
+### Sign: MEXC Dashboard Uses UTC+8 Timezone
+- **Trigger**: When comparing system PnL with MEXC dashboard "Today" figures
+- **Instruction**: MEXC's "Today's PNL" is calculated in UTC+8 (Beijing time), not UTC. "Today" runs from 00:00 to 23:59 UTC+8, which equals 16:00 UTC yesterday to 15:59 UTC today. When reconciling PnL, filter trades by `updateTime` within this UTC range, NOT by calendar date in UTC. A trade closing at 16:30 UTC counts as "tomorrow" on MEXC.
+- **Added after**: Iteration 43 - Three winning trades (+$14.24 total) closed at 16:36 UTC but won't appear in MEXC "Today" dashboard because they're past the 16:00 UTC cutoff (midnight UTC+8).
+

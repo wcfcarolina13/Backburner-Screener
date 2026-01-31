@@ -4,10 +4,99 @@
 
 ## Summary
 
-- Iterations completed: 41
-- Current status: Real MEXC Trade Persistence + Profit-Tiered Trailing
+- Iterations completed: 43
+- Current status: Race Condition Fix + MEXC History Import
 
-## Current Task: Data Collection Gaps & Profit-Tiered Trailing
+## Current Task: MEXC Live Trading Stability
+
+### Iteration 43 - Fix Race Condition in Position Tracking
+**Date**: 2026-01-31
+**Status**: ✅ Complete
+
+**Goal**: Fix critical bug where MEXC positions were being marked "closed" within seconds of execution, breaking trailing stop management and Turso persistence.
+
+**Problem Discovered**:
+- 197 out of 197 queue entries were marked "closed" within 2-10 seconds of execution
+- Root cause: MEXC `getOpenPositions()` API has lag — new positions don't appear immediately
+- Lifecycle detector ran every 10 seconds, checking if position existed
+- If MEXC API didn't show position yet → marked as "closed" → removed from trailing manager
+- Result: Positions ran unmanaged, no trailing stops, no profit-tiered trailing, no Turso persistence
+
+**Evidence**:
+- METIS SHORT: executed at 05:39, marked "closed" at 05:40 (10 seconds)
+- ETHFI SHORT: executed at 05:57, marked "closed" at 05:58 (9 seconds)
+- But actual MEXC position stayed open 10+ hours, hitting 102-107% ROE!
+
+**Fixes Implemented**:
+
+1. **Queue lifecycle grace period** (`src/web-server.ts`):
+   ```typescript
+   // Don't mark as closed if executed less than 60 seconds ago
+   const timeSinceExecution = order.executedAt ? Date.now() - order.executedAt : Infinity;
+   if (timeSinceExecution < 60000) {
+     continue; // Skip - too soon to determine if position is really closed
+   }
+   ```
+
+2. **Trailing manager grace period** (`src/mexc-trailing-manager.ts`):
+   ```typescript
+   const timeSinceStart = pos.startedAt ? now - pos.startedAt : Infinity;
+   if (timeSinceStart < 60000) {
+     continue; // Skip - too soon to determine if position is really closed
+   }
+   ```
+
+3. **MEXC history import endpoint** (`src/web-server.ts`):
+   - `POST /api/mexc/import-history?hours=48` - Imports position history to Turso
+   - Fetches multiple pages, deduplicates by positionId
+   - Logs with `bot_id='mexc-live'`, `exit_reason='historical'`
+
+4. **Position history pagination** (`src/web-server.ts`):
+   - `GET /api/mexc/position-history?page=1&limit=100` - Now supports pagination
+   - Can fetch more than 50 trades for analysis
+
+**Why This Also Fixes Turso Persistence**:
+- Persistence code runs when position closes (lines 7747+ and 7890+)
+- With positions staying tracked for 60+ seconds, the code path is now reachable
+- Real-time `mexc-live` trades will persist with proper exit reasons
+
+**Trade Performance Analysis** (last 50 visible MEXC trades):
+
+| Metric | Value |
+|--------|-------|
+| Total Trades | 50 |
+| Net PnL | **+$9.94** |
+| Win Rate | 38% (19W / 31L) |
+| Avg Win | $0.92 |
+| Avg Loss | -$0.24 |
+| Biggest Win | $4.85 (ETHFI, 107% ROE) |
+| Biggest Loss | -$0.51 |
+
+**Loss Pattern** (confirming user observation):
+- Tiny (<$0.10): 9 trades, -$0.42
+- Small ($0.10-$0.30): 7 trades, -$1.07
+- Medium ($0.30-$0.50): 14 trades, -$5.46 ← Most losses
+- Large (>$0.50): 1 trade, -$0.51
+
+**MEXC Dashboard Sync**:
+- MEXC uses UTC+8 timezone for "Today's PNL"
+- Today = Jan 30 16:00 UTC to Jan 31 15:59 UTC
+- 3 big winners (+$14.24) closed at 16:36 UTC → count as "tomorrow"
+
+**Files Modified**:
+- `src/web-server.ts` - Grace period + import endpoint + pagination
+- `src/mexc-trailing-manager.ts` - Grace period in detectExternalCloses
+- `scripts/import-mexc-history.ts` - New import script (requires Turso credentials)
+
+**Guardrails Added**:
+- "MEXC API Has Lag — Add Grace Periods for Position Detection"
+- "MEXC Dashboard Uses UTC+8 Timezone"
+
+**Build**: ✅ Passes
+
+---
+
+## Previous Task: Data Collection Gaps & Profit-Tiered Trailing
 
 ### Iteration 42 - Profit-Tiered Trailing Strategy
 **Date**: 2026-01-29
