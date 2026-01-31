@@ -169,9 +169,9 @@
 - **Added after**: Iteration 47 - Multi-echo bash block failed with "permission denied" and jq `!=` caused compile errors.
 
 ### Sign: Verify Position Actually Closed Before Marking Closed
-- **Trigger**: When checking if MEXC position has closed
-- **Instruction**: Don't trust `getOpenPositions()` returning empty or missing a symbol as proof of closure. MEXC API can return incomplete data. ALWAYS verify by checking order history for a close order (side 2 or 4, state 3) that happened AFTER the order execution time. Only mark as closed if verification succeeds.
-- **Added after**: Iteration 48 - 7 positions were incorrectly marked "closed" while still open on MEXC because `getOpenPositions()` momentarily didn't include them. Positions ran untracked, missing trailing stop updates.
+- **Trigger**: When checking if MEXC position has closed (in queue lifecycle OR trailing manager)
+- **Instruction**: Don't trust `getOpenPositions()` returning empty or missing a symbol as proof of closure. MEXC API can return incomplete data. ALWAYS verify by checking order history for a close order (side 2 or 4, state 3) that happened AFTER the order execution/tracking start time. Only mark as closed if verification succeeds. This applies to BOTH the queue lifecycle detector AND the trailing manager's `detectExternalCloses`.
+- **Added after**: Iteration 48-49 - Positions were repeatedly lost and re-adopted because trailing manager's `detectExternalCloses()` immediately stopped tracking without verification. Fixed by splitting into `detectPotentialCloses()` + `confirmExternalClose()`.
 
 ### Sign: Always Verify planOrderId Exists Before Modifying SL
 - **Trigger**: When trailing stop tries to update SL on MEXC
