@@ -362,9 +362,65 @@ export class MexcTrailingManager {
       return false;
     }
 
+    // AUTO-RECOVER: If planOrderId is missing, try to fetch it from MEXC
     if (!pos.planOrderId) {
-      console.warn(`[TRAIL-MGR] Cannot modify SL for ${pos.symbol} — no plan order ID`);
-      return false;
+      console.warn(`[TRAIL-MGR] ${pos.symbol} missing planOrderId — attempting to recover from MEXC`);
+      try {
+        const planOrders = await client.getPlanOrders(pos.symbol);
+        if (planOrders.success && planOrders.data && planOrders.data.length > 0) {
+          // Find SL order (stopLossPrice exists or triggerType indicates SL)
+          const slOrder = planOrders.data.find((o: any) =>
+            o.stopLossPrice > 0 || o.triggerType === 2 // triggerType 2 = stop loss
+          );
+          if (slOrder) {
+            pos.planOrderId = slOrder.id || slOrder.orderId;
+            pos.planOrderCreatedAt = slOrder.createTime || Date.now();
+            console.log(`[TRAIL-MGR] RECOVERED planOrderId for ${pos.symbol}: ${pos.planOrderId}`);
+          } else {
+            // No SL order exists - create one
+            console.warn(`[TRAIL-MGR] ${pos.symbol} has no SL order on MEXC — creating one at $${newStopPrice.toFixed(4)}`);
+            const slResult = await client.setStopLoss(pos.symbol, newStopPrice);
+            if (slResult.success) {
+              // Fetch the newly created order ID
+              const newPlanOrders = await client.getPlanOrders(pos.symbol);
+              if (newPlanOrders.success && newPlanOrders.data) {
+                const newSlOrder = newPlanOrders.data.find((o: any) => o.stopLossPrice > 0 || o.triggerType === 2);
+                if (newSlOrder) {
+                  pos.planOrderId = newSlOrder.id || newSlOrder.orderId;
+                  pos.planOrderCreatedAt = Date.now();
+                  pos.currentStopPrice = newStopPrice;
+                  console.log(`[TRAIL-MGR] Created new SL for ${pos.symbol}: $${newStopPrice.toFixed(4)} (planOrderId: ${pos.planOrderId})`);
+                  return true;
+                }
+              }
+            }
+            console.error(`[TRAIL-MGR] Failed to create SL for ${pos.symbol}: ${slResult.error}`);
+            return false;
+          }
+        } else {
+          // No plan orders at all - create SL
+          console.warn(`[TRAIL-MGR] ${pos.symbol} has no plan orders — creating SL at $${newStopPrice.toFixed(4)}`);
+          const slResult = await client.setStopLoss(pos.symbol, newStopPrice);
+          if (slResult.success) {
+            const newPlanOrders = await client.getPlanOrders(pos.symbol);
+            if (newPlanOrders.success && newPlanOrders.data) {
+              const newSlOrder = newPlanOrders.data.find((o: any) => o.stopLossPrice > 0 || o.triggerType === 2);
+              if (newSlOrder) {
+                pos.planOrderId = newSlOrder.id || newSlOrder.orderId;
+                pos.planOrderCreatedAt = Date.now();
+                pos.currentStopPrice = newStopPrice;
+                console.log(`[TRAIL-MGR] Created new SL for ${pos.symbol}: $${newStopPrice.toFixed(4)} (planOrderId: ${pos.planOrderId})`);
+                return true;
+              }
+            }
+          }
+          console.error(`[TRAIL-MGR] Failed to create SL for ${pos.symbol}: ${slResult.error}`);
+          return false;
+        }
+      } catch (err) {
+        console.error(`[TRAIL-MGR] Error recovering planOrderId for ${pos.symbol}:`, (err as Error).message);
+        return false;
+      }
     }
 
     try {

@@ -4,10 +4,30 @@
 
 ## Summary
 
-- Iterations completed: 46
-- Current status: Starting Iteration 47 - Orphaned Order Recovery
+- Iterations completed: 48
+- Current status: Critical trailing stop fixes deployed
 
 ## Current Task: MEXC Live Trading Stability
+
+### Iteration 48 - Critical Trailing Stop Fixes
+**Date**: 2026-01-31
+**Status**: ✅ Complete
+
+**Problems Found**:
+1. **False Closure Detection**: 7 positions marked "closed" when `getOpenPositions()` returned incomplete data
+2. **Missing planOrderId**: DUSK ran to 49% ROE but SL never moved because planOrderId was empty
+3. **No Periodic Re-adoption**: Orphaned positions stayed untracked after startup
+
+**Fixes Implemented**:
+1. **Verified Closure** - Only mark closed if close order exists in history (with timestamp check)
+2. **planOrderId Auto-Recovery** - Fetch from MEXC or create new SL if missing
+3. **Periodic Re-adoption** - Every 10s, adopt any MEXC position not being tracked
+
+**Files Modified**:
+- `src/web-server.ts` - Verified closure + periodic re-adoption
+- `src/mexc-trailing-manager.ts` - planOrderId auto-recovery
+
+---
 
 ### Iteration 47 - Orphaned Order Recovery on Startup
 **Date**: 2026-01-31

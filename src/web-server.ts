@@ -7934,21 +7934,26 @@ async function main() {
 
                 const futuresSymbol = spotSymbolToFutures(order.symbol);
                 if (!openSymbols.has(futuresSymbol)) {
-                  // Position is gone from MEXC — was closed (SL, TP, or manual)
+                  // Position not in getOpenPositions() - but verify it's actually closed
+                  // by checking for a close order in history (prevents false closures from API lag)
                   const hadSL = order.stopLossPrice && order.stopLossPrice > 0;
                   const hadTP = order.takeProfitPrice && order.takeProfitPrice > 0;
-                  order.status = 'closed';
-                  order.closedAt = Date.now();
 
-                  // CRITICAL: Fetch actual MEXC trade history to get real PnL
+                  // CRITICAL: Verify position is actually closed by checking order history
+                  // Don't mark closed just because getOpenPositions() didn't return it
                   try {
                     const history = await client.getOrderHistory(futuresSymbol, 1, 10);
                     if (history.success && history.data && history.data.length > 0) {
                       // Find the close order (side 2 = close short, side 4 = close long)
+                      // Only consider closes that happened AFTER order execution
                       const closeOrders = history.data.filter(o =>
-                        (o.side === 2 || o.side === 4) && o.state === 3 // state 3 = filled
+                        (o.side === 2 || o.side === 4) && o.state === 3 && // state 3 = filled
+                        o.updateTime > (order.executedAt || 0) // Must be after this order was executed
                       );
                       if (closeOrders.length > 0) {
+                        // VERIFIED: Position was actually closed - now mark it
+                        order.status = 'closed';
+                        order.closedAt = Date.now();
                         const lastClose = closeOrders[0];
                         order.closedPnl = lastClose.profit;
                         const exitPrice = lastClose.dealAvgPrice;
@@ -8067,21 +8072,28 @@ async function main() {
                           dataPersistence.logTradeClose('mexc-mirror', positionForClose as any, 'live-mirror');
                           console.log(`[MIRROR] Synced with MEXC close: ${futuresSymbol} | Mirror PnL: $${mirrorClosed.realizedPnl.toFixed(2)} vs MEXC: $${lastClose.profit.toFixed(2)}`);
                         }
+
+                        logBotDecision(order.bot, order.symbol, 'position_closed', `MEXC position verified closed (had SL: ${hadSL}, TP: ${hadTP})`);
+                        console.log(`[MEXC-SYNC] ${order.symbol} position VERIFIED closed on MEXC — marking queue order as closed`);
+
+                        // Clean up orphaned plan orders (SL/TP) for this symbol
+                        try {
+                          await client.cancelAllPlanOrders(futuresSymbol);
+                          console.log(`[MEXC-SYNC] Cleaned up plan orders for ${futuresSymbol}`);
+                        } catch (e) {
+                          console.error(`[MEXC-SYNC] Failed to cancel plan orders for ${futuresSymbol}:`, (e as Error).message);
+                        }
+                      } else {
+                        // No close order found - position may still be open (API returned incomplete data)
+                        console.warn(`[MEXC-SYNC] ${order.symbol} not in getOpenPositions() but no close order found — NOT marking as closed (possible API inconsistency)`);
                       }
+                    } else {
+                      // No order history available - don't mark as closed
+                      console.warn(`[MEXC-SYNC] ${order.symbol} not in getOpenPositions() but couldn't verify via history — NOT marking as closed`);
                     }
                   } catch (historyErr) {
                     console.error(`[MEXC-SYNC] Failed to fetch order history for ${futuresSymbol}:`, (historyErr as Error).message);
-                  }
-
-                  logBotDecision(order.bot, order.symbol, 'position_closed', `MEXC position no longer open (had SL: ${hadSL}, TP: ${hadTP})`);
-                  console.log(`[MEXC-SYNC] ${order.symbol} position closed on MEXC — marking queue order as closed`);
-
-                  // Clean up orphaned plan orders (SL/TP) for this symbol
-                  try {
-                    await client.cancelAllPlanOrders(futuresSymbol);
-                    console.log(`[MEXC-SYNC] Cleaned up plan orders for ${futuresSymbol}`);
-                  } catch (e) {
-                    console.error(`[MEXC-SYNC] Failed to cancel plan orders for ${futuresSymbol}:`, (e as Error).message);
+                    // Don't mark as closed if we can't verify
                   }
                 }
               }
@@ -8168,9 +8180,78 @@ async function main() {
                 }
               }
 
+              // PERIODIC RE-ADOPTION: Detect MEXC positions not being tracked and adopt them
+              // This catches positions that were incorrectly marked as closed or never tracked
+              const trackedSymbols = new Set(trailingManager.getTrackedPositions().map(p => p.symbol));
+              const mexcPositions = posResult.data || [];
+              for (const mexcPos of mexcPositions) {
+                if (!trackedSymbols.has(mexcPos.symbol)) {
+                  // This MEXC position is not being tracked - adopt it
+                  console.warn(`[MEXC-ADOPT] Found untracked MEXC position: ${mexcPos.symbol} — adopting into trailing manager`);
+                  const direction = mexcPos.positionType === 1 ? 'long' as const : 'short' as const;
+                  const leverage = mexcPos.leverage || serverSettings.mexcMaxLeverage;
+
+                  // Calculate appropriate SL based on current price (not entry) to lock in current profit
+                  const ticker = await client.getTickerPrice(mexcPos.symbol);
+                  const currentPrice = ticker.success && ticker.price ? ticker.price : mexcPos.holdAvgPrice;
+                  const currentRoePct = direction === 'long'
+                    ? ((currentPrice - mexcPos.holdAvgPrice) / mexcPos.holdAvgPrice) * 100 * leverage
+                    : ((mexcPos.holdAvgPrice - currentPrice) / mexcPos.holdAvgPrice) * 100 * leverage;
+
+                  // If in profit, use tight trailing stop; if in loss, use standard SL
+                  let slPrice: number;
+                  if (currentRoePct >= 10) {
+                    // In profit: trail at peak - 5% ROE (or tighter based on tier)
+                    const trailStep = currentRoePct >= 50 ? 2 : currentRoePct >= 30 ? 3 : currentRoePct >= 20 ? 4 : 5;
+                    const trailRoe = currentRoePct - trailStep;
+                    const trailDist = mexcPos.holdAvgPrice * (trailRoe / 100 / leverage);
+                    slPrice = direction === 'long' ? mexcPos.holdAvgPrice + trailDist : mexcPos.holdAvgPrice - trailDist;
+                  } else {
+                    // Not in significant profit: use standard 8% ROE SL
+                    const slRoePct = 8;
+                    const slDist = mexcPos.holdAvgPrice * (slRoePct / 100 / leverage);
+                    slPrice = direction === 'long' ? mexcPos.holdAvgPrice - slDist : mexcPos.holdAvgPrice + slDist;
+                  }
+
+                  // Cancel existing plan orders and create fresh SL
+                  await client.cancelAllPlanOrders(mexcPos.symbol);
+                  const slResult = await client.setStopLoss(mexcPos.symbol, slPrice);
+                  if (!slResult.success) {
+                    console.warn(`[MEXC-ADOPT] Failed to create SL for ${mexcPos.symbol}: ${slResult.error}`);
+                  }
+
+                  await trailingManager.startTracking(client, {
+                    symbol: mexcPos.symbol,
+                    direction,
+                    entryPrice: mexcPos.holdAvgPrice,
+                    leverage,
+                    volume: mexcPos.holdVol,
+                    stopLossPrice: slPrice,
+                    botId: 'adopted',
+                  });
+
+                  // Set highestRoePct if we're in profit
+                  const adoptedPos = trailingManager.getPosition(mexcPos.symbol);
+                  if (adoptedPos && currentRoePct > 0) {
+                    adoptedPos.highestRoePct = currentRoePct;
+                    if (currentRoePct >= 10) {
+                      adoptedPos.trailActivated = true;
+                    }
+                  }
+
+                  if (isTursoConfigured() && adoptedPos) {
+                    saveTrailingPosition(mexcPos.symbol, adoptedPos).catch(e =>
+                      console.error(`[MEXC-ADOPT] Turso save failed for ${mexcPos.symbol}:`, e)
+                    );
+                  }
+
+                  logBotDecision('trail-mgr', mexcPos.symbol, 'adopted', `Adopted untracked position: ${direction} @ $${mexcPos.holdAvgPrice.toFixed(4)} | ROE: ${currentRoePct.toFixed(1)}% | SL: $${slPrice.toFixed(4)}`);
+                }
+              }
+
               // Broadcast updated position count and P&L
               let totalUnrealized = 0;
-              for (const p of (posResult.data || [])) {
+              for (const p of mexcPositions) {
                 try {
                   const ticker = await client.getTickerPrice(p.symbol);
                   if (ticker.success && ticker.price) {
@@ -8181,7 +8262,7 @@ async function main() {
               }
 
               broadcast('mexc_positions_update', {
-                count: (posResult.data || []).length,
+                count: mexcPositions.length,
                 unrealizedPnl: totalUnrealized,
               });
             }

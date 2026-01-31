@@ -158,3 +158,23 @@
 - **Instruction**: MEXC's "Today's PNL" is calculated in UTC+8 (Beijing time), not UTC. "Today" runs from 00:00 to 23:59 UTC+8, which equals 16:00 UTC yesterday to 15:59 UTC today. When reconciling PnL, filter trades by `updateTime` within this UTC range, NOT by calendar date in UTC. A trade closing at 16:30 UTC counts as "tomorrow" on MEXC.
 - **Added after**: Iteration 43 - Three winning trades (+$14.24 total) closed at 16:36 UTC but won't appear in MEXC "Today" dashboard because they're past the 16:00 UTC cutoff (midnight UTC+8).
 
+### Sign: Render Production URL is backburner.onrender.com
+- **Trigger**: When accessing the deployed server API
+- **Instruction**: The correct production URL is `https://backburner.onrender.com`, NOT `backburner-screener.onrender.com` or `backburner-screener-1.onrender.com`. The render.yaml may reference different URLs but the actual deployed service is at `backburner.onrender.com`. Save this in `.env` or `.ralph/` for quick reference.
+- **Added after**: Iteration 47 - Wasted time trying wrong URLs (`backburner-screener.onrender.com` returned 404 with `x-render-routing: no-server`).
+
+### Sign: Avoid Bash Echo Blocks with Complex Commands
+- **Trigger**: When running multiple curl/jq commands with labels
+- **Instruction**: Don't use `echo "LABEL" && curl ... && echo "LABEL2" && curl ...` chains — they can fail with "permission denied" on some shells. Instead, run each curl command separately or use a simple script. Also avoid `!=` in jq — use `> 0` for null safety.
+- **Added after**: Iteration 47 - Multi-echo bash block failed with "permission denied" and jq `!=` caused compile errors.
+
+### Sign: Verify Position Actually Closed Before Marking Closed
+- **Trigger**: When checking if MEXC position has closed
+- **Instruction**: Don't trust `getOpenPositions()` returning empty or missing a symbol as proof of closure. MEXC API can return incomplete data. ALWAYS verify by checking order history for a close order (side 2 or 4, state 3) that happened AFTER the order execution time. Only mark as closed if verification succeeds.
+- **Added after**: Iteration 48 - 7 positions were incorrectly marked "closed" while still open on MEXC because `getOpenPositions()` momentarily didn't include them. Positions ran untracked, missing trailing stop updates.
+
+### Sign: Always Verify planOrderId Exists Before Modifying SL
+- **Trigger**: When trailing stop tries to update SL on MEXC
+- **Instruction**: If `planOrderId` is empty, the modify call will silently fail. Auto-recover by fetching plan orders from MEXC, finding the SL order ID, or creating a new SL if none exists. DUSK ran to 49% profit but SL never moved because planOrderId was missing.
+- **Added after**: Iteration 48 - DUSK had `trailActivated: true` at 49% ROE but SL stayed at initial 8% loss level. User had to manually close to lock in profit.
+
