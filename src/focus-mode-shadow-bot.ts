@@ -739,10 +739,13 @@ export function createAggressiveBot(): FocusModeShadowBot {
     botId: 'focus-aggressive',
     maxPositions: 8,
     maxExcellentOverflow: 3,
-    leverageMultiplier: 1.5,
-    maxLeverage: 30,
-    initialStopPercent: 6,
-    trailStepPercent: 2,
+    // REDUCED: 1.5x was too aggressive for live execution with real slippage
+    leverageMultiplier: 1.0,
+    maxLeverage: 20,
+    // WIDENED: 6% at 30x = 0.2% price move, too tight for live
+    initialStopPercent: 8,
+    // WIDENED: 2% trail was too aggressive, causes premature exits
+    trailStepPercent: 3,
     minQualityScore: 40,
     closeOnConflict: false,
   });

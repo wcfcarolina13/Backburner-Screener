@@ -4,10 +4,70 @@
 
 ## Summary
 
-- Iterations completed: 51
-- Current status: Position service Phase 2 wiring complete
+- Iterations completed: 52
+- Current status: Critical paper vs live trading bugs fixed
 
 ## Current Task: MEXC Live Trading Stability
+
+### Iteration 52 - Critical Paper vs Live Bug Fixes
+**Date**: 2026-02-01
+**Status**: ✅ Complete
+
+**Problem Found**:
+After ~24 hours of running with auto-execution enabled:
+- Paper bots showing profit but live MEXC trades deeply negative (40%+ losses)
+- Trailing stop system appeared broken - positions not closing at SL
+- User reported this was NOT due to slippage/latency
+
+**Root Causes Identified**:
+
+1. **Bug #1: Symbol Format Mismatch in Mirror Tracker** (CRITICAL)
+   - `web-server.ts` line 1098: `priceMap.get(symbol.replace('_USDT', 'USDT'))`
+   - `futuresPriceMap` uses `BTC_USDT` format, but code converted to `BTCUSDT`
+   - Result: Every price lookup failed, mirror tracker never updated positions
+   - Impact: Paper twin comparison was completely broken
+
+2. **Bug #2: Silent Price Fetch Failures**
+   - `web-server.ts` lines 7957-7962: `catch { /* skip */ }`
+   - Network errors silently swallowed, positions skipped without logging
+   - Impact: Under load or network issues, positions went unmanaged
+
+3. **Bug #4: focus-aggressive Too Aggressive for Live**
+   - 1.5x leverage multiplier → 30x actual leverage
+   - 6% initial stop at 30x = 0.2% price move (too tight)
+   - 2% trail step caused premature exits
+
+**Fixes Implemented**:
+
+1. **Mirror Tracker Symbol Format** (`web-server.ts` line 1098):
+   ```typescript
+   // BEFORE: priceMap.get(symbol.replace('_USDT', 'USDT'))
+   // AFTER: priceMap.get(symbol)  // Already in futures format
+   ```
+
+2. **Price Fetch Error Logging** (`web-server.ts` lines 7957+):
+   - Added logging for failed price fetches
+   - Previously silent failures now visible in logs
+
+3. **focus-aggressive Config** (`focus-mode-shadow-bot.ts`):
+   - `leverageMultiplier`: 1.5 → 1.0
+   - `maxLeverage`: 30 → 20
+   - `initialStopPercent`: 6 → 8
+   - `trailStepPercent`: 2 → 3
+
+**Key Insight**:
+The trailing manager (`mexc-trailing-manager.ts`) uses the CORRECT symbol format and should have been working. Bug #1 only affected the mirror tracker (paper comparison). The 40%+ losses were likely from:
+- Positions orphaned before Phase 2 refactoring
+- Positions with empty planOrderId due to MEXC API timing
+- focus-aggressive being too tight for real market conditions
+
+**Files Modified**:
+- `src/web-server.ts` - Symbol format fix, price fetch logging
+- `src/focus-mode-shadow-bot.ts` - focus-aggressive parameter adjustments
+
+**Build**: ✅ Passes
+
+---
 
 ### Iteration 51 - Position Service Phase 2 Wiring
 **Date**: 2026-01-31
