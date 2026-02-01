@@ -45,6 +45,11 @@ export class MexcPositionService extends EventEmitter {
   // Config
   private config: PositionServiceConfig;
 
+  // Debug: track sync stats
+  private syncCount: number = 0;
+  private lastSyncTime: number = 0;
+  private lastSyncPositionCount: number = 0;
+
   // Callbacks for integration with web-server.ts queue
   private onQueueAdd?: (params: QueueParams) => void;
   private onQueueExecute?: (symbol: string) => Promise<ExecutionResult>;
@@ -300,12 +305,16 @@ export class MexcPositionService extends EventEmitter {
    * Phase 1: Pull state from existing manager into our unified view
    */
   syncFromTrailingManager(): void {
+    this.syncCount++;
+    this.lastSyncTime = Date.now();
+
     if (!this.trailingManager) {
       console.warn('[POS-SVC] Cannot sync - no trailing manager');
       return;
     }
 
     const trackedPositions = this.trailingManager.getTrackedPositions();
+    this.lastSyncPositionCount = trackedPositions.length;
 
     for (const tracked of trackedPositions) {
       let pos = this.positions.get(tracked.symbol);
@@ -527,6 +536,7 @@ export class MexcPositionService extends EventEmitter {
     config: PositionServiceConfig;
     positions: MexcPosition[];
     summary: { byState: Record<PositionState, number>; total: number };
+    debug: { syncCount: number; lastSyncTime: number; lastSyncPositionCount: number; hasTrailingManager: boolean; hasClient: boolean };
   } {
     const byState: Record<PositionState, number> = {
       queued: 0,
@@ -546,6 +556,13 @@ export class MexcPositionService extends EventEmitter {
       config: this.config,
       positions: Array.from(this.positions.values()),
       summary: { byState, total: this.positions.size },
+      debug: {
+        syncCount: this.syncCount,
+        lastSyncTime: this.lastSyncTime,
+        lastSyncPositionCount: this.lastSyncPositionCount,
+        hasTrailingManager: !!this.trailingManager,
+        hasClient: !!this.client,
+      },
     };
   }
 }
