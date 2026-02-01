@@ -2688,6 +2688,10 @@ const trailingManager = new MexcTrailingManager({
 
 // Unified position service (Phase 1: observation mode - logs state but doesn't change behavior)
 const positionService = getPositionService();
+
+// Debug: Track poll loop execution (module-level for API access)
+let pollLoopCount = 0;
+let lastPollLoopTime = 0;
 positionService.setTrailingManager(trailingManager);
 positionService.updateConfig({
   defaultLeverage: 10,
@@ -2866,6 +2870,11 @@ app.get('/api/mexc/position-service', (req, res) => {
     success: true,
     ...state,
     trailingManagerCount: trailingManager.getTrackedPositions().length,
+    pollLoop: {
+      count: pollLoopCount,
+      lastTime: lastPollLoopTime,
+      lastTimeAgo: lastPollLoopTime ? `${Math.floor((Date.now() - lastPollLoopTime) / 1000)}s ago` : 'never',
+    },
   });
 });
 
@@ -7595,7 +7604,9 @@ async function main() {
         return;
       }
       priceUpdateInProgress = true;
-      console.log('[POLL] 10-second interval tick started');
+      pollLoopCount++;
+      lastPollLoopTime = Date.now();
+      console.log(`[POLL] 10-second interval tick #${pollLoopCount} started`);
 
       try {
       // Helper to track and broadcast position closures
