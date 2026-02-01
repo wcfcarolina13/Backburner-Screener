@@ -46,6 +46,7 @@ import { DEFAULT_CONFIG } from './config.js';
 import { getDataPersistence } from './data-persistence.js';
 import { initSchema as initTursoSchema, isTursoConfigured, executeReadQuery, getDatabaseStats, saveServerSettingsToTurso, loadServerSettingsFromTurso, saveTrailingPosition, loadTrailingPositions, deleteTrailingPosition, insertTradeEvent, getTurso } from './turso-db.js';
 import { MexcTrailingManager, type TrackedPosition } from './mexc-trailing-manager.js';
+import { getPositionService } from './mexc-position-service.js';
 import { getFocusModeHtml, getFocusModeApiData, calculateSmartTradeSetup } from './focus-mode-dashboard.js';
 import type { BackburnerSetup, Timeframe, MomentumExhaustionSignal } from './types.js';
 import { createSettingsRouter } from './routes/index.js';
@@ -2685,6 +2686,31 @@ const trailingManager = new MexcTrailingManager({
   minModifyIntervalMs: 5000,
 });
 
+// Unified position service (Phase 1: observation mode - logs state but doesn't change behavior)
+const positionService = getPositionService();
+positionService.setTrailingManager(trailingManager);
+positionService.updateConfig({
+  defaultLeverage: 10,
+  defaultMarginUsd: 50,
+  maxMarginUsd: 100,
+  maxLeverage: 20,
+  executionMode: 'live',
+});
+
+// Log all position state changes for debugging
+positionService.onEvent((event) => {
+  if (event.type === 'stateChange') {
+    logBotDecision('pos-svc', event.position.symbol, 'state_change',
+      `${event.oldState} → ${event.newState}`);
+  } else if (event.type === 'slUpdated') {
+    logBotDecision('pos-svc', event.position.symbol, 'sl_update',
+      `$${event.oldPrice.toFixed(4)} → $${event.newPrice.toFixed(4)}`);
+  } else if (event.type === 'closed') {
+    logBotDecision('pos-svc', event.position.symbol, 'closed',
+      `${event.position.exitReason} | PnL: $${event.position.realizedPnl?.toFixed(2) ?? '?'}`);
+  }
+});
+
 // Decision log for bot actions (ring buffer, last 200 entries)
 interface BotDecisionLog {
   timestamp: number;
@@ -2715,6 +2741,10 @@ function initMexcClient(): MexcFuturesClient | null {
 
   mexcClient = createMexcClient(cookie, false);
   console.log('[MEXC] Client initialized');
+
+  // Inject client into position service
+  positionService.setClient(mexcClient);
+
   return mexcClient;
 }
 
@@ -2827,6 +2857,16 @@ app.get('/api/mexc/positions', async (req, res) => {
   } catch (err) {
     res.json({ success: false, error: (err as Error).message });
   }
+});
+
+// Get unified position service state (Phase 1: observation/debugging)
+app.get('/api/mexc/position-service', (req, res) => {
+  const state = positionService.getState();
+  res.json({
+    success: true,
+    ...state,
+    trailingManagerCount: trailingManager.getTrackedPositions().length,
+  });
 });
 
 // Adopt an unmanaged MEXC position for trailing stop management
@@ -7868,6 +7908,9 @@ async function main() {
                 }
               }
             }
+
+            // Sync position service with trailing manager state (Phase 1: observation only)
+            positionService.syncFromTrailingManager();
 
             // Update MEXC mirror positions with same price data
             const mirrorClosed = mexcMirrorTracker.updatePrices(futuresPriceMap);
