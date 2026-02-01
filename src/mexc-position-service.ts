@@ -437,6 +437,11 @@ export class MexcPositionService extends EventEmitter {
         this.positions.set(tracked.symbol, pos);
         console.log(`[POS-SVC] Adopted ${tracked.symbol} from trailing manager`);
       } else {
+        // Skip updating queued/executing positions - they're in transition
+        if (pos.state === 'queued' || pos.state === 'executing') {
+          continue;
+        }
+
         // Update our position with trailing manager state
         pos.currentStopPrice = tracked.currentStopPrice;
         pos.planOrderId = tracked.planOrderId;
