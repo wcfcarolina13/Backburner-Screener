@@ -4,10 +4,54 @@
 
 ## Summary
 
-- Iterations completed: 50
-- Current status: Duplicate order prevention deployed
+- Iterations completed: 51
+- Current status: Position service Phase 2 wiring complete
 
 ## Current Task: MEXC Live Trading Stability
+
+### Iteration 51 - Position Service Phase 2 Wiring
+**Date**: 2026-01-31
+**Status**: ✅ Complete
+
+**Goal**: Wire MexcPositionService to track positions through the full lifecycle.
+
+**Changes Implemented**:
+
+1. **Queue Entry Notification** (`web-server.ts`, `mexc-position-service.ts`):
+   - Added `notifyQueuedOrder()` method to position service
+   - Called from `addToMexcQueue()` after pushing to queue
+   - Service now tracks positions from the moment they're queued
+
+2. **Execution State Notifications**:
+   - Added `notifyExecutionStarted()` for queued → executing transition
+   - Added `notifyExecutionSucceeded()` for executing → open transition
+   - Added `notifyExecutionFailed()` for failure cases
+   - Wired into both `autoExecuteOrder()` and manual execute endpoint
+
+3. **Closure Notifications**:
+   - Added `positionService.markClosed()` calls to all closure paths:
+     - External closes (detected via order history verification)
+     - Reconciled closes (positions closed while server was down)
+     - Paper bot trailing stop exits
+
+4. **Sync Loop Safety**:
+   - Skip updating queued/executing positions in sync loop
+   - Prevents race conditions during state transitions
+
+**Branch**: `refactor/position-service-phase2`
+
+**Commits**:
+- `00ff509` feat: wire position service to queue and execution flow
+- `77716ad` fix: skip updating queued/executing positions in sync loop
+- `98c1612` feat: route position closures through position service
+
+**Next Steps**:
+- Test with live trades (requires re-enabling auto-execution)
+- Consider routing queue reads through service (Step 3 in plan)
+- Clean up redundant tracking in web-server.ts
+
+---
+
 
 ### Iteration 50 - Duplicate Plan Order Prevention
 **Date**: 2026-01-31
