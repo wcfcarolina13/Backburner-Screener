@@ -317,10 +317,8 @@ export class FocusModeShadowBot extends EventEmitter {
   }
 
   private calculatePositionSize(signal: FocusModeSignal): { margin: number; leverage: number; notional: number } {
-    // Calculate AVAILABLE balance (total balance minus capital in open positions)
-    const allocatedCapital = Array.from(this.positions.values())
-      .reduce((sum, p) => sum + p.marginUsed, 0);
-    const availableBalance = Math.max(0, this.balance - allocatedCapital);
+    // Balance already has margin deducted for open positions, so use it directly
+    const availableBalance = Math.max(0, this.balance);
 
     // Determine leverage
     let leverage = signal.suggestedLeverage;
@@ -401,7 +399,10 @@ export class FocusModeShadowBot extends EventEmitter {
       unrealizedPnlPercent: 0,
     };
 
-    // Deduct entry fees
+    // Deduct margin from balance (reserved for position)
+    this.balance -= size.margin;
+
+    // Deduct entry fees from balance
     const entryFees = size.notional * (this.config.feePercent / 100);
     this.balance -= entryFees;
 
