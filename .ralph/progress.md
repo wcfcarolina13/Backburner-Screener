@@ -4,10 +4,44 @@
 
 ## Summary
 
-- Iterations completed: 53
-- Current status: Paper bot liquidation logic + symbol format robustness
+- Iterations completed: 54
+- Current status: Fixed balance double-counting bug in focus mode paper bot
 
 ## Current Task: MEXC Live Trading Stability
+
+### Iteration 54 - Balance Double-Counting Bug Fix
+**Date**: 2026-02-01
+**Status**: ✅ Complete
+
+**Problem Found**:
+User asked to verify stop loss logic was working correctly and check for double-counting of profits. Found a CRITICAL bug in `focus-mode-shadow-bot.ts`:
+
+**The Bug**:
+- On position OPEN: Margin was NOT deducted from `this.balance`
+- It was only tracked via `allocatedCapital` for available balance calculation
+- On position CLOSE: Code did `this.balance += position.marginUsed + realizedPnl`
+- This ADDED the margin back even though it was never subtracted!
+
+**Example**:
+- Start: $2000 balance
+- Open $200 margin position, pay $4 entry fee
+- Old code: balance = $1996 (only fee deducted)
+- Close with $36 net profit
+- Old code: balance = $1996 + $200 + $36 = **$2232** (WRONG!)
+- Should be: $2000 - $4 + $36 = **$2032**
+
+**The Fix**:
+1. Now deduct margin from balance on open: `this.balance -= size.margin`
+2. Simplified `calculatePositionSize()` - balance already has margin deducted, no need for separate `allocatedCapital` tracking
+
+**Files Modified**:
+- `src/focus-mode-shadow-bot.ts`
+
+**Build**: ✅ Passes
+
+**Impact**: Paper bot profits were INFLATED by the margin amount on every closed trade. This made the paper bot appear far more profitable than reality.
+
+---
 
 ### Iteration 53 - Paper Bot Accuracy + Symbol Format Robustness
 **Date**: 2026-02-01
