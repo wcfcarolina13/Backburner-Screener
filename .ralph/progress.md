@@ -4,10 +4,62 @@
 
 ## Summary
 
-- Iterations completed: 48
-- Current status: Critical trailing stop fixes deployed
+- Iterations completed: 50
+- Current status: Duplicate order prevention deployed
 
 ## Current Task: MEXC Live Trading Stability
+
+### Iteration 50 - Duplicate Plan Order Prevention
+**Date**: 2026-01-31
+**Status**: ✅ Complete
+
+**Problem Found**:
+User reported 56 open orders for 13 positions on MEXC - massive order accumulation.
+
+**Root Cause Analysis**:
+Multiple code paths were creating plan orders (SL) without cleaning up existing ones:
+1. `setStopLoss()` - Created new order without canceling existing
+2. `renewPlanOrder()` - Created new THEN canceled old (race condition)
+3. `modifyStopOnMexc` recovery - Created new when planOrderId missing
+4. `verifyPlanOrders` on startup - Didn't detect/cleanup duplicates
+
+**Fixes Implemented**:
+
+1. **`setStopLoss()` now cancels first** (`mexc-futures-client.ts`):
+   - Added `cancelAllPlanOrders(symbol)` BEFORE `createStopOrder()`
+   - Ensures only one order exists per symbol
+
+2. **`renewPlanOrder()` simplified** (`mexc-trailing-manager.ts`):
+   - Now uses `setStopLoss()` which handles cleanup
+   - Removed the create-then-cancel race condition
+
+3. **`modifyStopOnMexc` recovery simplified** (`mexc-trailing-manager.ts`):
+   - Now uses `setStopLoss()` instead of manual order creation
+   - Cleanup is automatic
+
+4. **`verifyPlanOrders()` detects duplicates** (`mexc-trailing-manager.ts`):
+   - If order count != 1, cleans up and recreates
+   - Logs "N duplicate orders found — cleaning up"
+
+**Result**: Ran cleanup - 26 symbols cleaned, 17 SLs recreated. Order count should now stay at 1 per position going forward.
+
+**Files Modified**:
+- `src/mexc-futures-client.ts` - setStopLoss cancels first
+- `src/mexc-trailing-manager.ts` - renewPlanOrder, modifyStopOnMexc, verifyPlanOrders
+
+**Guardrail Added**: "Always Cancel Existing Plan Orders Before Creating New Ones"
+
+---
+
+### Iteration 49 - Trailing Manager External Close Verification
+**Date**: 2026-01-31
+**Status**: ✅ Complete
+
+**Problem Found**: Positions were cycling adopted→lost→re-adopted because `detectExternalCloses()` immediately stopped tracking without verification.
+
+**Fix**: Split into `detectPotentialCloses()` + `confirmExternalClose()`. Caller must verify via order history before confirming.
+
+---
 
 ### Iteration 48 - Critical Trailing Stop Fixes
 **Date**: 2026-01-31
