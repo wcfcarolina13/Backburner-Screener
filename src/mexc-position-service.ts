@@ -209,6 +209,65 @@ export class MexcPositionService extends EventEmitter {
   }
 
   /**
+   * Notify service of a queued order from web-server.ts
+   * Phase 2: This allows the service to track orders without changing queue logic
+   */
+  notifyQueuedOrder(order: {
+    id: string;
+    symbol: string;          // Already in futures format (BTC_USDT)
+    side: 'long' | 'short';
+    bot: string;
+    size: number;
+    leverage: number;
+    stopLossPrice?: number;
+    takeProfitPrice?: number;
+    entryPrice?: number;
+    entryQuality?: string;
+    timestamp: number;
+  }): MexcPosition | null {
+    // Check if already have position in this symbol
+    if (this.positions.has(order.symbol)) {
+      console.log(`[POS-SVC] Already tracking ${order.symbol} - skipping notify`);
+      return null;
+    }
+
+    // Create position from queue data
+    const position: MexcPosition = {
+      id: order.id,
+      symbol: order.symbol,
+      state: 'queued',
+      stateHistory: [{ from: 'queued', to: 'queued', timestamp: order.timestamp, reason: 'queued from web-server' }],
+      direction: order.side,
+      entryPrice: order.entryPrice || 0,
+      entryTime: 0,  // Will be filled on execution
+      volume: 0,     // Will be filled on execution
+      leverage: order.leverage,
+      marginUsed: order.size,
+      initialStopPrice: order.stopLossPrice || 0,
+      currentStopPrice: order.stopLossPrice || 0,
+      planOrderId: '',
+      planOrderCreatedAt: 0,
+      trailActivated: false,
+      trailTriggerPct: this.config.trailTriggerPct,
+      trailStepPct: this.config.trailStepPct,
+      highestRoePct: 0,
+      highestPrice: 0,
+      lowestPrice: 0,
+      botId: order.bot,
+      signalSource: 'focus-mode',  // Default, can be refined later
+      executionMode: this.config.executionMode,
+      createdAt: order.timestamp,
+      updatedAt: order.timestamp,
+    };
+
+    this.positions.set(order.symbol, position);
+    console.log(`[POS-SVC] Tracking queued order: ${order.symbol} ${order.side} from ${order.bot}`);
+    this.emitEvent({ type: 'stateChange', position, oldState: 'queued', newState: 'queued' });
+
+    return position;
+  }
+
+  /**
    * Get all queued positions
    */
   getQueuedPositions(): MexcPosition[] {
@@ -231,7 +290,60 @@ export class MexcPositionService extends EventEmitter {
     return true;
   }
 
-  // ============= Execution =============
+  // ============= Execution Notifications =============
+
+  /**
+   * Notify service that execution is starting
+   * Called from web-server.ts when autoExecuteOrder begins
+   */
+  notifyExecutionStarted(symbol: string): void {
+    const pos = this.positions.get(symbol);
+    if (pos && pos.state === 'queued') {
+      this.transitionState(pos, 'executing', 'execution started');
+    }
+  }
+
+  /**
+   * Notify service that execution succeeded
+   * Called from web-server.ts after successful MEXC order
+   */
+  notifyExecutionSucceeded(symbol: string, data: {
+    entryPrice: number;
+    volume: number;
+    planOrderId?: string;
+  }): void {
+    const pos = this.positions.get(symbol);
+    if (!pos) {
+      console.warn(`[POS-SVC] notifyExecutionSucceeded: ${symbol} not found`);
+      return;
+    }
+
+    pos.entryPrice = data.entryPrice;
+    pos.entryTime = Date.now();
+    pos.volume = data.volume;
+    if (data.planOrderId) {
+      pos.planOrderId = data.planOrderId;
+      pos.planOrderCreatedAt = Date.now();
+    }
+    pos.updatedAt = Date.now();
+
+    if (pos.state === 'executing' || pos.state === 'queued') {
+      this.transitionState(pos, 'open', 'execution succeeded');
+    }
+  }
+
+  /**
+   * Notify service that execution failed
+   * Called from web-server.ts when MEXC order fails
+   */
+  notifyExecutionFailed(symbol: string, error: string): void {
+    const pos = this.positions.get(symbol);
+    if (pos && (pos.state === 'executing' || pos.state === 'queued')) {
+      this.transitionState(pos, 'failed', error);
+    }
+  }
+
+  // ============= Execution (Callback Mode) =============
 
   /**
    * Execute a queued position

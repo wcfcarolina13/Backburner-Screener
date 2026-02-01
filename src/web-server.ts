@@ -3052,6 +3052,7 @@ app.post('/api/mexc/queue/execute/:index', express.json(), async (req, res) => {
   }
 
   order.status = 'executing';
+  positionService.notifyExecutionStarted(order.symbol);
 
   try {
     const result = await executeOnMexc(client, order);
@@ -3059,15 +3060,21 @@ app.post('/api/mexc/queue/execute/:index', express.json(), async (req, res) => {
     if (result.success) {
       order.status = 'executed';
       order.executedAt = Date.now();
+      positionService.notifyExecutionSucceeded(order.symbol, {
+        entryPrice: result.executionPrice || order.entryPrice || 0,
+        volume: result.contracts || 0,
+      });
       res.json({ success: true, order: result.data });
     } else {
       order.status = 'failed';
       order.error = result.error;
+      positionService.notifyExecutionFailed(order.symbol, result.error || 'Unknown error');
       res.json({ success: false, error: result.error });
     }
   } catch (err) {
     order.status = 'failed';
     order.error = (err as Error).message;
+    positionService.notifyExecutionFailed(order.symbol, (err as Error).message);
     res.json({ success: false, error: (err as Error).message });
   }
 });
@@ -3081,7 +3088,12 @@ app.post('/api/mexc/queue/cancel/:index', (req, res) => {
     return;
   }
 
-  mexcExecutionQueue[index].status = 'cancelled';
+  const order = mexcExecutionQueue[index];
+  order.status = 'cancelled';
+
+  // Remove from position service tracking
+  positionService.removeFromQueue(order.symbol);
+
   res.json({ success: true });
 });
 
@@ -3411,6 +3423,21 @@ export function addToMexcQueue(
   const tpStr = takeProfitPrice ? ` TP:$${takeProfitPrice.toFixed(4)}` : '';
   console.log(`[MEXC] Order queued: ${bot} ${side} ${symbol} $${size} ${leverage}x${slStr}${tpStr}`);
 
+  // Notify position service about queued order (Phase 2 wiring)
+  positionService.notifyQueuedOrder({
+    id: order.id,
+    symbol: order.symbol,
+    side: order.side,
+    bot: order.bot,
+    size: order.size,
+    leverage: order.leverage,
+    stopLossPrice: order.stopLossPrice,
+    takeProfitPrice: order.takeProfitPrice,
+    entryPrice: order.entryPrice,
+    entryQuality: order.entryQuality,
+    timestamp: order.timestamp,
+  });
+
   // Auto-execute in shadow mode (log only)
   if (getMexcExecutionMode() === 'shadow') {
     console.log(`[MEXC-SHADOW] Would execute: ${side} ${symbol} $${size} ${leverage}x${slStr}${tpStr}`);
@@ -3462,6 +3489,7 @@ async function autoExecuteOrder(order: QueuedOrder): Promise<void> {
   }
 
   order.status = 'executing';
+  positionService.notifyExecutionStarted(order.symbol);
 
   try {
     const result = await executeOnMexc(client, order);
@@ -3471,6 +3499,12 @@ async function autoExecuteOrder(order: QueuedOrder): Promise<void> {
       order.executedAt = Date.now();
       console.log(`[MEXC-AUTO] Executed: ${order.side} ${order.symbol} $${order.size} ${order.leverage}x`);
       logBotDecision(order.bot, order.symbol, 'executed', `${order.side.toUpperCase()} $${order.size} ${order.leverage}x | SL: ${order.stopLossPrice || 'none'} | TP: ${order.takeProfitPrice || 'none'}`);
+
+      // Notify position service of successful execution
+      positionService.notifyExecutionSucceeded(order.symbol, {
+        entryPrice: result.executionPrice || order.entryPrice || 0,
+        volume: result.contracts || 0,
+      });
       // Refresh balance after execution
       fetchMexcBalance();
 
@@ -3490,12 +3524,20 @@ async function autoExecuteOrder(order: QueuedOrder): Promise<void> {
           stopLossPrice: slPrice,
           botId: order.bot,
         });
-        // Persist trailing position to Turso
+        // Persist trailing position to Turso and update position service with planOrderId
         const pos = trailingManager.getPosition(order.symbol);
-        if (pos && isTursoConfigured()) {
-          saveTrailingPosition(order.symbol, pos).catch(e =>
-            console.error(`[TRAIL-MGR] Turso save failed for ${order.symbol}:`, e)
-          );
+        if (pos) {
+          // Update position service with planOrderId from trailing manager
+          const svcPos = positionService.getPosition(order.symbol);
+          if (svcPos && pos.planOrderId) {
+            svcPos.planOrderId = pos.planOrderId;
+            svcPos.planOrderCreatedAt = pos.planOrderCreatedAt || Date.now();
+          }
+          if (isTursoConfigured()) {
+            saveTrailingPosition(order.symbol, pos).catch(e =>
+              console.error(`[TRAIL-MGR] Turso save failed for ${order.symbol}:`, e)
+            );
+          }
         }
       } catch (err) {
         console.error(`[TRAIL-MGR] Failed to start tracking ${order.symbol}:`, (err as Error).message);
@@ -3521,12 +3563,14 @@ async function autoExecuteOrder(order: QueuedOrder): Promise<void> {
       order.error = result.error;
       console.log(`[MEXC-AUTO] Failed: ${order.symbol} — ${result.error}`);
       logBotDecision(order.bot, order.symbol, 'failed', `${result.error}`);
+      positionService.notifyExecutionFailed(order.symbol, result.error || 'Unknown error');
     }
   } catch (err) {
     order.status = 'failed';
     order.error = (err as Error).message;
     console.log(`[MEXC-AUTO] Error: ${order.symbol} — ${(err as Error).message}`);
     logBotDecision(order.bot, order.symbol, 'error', `${(err as Error).message}`);
+    positionService.notifyExecutionFailed(order.symbol, (err as Error).message);
   }
 }
 
