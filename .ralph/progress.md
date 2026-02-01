@@ -4,10 +4,57 @@
 
 ## Summary
 
-- Iterations completed: 52
-- Current status: Critical paper vs live trading bugs fixed
+- Iterations completed: 53
+- Current status: Paper bot liquidation logic + symbol format robustness
 
 ## Current Task: MEXC Live Trading Stability
+
+### Iteration 53 - Paper Bot Accuracy + Symbol Format Robustness
+**Date**: 2026-02-01
+**Status**: ✅ Complete
+
+**Problem Found**:
+User asked why paper bots show profit while live MEXC trades show 40%+ losses. Investigation revealed the TRUE root cause:
+
+1. **Focus mode paper bot has NO liquidation logic** - positions could survive past liquidation and show fake recovery profits
+2. **Symbol format handling is fragile** - 10+ inline `.replace()` calls, no validation, silent failures
+
+**Root Cause Analysis**:
+- `experimental-shadow-bots.ts` HAS liquidation checks (lines 650-659)
+- `focus-mode-shadow-bot.ts` had ZERO liquidation logic
+- At 20x leverage: liquidation at ~5% price move (100% ROE), but SL at 8% price = 160% ROE
+- Paper positions could drop to -100% ROE (liquidated on MEXC), bounce back, and show profit
+
+**Fixes Implemented**:
+
+1. **Added Liquidation Logic to Focus Mode Bot** (`focus-mode-shadow-bot.ts`):
+   - Checks liquidation BEFORE stop loss (liquidation triggers first if price moves fast)
+   - Uses 90% of margin as threshold (exchange takes maintenance margin)
+   - Sets exitPrice correctly for accurate PnL calculation
+
+2. **Added Symbol Format Validation Helpers** (`mexc-api.ts`):
+   - `isSpotSymbol(symbol)` - validates spot format (BTCUSDT)
+   - `isFuturesSymbol(symbol)` - validates futures format (BTC_USDT)
+   - `assertSpotSymbol(symbol, context)` - throws with context on failure
+   - `assertFuturesSymbol(symbol, context)` - throws with context on failure
+
+3. **Added Runtime Validation** (`web-server.ts`):
+   - Validates `futuresPriceMap` has correct format before `trailingManager.updatePrices()`
+   - Logs error if wrong format detected
+
+4. **Replaced All Inline Symbol Conversions**:
+   - `web-server.ts`: 5 instances of `.replace('_USDT', 'USDT')` → `futuresSymbolToSpot()`
+   - `focus-mode-dashboard.ts`: 1 instance → `spotSymbolToFutures()`
+
+**Files Modified**:
+- `src/focus-mode-shadow-bot.ts` - Added liquidation logic
+- `src/mexc-api.ts` - Added validation helpers
+- `src/web-server.ts` - Added assertions, replaced inline replacements
+- `src/focus-mode-dashboard.ts` - Replaced inline replacement
+
+**Build**: ✅ Passes
+
+---
 
 ### Iteration 52 - Critical Paper vs Live Bug Fixes
 **Date**: 2026-02-01

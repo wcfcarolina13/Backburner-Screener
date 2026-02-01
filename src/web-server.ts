@@ -38,7 +38,7 @@ import { BackburnerDetector } from './backburner-detector.js';
 import { GoldenPocketBot } from './golden-pocket-bot.js';
 import { GoldenPocketBotV2 } from './golden-pocket-bot-v2.js';
 import { GoldenPocketDetectorV2 } from './golden-pocket-detector-v2.js';
-import { getKlines, getFuturesKlines, spotSymbolToFutures, getCurrentPrice, getPrice, getBtcMarketData } from './mexc-api.js';
+import { getKlines, getFuturesKlines, spotSymbolToFutures, futuresSymbolToSpot, isFuturesSymbol, assertFuturesSymbol, getCurrentPrice, getPrice, getBtcMarketData } from './mexc-api.js';
 import { getMarketBiasSystemB, type SystemBBiasResult } from './market-bias-system-b.js';
 import { createExperimentalBots, type ExperimentalShadowBot } from './experimental-shadow-bots.js';
 import { getCurrentRSI, calculateRSI, calculateSMA, detectDivergence } from './indicators.js';
@@ -4234,7 +4234,7 @@ app.post('/api/mexc/import-history', async (req, res) => {
 
         dataPersistence.logTradeClose('mexc-live', {
           id: `mexc-${pos.symbol}-${pos.positionId}`,
-          symbol: pos.symbol.replace('_USDT', 'USDT'),
+          symbol: futuresSymbolToSpot(pos.symbol),
           direction: direction,
           timeframe: '5m' as const,
           marketType: 'futures' as const,
@@ -7993,6 +7993,14 @@ async function main() {
                 }
               }
             }
+            // Validate price map has futures format symbols before updating
+            if (futuresPriceMap.size > 0) {
+              const sampleSymbol = futuresPriceMap.keys().next().value;
+              if (sampleSymbol && !isFuturesSymbol(sampleSymbol)) {
+                console.error(`[SYMBOL-FORMAT] futuresPriceMap has wrong format! Sample: ${sampleSymbol}`);
+              }
+            }
+
             const modified = await trailingManager.updatePrices(client, futuresPriceMap);
             if (modified.length > 0) {
               // Persist updated positions to Turso
@@ -8021,7 +8029,7 @@ async function main() {
                 const dataPersistence = getDataPersistence();
                 const positionForClose = {
                   id: closedPos.id,
-                  symbol: closedPos.symbol.replace('_USDT', 'USDT'),
+                  symbol: futuresSymbolToSpot(closedPos.symbol),
                   direction: closedPos.direction,
                   timeframe: '5m' as const,
                   marketType: 'futures' as const,
@@ -8146,7 +8154,7 @@ async function main() {
 
                           dataPersistence.logTradeClose('mexc-live', {
                             id: `mexc-${futuresSymbol}-${lastClose.updateTime}`,
-                            symbol: futuresSymbol.replace('_USDT', 'USDT'),
+                            symbol: futuresSymbolToSpot(futuresSymbol),
                             direction: direction,
                             timeframe: '5m' as const,
                             marketType: 'futures' as const,
@@ -8188,7 +8196,7 @@ async function main() {
                           const dataPersistence = getDataPersistence();
                           const positionForClose = {
                             id: mirrorClosed.id,
-                            symbol: mirrorClosed.symbol.replace('_USDT', 'USDT'),
+                            symbol: futuresSymbolToSpot(mirrorClosed.symbol),
                             direction: mirrorClosed.direction,
                             timeframe: '5m' as const,
                             marketType: 'futures' as const,
@@ -8279,7 +8287,7 @@ async function main() {
                           const dataPersistence = getDataPersistence();
                           dataPersistence.logTradeClose('mexc-live', {
                             id: `mexc-${sym}-${lastClose.updateTime}`,
-                            symbol: sym.replace('_USDT', 'USDT'),
+                            symbol: futuresSymbolToSpot(sym),
                             direction: direction,
                             timeframe: '5m' as const,
                             marketType: 'futures' as const,
