@@ -7616,7 +7616,9 @@ async function main() {
 
       // Sync position service with trailing manager state (Phase 1: observation)
       // This runs every 10 seconds regardless of scan loop state
+      console.log('[POLL] About to sync position service...');
       positionService.syncFromTrailingManager();
+      console.log('[POLL] Position service sync completed');
 
       // Update ALL positions with real-time prices (for trailing bots that have the new method)
       // Use getPrice which handles both spot and futures markets
