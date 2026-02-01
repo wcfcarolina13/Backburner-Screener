@@ -7426,6 +7426,13 @@ async function main() {
       for (const sym of closedWhileDown) {
         console.log(`[RECONCILE] ${sym} was closed while server was down (SL fired on exchange)`);
         logBotDecision('trail-mgr', sym, 'reconcile_close', 'Position closed while server was offline');
+
+        // Notify position service of closure (we don't have exit price/pnl for reconciled closes)
+        positionService.markClosed(sym, {
+          exitPrice: 0,  // Unknown for reconciled closes
+          exitReason: 'external',  // SL fired on exchange while server was down
+        });
+
         if (isTursoConfigured()) {
           deleteTrailingPosition(sym).catch(e =>
             console.error(`[RECONCILE] Turso delete failed for ${sym}:`, e)
@@ -7910,6 +7917,15 @@ async function main() {
             // Stop trailing manager tracking for this position regardless
             if (trailingManager.isTracking(futuresSymbol)) {
               trailingManager.stopTracking(futuresSymbol);
+
+              // Notify position service of closure
+              positionService.markClosed(futuresSymbol, {
+                exitPrice: closedPos.exitPrice,
+                exitReason: closedPos.exitReason as any,
+                realizedPnl: closedPos.realizedPnl,
+                realizedPnlPct: closedPos.realizedPnlPercent,
+              });
+
               if (isTursoConfigured()) {
                 deleteTrailingPosition(futuresSymbol).catch(e =>
                   console.error(`[TRAIL-MGR] Turso delete failed for ${futuresSymbol}:`, e)
@@ -8292,6 +8308,13 @@ async function main() {
 
                         // NOW stop tracking (after verification)
                         trailingManager.confirmExternalClose(sym, exitPrice, lastClose.profit);
+
+                        // Notify position service of closure
+                        positionService.markClosed(sym, {
+                          exitPrice,
+                          exitReason: 'external',
+                          realizedPnl: lastClose.profit,
+                        });
 
                         if (isTursoConfigured()) {
                           deleteTrailingPosition(sym).catch(e =>
