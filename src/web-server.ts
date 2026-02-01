@@ -1095,8 +1095,12 @@ class MexcMirrorTracker {
     const closed: MexcMirrorClosedPosition[] = [];
 
     for (const [symbol, pos] of this.positions) {
-      const currentPrice = priceMap.get(symbol.replace('_USDT', 'USDT'));
-      if (!currentPrice) continue;
+      // Symbol is already in futures format (e.g., BTC_USDT), priceMap uses same format
+      const currentPrice = priceMap.get(symbol);
+      if (!currentPrice) {
+        console.warn(`[MIRROR] No price for ${symbol}, available: ${[...priceMap.keys()].slice(0, 5).join(', ')}...`);
+        continue;
+      }
 
       // Calculate current PnL%
       const priceDiff = pos.direction === 'long'
@@ -7954,8 +7958,12 @@ async function main() {
                   const ticker = await client.getTickerPrice(pos.symbol);
                   if (ticker.success && ticker.price) {
                     futuresPriceMap.set(pos.symbol, ticker.price);
+                  } else {
+                    console.warn(`[TRAIL-MGR] Price fetch failed for ${pos.symbol}: ${ticker.error || 'no price'}`);
                   }
-                } catch { /* skip */ }
+                } catch (err) {
+                  console.warn(`[TRAIL-MGR] Price fetch error for ${pos.symbol}:`, (err as Error).message);
+                }
               }
             }
             const modified = await trailingManager.updatePrices(client, futuresPriceMap);
