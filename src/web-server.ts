@@ -7614,6 +7614,10 @@ async function main() {
         console.error('[EXP BOTS] Error updating System B bias:', biasErr);
       }
 
+      // Sync position service with trailing manager state (Phase 1: observation)
+      // This runs every 10 seconds regardless of scan loop state
+      positionService.syncFromTrailingManager();
+
       // Update ALL positions with real-time prices (for trailing bots that have the new method)
       // Use getPrice which handles both spot and futures markets
       await fixedTPBot.updateOrphanedPositions(getCurrentPrice);
