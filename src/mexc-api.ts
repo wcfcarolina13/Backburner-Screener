@@ -491,6 +491,33 @@ export async function getFuturesKlines(
   });
 }
 
+// ============ SYMBOL FORMAT UTILITIES ============
+// SPOT format: BTCUSDT (no underscore) - used throughout app
+// FUTURES format: BTC_USDT (with underscore) - MEXC futures API requirement
+
+// Validation helpers - prevent silent format mismatches
+export function isSpotSymbol(symbol: string): boolean {
+  return !symbol.includes('_') && symbol.endsWith('USDT');
+}
+
+export function isFuturesSymbol(symbol: string): boolean {
+  return symbol.includes('_USDT');
+}
+
+export function assertSpotSymbol(symbol: string, context: string): void {
+  if (!isSpotSymbol(symbol)) {
+    console.error(`[SYMBOL-FORMAT] Expected spot format in ${context}, got: ${symbol}`);
+    throw new Error(`Invalid spot symbol format in ${context}: ${symbol}`);
+  }
+}
+
+export function assertFuturesSymbol(symbol: string, context: string): void {
+  if (!isFuturesSymbol(symbol)) {
+    console.error(`[SYMBOL-FORMAT] Expected futures format in ${context}, got: ${symbol}`);
+    throw new Error(`Invalid futures symbol format in ${context}: ${symbol}`);
+  }
+}
+
 // Convert futures symbol to spot-like format for consistency
 // BTC_USDT -> BTCUSDT
 export function futuresSymbolToSpot(futuresSymbol: string): string {

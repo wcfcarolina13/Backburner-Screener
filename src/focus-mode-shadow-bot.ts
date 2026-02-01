@@ -464,20 +464,37 @@ export class FocusModeShadowBot extends EventEmitter {
 
       // Check exit conditions
       let exitReason: string | null = null;
+      let exitPrice = price;
 
-      // Stop loss hit
-      if (position.direction === 'long' && price <= position.stopLoss) {
-        exitReason = position.trailActivated ? 'trailing_stop' : 'stop_loss';
-      } else if (position.direction === 'short' && price >= position.stopLoss) {
-        exitReason = position.trailActivated ? 'trailing_stop' : 'stop_loss';
+      // Liquidation check FIRST - happens before SL if price moves fast enough
+      // At isolated margin, liquidation ~ entryPrice * (1 - 1/leverage) for longs
+      // Using 90% of margin as liquidation threshold (exchange takes maintenance margin)
+      const liqDistance = position.entryPrice / position.leverage * 0.9;
+      if (position.direction === 'long' && price <= position.entryPrice - liqDistance) {
+        exitReason = 'liquidation';
+        exitPrice = position.entryPrice - liqDistance;
+      } else if (position.direction === 'short' && price >= position.entryPrice + liqDistance) {
+        exitReason = 'liquidation';
+        exitPrice = position.entryPrice + liqDistance;
       }
 
-      // Take profit hit
-      if (this.config.useTakeProfit) {
+      // Stop loss hit (only if not already liquidated)
+      if (!exitReason && position.direction === 'long' && price <= position.stopLoss) {
+        exitReason = position.trailActivated ? 'trailing_stop' : 'stop_loss';
+        exitPrice = position.stopLoss;
+      } else if (!exitReason && position.direction === 'short' && price >= position.stopLoss) {
+        exitReason = position.trailActivated ? 'trailing_stop' : 'stop_loss';
+        exitPrice = position.stopLoss;
+      }
+
+      // Take profit hit (only if not already exited)
+      if (!exitReason && this.config.useTakeProfit) {
         if (position.direction === 'long' && price >= position.takeProfit) {
           exitReason = 'take_profit';
+          exitPrice = position.takeProfit;
         } else if (position.direction === 'short' && price <= position.takeProfit) {
           exitReason = 'take_profit';
+          exitPrice = position.takeProfit;
         }
       }
 
@@ -503,7 +520,7 @@ export class FocusModeShadowBot extends EventEmitter {
 
       // Close position if exit condition met
       if (exitReason) {
-        const closedPos = this.closePosition(position, price, currentTimestamp, exitReason);
+        const closedPos = this.closePosition(position, exitPrice, currentTimestamp, exitReason);
         closed.push(closedPos);
       }
     }

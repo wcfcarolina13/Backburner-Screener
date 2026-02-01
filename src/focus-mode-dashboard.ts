@@ -10,6 +10,7 @@
  */
 
 import express from 'express';
+import { spotSymbolToFutures } from './mexc-api.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -306,8 +307,8 @@ function getActionableSignals(signals: Signal[], quadrant: Quadrant): CombinedSi
 // ============= MEXC URL Generator =============
 
 function getMexcTradeUrl(symbol: string, direction: 'LONG' | 'SHORT'): string {
-  // MEXC futures trading URL format
-  const pair = symbol.replace('USDT', '_USDT');
+  // MEXC futures trading URL format - symbol is in spot format, need futures format
+  const pair = spotSymbolToFutures(symbol);
   return `https://futures.mexc.com/exchange/${pair}?type=linear`;
 }
 
