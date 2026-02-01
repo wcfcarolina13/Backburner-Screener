@@ -362,61 +362,21 @@ export class MexcTrailingManager {
       return false;
     }
 
-    // AUTO-RECOVER: If planOrderId is missing, try to fetch it from MEXC
+    // AUTO-RECOVER: If planOrderId is missing, use setStopLoss which cleans up duplicates
     if (!pos.planOrderId) {
-      console.warn(`[TRAIL-MGR] ${pos.symbol} missing planOrderId — attempting to recover from MEXC`);
+      console.warn(`[TRAIL-MGR] ${pos.symbol} missing planOrderId — recreating SL order`);
       try {
-        const planOrders = await client.getPlanOrders(pos.symbol);
-        if (planOrders.success && planOrders.data && planOrders.data.length > 0) {
-          // Find SL order (stopLossPrice exists or triggerType indicates SL)
-          const slOrder = planOrders.data.find((o: any) =>
-            o.stopLossPrice > 0 || o.triggerType === 2 // triggerType 2 = stop loss
-          );
-          if (slOrder) {
-            pos.planOrderId = slOrder.id || slOrder.orderId;
-            pos.planOrderCreatedAt = slOrder.createTime || Date.now();
-            console.log(`[TRAIL-MGR] RECOVERED planOrderId for ${pos.symbol}: ${pos.planOrderId}`);
-          } else {
-            // No SL order exists - create one
-            console.warn(`[TRAIL-MGR] ${pos.symbol} has no SL order on MEXC — creating one at $${newStopPrice.toFixed(4)}`);
-            const slResult = await client.setStopLoss(pos.symbol, newStopPrice);
-            if (slResult.success) {
-              // Fetch the newly created order ID
-              const newPlanOrders = await client.getPlanOrders(pos.symbol);
-              if (newPlanOrders.success && newPlanOrders.data) {
-                const newSlOrder = newPlanOrders.data.find((o: any) => o.stopLossPrice > 0 || o.triggerType === 2);
-                if (newSlOrder) {
-                  pos.planOrderId = newSlOrder.id || newSlOrder.orderId;
-                  pos.planOrderCreatedAt = Date.now();
-                  pos.currentStopPrice = newStopPrice;
-                  console.log(`[TRAIL-MGR] Created new SL for ${pos.symbol}: $${newStopPrice.toFixed(4)} (planOrderId: ${pos.planOrderId})`);
-                  return true;
-                }
-              }
-            }
-            console.error(`[TRAIL-MGR] Failed to create SL for ${pos.symbol}: ${slResult.error}`);
-            return false;
-          }
-        } else {
-          // No plan orders at all - create SL
-          console.warn(`[TRAIL-MGR] ${pos.symbol} has no plan orders — creating SL at $${newStopPrice.toFixed(4)}`);
-          const slResult = await client.setStopLoss(pos.symbol, newStopPrice);
-          if (slResult.success) {
-            const newPlanOrders = await client.getPlanOrders(pos.symbol);
-            if (newPlanOrders.success && newPlanOrders.data) {
-              const newSlOrder = newPlanOrders.data.find((o: any) => o.stopLossPrice > 0 || o.triggerType === 2);
-              if (newSlOrder) {
-                pos.planOrderId = newSlOrder.id || newSlOrder.orderId;
-                pos.planOrderCreatedAt = Date.now();
-                pos.currentStopPrice = newStopPrice;
-                console.log(`[TRAIL-MGR] Created new SL for ${pos.symbol}: $${newStopPrice.toFixed(4)} (planOrderId: ${pos.planOrderId})`);
-                return true;
-              }
-            }
-          }
-          console.error(`[TRAIL-MGR] Failed to create SL for ${pos.symbol}: ${slResult.error}`);
-          return false;
+        // setStopLoss cancels ALL existing orders first, then creates fresh one
+        const slResult = await client.setStopLoss(pos.symbol, newStopPrice, pos.volume);
+        if (slResult.success && slResult.data?.id) {
+          pos.planOrderId = String(slResult.data.id);
+          pos.planOrderCreatedAt = Date.now();
+          pos.currentStopPrice = newStopPrice;
+          console.log(`[TRAIL-MGR] Created new SL for ${pos.symbol}: $${newStopPrice.toFixed(4)} (planOrderId: ${pos.planOrderId})`);
+          return true;
         }
+        console.error(`[TRAIL-MGR] Failed to create SL for ${pos.symbol}: ${slResult.error}`);
+        return false;
       } catch (err) {
         console.error(`[TRAIL-MGR] Error recovering planOrderId for ${pos.symbol}:`, (err as Error).message);
         return false;
@@ -447,54 +407,26 @@ export class MexcTrailingManager {
 
   /**
    * Renew a plan order that's approaching 7-day expiry.
-   * Cancels old order and creates a new one at the same trigger price.
+   * Uses setStopLoss which handles cleanup of duplicates automatically.
    */
   private async renewPlanOrder(
     client: MexcFuturesClient,
     pos: TrackedPosition
   ): Promise<void> {
-    const oldPlanOrderId = pos.planOrderId;
-    console.log(`[TRAIL-MGR] Renewing plan order for ${pos.symbol} (age: ${((Date.now() - pos.planOrderCreatedAt) / 86400000).toFixed(1)} days, old ID: ${oldPlanOrderId})`);
+    console.log(`[TRAIL-MGR] Renewing plan order for ${pos.symbol} (age: ${((Date.now() - pos.planOrderCreatedAt) / 86400000).toFixed(1)} days)`);
 
     try {
-      // RACE CONDITION FIX: Create new order FIRST, then cancel old one
-      // This ensures we're never unprotected during the renewal window
+      // Use setStopLoss which cancels ALL existing orders before creating new one
+      // This prevents duplicate accumulation and is cleaner than create-then-cancel
+      const result = await client.setStopLoss(pos.symbol, pos.currentStopPrice, pos.volume);
 
-      // Create new plan order at current stop price
-      // Import OrderSide values: CLOSE_LONG = 4, CLOSE_SHORT = 2
-      const side = pos.direction === 'long' ? 4 : 2;
-      const triggerType = pos.direction === 'long' ? 2 : 1; // <= for long SL, >= for short SL
-
-      const result = await client.createStopOrder({
-        symbol: pos.symbol,
-        vol: pos.volume,
-        side,
-        triggerPrice: pos.currentStopPrice,
-        triggerType,
-        executeCycle: 2, // 7 days
-        orderType: 5,    // Market
-        leverage: pos.leverage,
-      });
-
-      if (result.success && result.data) {
-        const newOrderId = String(result.data.id || result.data);
+      if (result.success && result.data?.id) {
+        const newOrderId = String(result.data.id);
         pos.planOrderId = newOrderId;
         pos.planOrderCreatedAt = Date.now();
-        console.log(`[TRAIL-MGR] Created new plan order for ${pos.symbol}: ${newOrderId}`);
-
-        // Now safely cancel old order (we have the new one in place)
-        if (oldPlanOrderId) {
-          try {
-            await client.cancelPlanOrder(oldPlanOrderId);
-            console.log(`[TRAIL-MGR] Cancelled old plan order ${oldPlanOrderId} for ${pos.symbol}`);
-          } catch (cancelErr) {
-            // Old order might have expired or been triggered — not critical since new one is in place
-            console.warn(`[TRAIL-MGR] Could not cancel old order ${oldPlanOrderId}: ${(cancelErr as Error).message}`);
-          }
-        }
+        console.log(`[TRAIL-MGR] Renewed plan order for ${pos.symbol}: new ID ${newOrderId} @ $${pos.currentStopPrice.toFixed(4)}`);
       } else {
-        // New order failed — keep old order, don't cancel it
-        console.error(`[TRAIL-MGR] Failed to renew plan order for ${pos.symbol}: ${result.error} — keeping old order ${oldPlanOrderId}`);
+        console.error(`[TRAIL-MGR] Failed to renew plan order for ${pos.symbol}: ${result.error}`);
       }
     } catch (err) {
       console.error(`[TRAIL-MGR] Error renewing plan order for ${pos.symbol}:`, (err as Error).message);
@@ -615,24 +547,37 @@ export class MexcTrailingManager {
 
   /**
    * Verify that tracked positions still have valid plan orders on MEXC.
+   * CLEANS UP DUPLICATE ORDERS: uses setStopLoss which cancels all existing before creating fresh one.
    * Also corrects any SL that is wider than initialStopPct.
    * Call after restoreState() on startup.
    */
   async verifyPlanOrders(client: MexcFuturesClient): Promise<void> {
+    console.log(`[TRAIL-MGR] Verifying plan orders for ${this.positions.size} tracked positions...`);
+
     for (const [symbol, pos] of this.positions) {
       try {
         const planOrders = await client.getPlanOrders(symbol);
-        if (!planOrders.success || !planOrders.data || planOrders.data.length === 0) {
-          console.warn(`[TRAIL-MGR] No plan orders found for ${symbol} — recreating SL at $${pos.currentStopPrice.toFixed(4)}`);
-          await this.renewPlanOrder(client, pos);
-        } else {
-          // Update plan order ID in case it changed
-          const slOrder = planOrders.data.find((o: any) =>
-            pos.direction === 'long' ? o.triggerType === 2 : o.triggerType === 1
-          );
-          if (slOrder) {
-            pos.planOrderId = String(slOrder.id);
+
+        // If there are multiple orders OR no orders, clean up and recreate
+        const orderCount = planOrders.success && planOrders.data ? planOrders.data.length : 0;
+
+        if (orderCount !== 1) {
+          const reason = orderCount === 0 ? 'no orders found' : `${orderCount} duplicate orders found`;
+          console.warn(`[TRAIL-MGR] ${symbol}: ${reason} — cleaning up and recreating SL at $${pos.currentStopPrice.toFixed(4)}`);
+
+          // setStopLoss cancels ALL existing orders first, then creates one fresh order
+          const result = await client.setStopLoss(symbol, pos.currentStopPrice, pos.volume);
+          if (result.success && result.data?.id) {
+            pos.planOrderId = String(result.data.id);
+            pos.planOrderCreatedAt = Date.now();
+            console.log(`[TRAIL-MGR] Cleaned up ${symbol}: new planOrderId ${pos.planOrderId}`);
+          } else {
+            console.error(`[TRAIL-MGR] Failed to recreate SL for ${symbol}: ${result.error}`);
           }
+        } else {
+          // Exactly 1 order - just update the ID
+          const slOrder = planOrders.data![0];
+          pos.planOrderId = String(slOrder.id);
         }
 
         // Sanity check: tighten SL if it's wider than initialStopPct (ROE-based)
@@ -656,6 +601,8 @@ export class MexcTrailingManager {
         console.error(`[TRAIL-MGR] Error verifying plan orders for ${symbol}:`, (err as Error).message);
       }
     }
+
+    console.log(`[TRAIL-MGR] Plan order verification complete`);
   }
 
   /**

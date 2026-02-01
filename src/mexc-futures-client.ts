@@ -563,6 +563,8 @@ export class MexcFuturesClient {
    * Helper: Set stop-loss for an existing position
    * Creates a market order that triggers when price drops to stopPrice (for longs)
    * or rises to stopPrice (for shorts)
+   *
+   * IMPORTANT: This cancels ALL existing plan orders for the symbol first to prevent duplicates.
    */
   async setStopLoss(
     symbol: string,
@@ -584,6 +586,15 @@ export class MexcFuturesClient {
     // - Long position: trigger when price <= stopPrice (falling)
     // - Short position: trigger when price >= stopPrice (rising)
     const triggerType = isLong ? 2 : 1; // 2=<=, 1=>=
+
+    // DUPLICATE ORDER FIX: Cancel all existing plan orders BEFORE creating new one
+    // This prevents accumulation of orphaned orders
+    try {
+      await this.cancelAllPlanOrders(symbol);
+    } catch (e) {
+      // Not fatal - continue with creation
+      console.warn(`[MEXC-CLIENT] Failed to cancel existing orders for ${symbol} before setStopLoss: ${(e as Error).message}`);
+    }
 
     return this.createStopOrder({
       symbol,

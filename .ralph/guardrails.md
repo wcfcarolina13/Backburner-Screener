@@ -178,3 +178,8 @@
 - **Instruction**: If `planOrderId` is empty, the modify call will silently fail. Auto-recover by fetching plan orders from MEXC, finding the SL order ID, or creating a new SL if none exists. DUSK ran to 49% profit but SL never moved because planOrderId was missing.
 - **Added after**: Iteration 48 - DUSK had `trailActivated: true` at 49% ROE but SL stayed at initial 8% loss level. User had to manually close to lock in profit.
 
+### Sign: Always Cancel Existing Plan Orders Before Creating New Ones
+- **Trigger**: When creating a stop-loss, take-profit, or any plan order on MEXC
+- **Instruction**: Multiple code paths can create plan orders: `setStopLoss`, `renewPlanOrder`, recovery logic in `modifyStopOnMexc`, position adoption, startup reconciliation. Without explicit cleanup, duplicate orders accumulate (e.g., 56 orders for 13 positions). ALWAYS call `cancelAllPlanOrders(symbol)` BEFORE creating a new order. The `setStopLoss` function now does this automatically.
+- **Added after**: Iteration 50 - Found 56 open orders for 13 positions. Root cause: `renewPlanOrder` created new order then cancelled old (race condition), recovery logic created new without cancelling existing, and startup didn't clean up duplicates.
+
