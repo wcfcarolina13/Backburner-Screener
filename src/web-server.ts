@@ -2869,6 +2869,19 @@ app.get('/api/mexc/position-service', (req, res) => {
   });
 });
 
+// Force sync position service (for debugging)
+app.post('/api/mexc/position-service/sync', (req, res) => {
+  console.log('[DEBUG] Manual sync triggered via API');
+  positionService.syncFromTrailingManager();
+  const state = positionService.getState();
+  res.json({
+    success: true,
+    message: 'Manual sync completed',
+    debug: state.debug,
+    positionsAdopted: state.positions.length,
+  });
+});
+
 // Adopt an unmanaged MEXC position for trailing stop management
 app.post('/api/mexc/adopt-position', express.json(), async (req, res) => {
   const { symbol, initialStopPct, trailTriggerPct, trailStepPct } = req.body;
@@ -7582,6 +7595,7 @@ async function main() {
         return;
       }
       priceUpdateInProgress = true;
+      console.log('[POLL] 10-second interval tick started');
 
       try {
       // Helper to track and broadcast position closures
