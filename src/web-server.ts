@@ -1767,6 +1767,58 @@ async function handleNewSetup(setup: BackburnerSetup) {
   // FOCUS MODE SHADOW BOTS: Simulates manual leveraged trading using Focus Mode guidance
   // These bots mirror how you trade on MEXC Futures with quadrant rules and trailing stops
   if (setup.state === 'triggered' || setup.state === 'deep_extreme') {
+    // Calculate regime from GLOBAL setupHistory (same as dashboard does)
+    // This prevents the bug where each bot's internal detector starts empty after restart
+    const calculateGlobalRegime = (): { macro: 'bull' | 'bear' | 'neutral'; micro: 'bullish' | 'bearish' | 'neutral'; quadrant: Quadrant } => {
+      const now = Date.now();
+      const macroWindowMs = 12 * 60 * 60 * 1000;  // 12h macro window (best performing config)
+      const microWindowMs = 2 * 60 * 60 * 1000;   // 2h micro window
+
+      // Get all triggered/played_out setups from history + active setups from screener
+      const activeSetupsFromScreener = screener.getActiveSetups();
+      const allSetups: BackburnerSetup[] = [...setupHistory, ...activeSetupsFromScreener];
+
+      // Macro regime (12h window)
+      const macroSetups = allSetups.filter(s => {
+        const ts = s.triggeredAt || s.detectedAt;
+        return ts >= now - macroWindowMs;
+      });
+      const macroLongs = macroSetups.filter(s => s.direction === 'long').length;
+      const macroShorts = macroSetups.filter(s => s.direction === 'short').length;
+      const macroTotal = macroLongs + macroShorts;
+
+      let macro: 'bull' | 'bear' | 'neutral' = 'neutral';
+      if (macroTotal >= 8) {  // Minimum signals for macro
+        const longPct = (macroLongs / macroTotal) * 100;
+        if (longPct >= 55) macro = 'bull';
+        else if (longPct <= 45) macro = 'bear';
+      }
+
+      // Micro regime (2h window)
+      const microSetups = allSetups.filter(s => {
+        const ts = s.triggeredAt || s.detectedAt;
+        return ts >= now - microWindowMs;
+      });
+      const microLongs = microSetups.filter(s => s.direction === 'long').length;
+      const microShorts = microSetups.filter(s => s.direction === 'short').length;
+      const microTotal = microLongs + microShorts;
+
+      let micro: 'bullish' | 'bearish' | 'neutral' = 'neutral';
+      if (microTotal >= 3) {  // Minimum signals for micro
+        const longPct = (microLongs / microTotal) * 100;
+        if (longPct >= 65) micro = 'bullish';
+        else if (longPct <= 35) micro = 'bearish';
+      }
+
+      // Build quadrant string
+      const macroStr = macro === 'bull' ? 'BULL' : macro === 'bear' ? 'BEAR' : 'NEU';
+      const microStr = micro === 'bullish' ? 'BULL' : micro === 'bearish' ? 'BEAR' : 'NEU';
+      const quadrant = `${macroStr}+${microStr}` as Quadrant;
+
+      return { macro, micro, quadrant };
+    };
+
+    const globalRegime = calculateGlobalRegime();
     // Use the SAME calculateSmartTradeSetup function that Focus Mode dashboard uses
     // This gives us: suggestedLeverage, stopLossPrice, takeProfitPrice based on S/R levels
     const entryPrice = setup.entryPrice || setup.currentPrice;
@@ -1797,11 +1849,14 @@ async function handleNewSetup(setup: BackburnerSetup) {
     else if (qualityScore >= 50) quality = 'marginal';
     else quality = 'skip';
 
-    // Get current regime (reuse from spot regime detection)
+    // Get current regime from GLOBAL signal history (NOT bot's internal detector which starts empty)
     const timestamp = setup.triggeredAt || Date.now();
-    const macroRegime = 'neutral' as const;  // Will be calculated by bot's internal detector
-    const microRegime = 'neutral' as const;
-    const quadrant: Quadrant = 'NEU+NEU';  // Will be calculated by bot's internal detector
+    const macroRegime = globalRegime.macro;
+    const microRegime = globalRegime.micro;
+    const quadrant = globalRegime.quadrant;
+
+    // Log regime for debugging
+    console.log(`[FOCUS-REGIME] ${setup.symbol} ${setup.direction.toUpperCase()} | Quadrant: ${quadrant} | Macro: ${macroRegime} | Micro: ${microRegime}`);
 
     const focusSignal: FocusModeSignal = {
       timestamp,
