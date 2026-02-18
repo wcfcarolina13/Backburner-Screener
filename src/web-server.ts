@@ -1773,6 +1773,58 @@ async function handleNewSetup(setup: BackburnerSetup) {
   // FOCUS MODE SHADOW BOTS: Simulates manual leveraged trading using Focus Mode guidance
   // These bots mirror how you trade on MEXC Futures with quadrant rules and trailing stops
   if (setup.state === 'triggered' || setup.state === 'deep_extreme') {
+    // Calculate regime from GLOBAL setupHistory (same as dashboard does)
+    // This prevents the bug where each bot's internal detector starts empty after restart
+    const calculateGlobalRegime = (): { macro: 'bull' | 'bear' | 'neutral'; micro: 'bullish' | 'bearish' | 'neutral'; quadrant: Quadrant } => {
+      const now = Date.now();
+      const macroWindowMs = 12 * 60 * 60 * 1000;  // 12h macro window (best performing config)
+      const microWindowMs = 2 * 60 * 60 * 1000;   // 2h micro window
+
+      // Get all triggered/played_out setups from history + active setups from screener
+      const activeSetupsFromScreener = screener.getActiveSetups();
+      const allSetups: BackburnerSetup[] = [...setupHistory, ...activeSetupsFromScreener];
+
+      // Macro regime (12h window)
+      const macroSetups = allSetups.filter(s => {
+        const ts = s.triggeredAt || s.detectedAt;
+        return ts >= now - macroWindowMs;
+      });
+      const macroLongs = macroSetups.filter(s => s.direction === 'long').length;
+      const macroShorts = macroSetups.filter(s => s.direction === 'short').length;
+      const macroTotal = macroLongs + macroShorts;
+
+      let macro: 'bull' | 'bear' | 'neutral' = 'neutral';
+      if (macroTotal >= 8) {  // Minimum signals for macro
+        const longPct = (macroLongs / macroTotal) * 100;
+        if (longPct >= 55) macro = 'bull';
+        else if (longPct <= 45) macro = 'bear';
+      }
+
+      // Micro regime (2h window)
+      const microSetups = allSetups.filter(s => {
+        const ts = s.triggeredAt || s.detectedAt;
+        return ts >= now - microWindowMs;
+      });
+      const microLongs = microSetups.filter(s => s.direction === 'long').length;
+      const microShorts = microSetups.filter(s => s.direction === 'short').length;
+      const microTotal = microLongs + microShorts;
+
+      let micro: 'bullish' | 'bearish' | 'neutral' = 'neutral';
+      if (microTotal >= 3) {  // Minimum signals for micro
+        const longPct = (microLongs / microTotal) * 100;
+        if (longPct >= 65) micro = 'bullish';
+        else if (longPct <= 35) micro = 'bearish';
+      }
+
+      // Build quadrant string
+      const macroStr = macro === 'bull' ? 'BULL' : macro === 'bear' ? 'BEAR' : 'NEU';
+      const microStr = micro === 'bullish' ? 'BULL' : micro === 'bearish' ? 'BEAR' : 'NEU';
+      const quadrant = `${macroStr}+${microStr}` as Quadrant;
+
+      return { macro, micro, quadrant };
+    };
+
+    const globalRegime = calculateGlobalRegime();
     // Use the SAME calculateSmartTradeSetup function that Focus Mode dashboard uses
     // This gives us: suggestedLeverage, stopLossPrice, takeProfitPrice based on S/R levels
     const entryPrice = setup.entryPrice || setup.currentPrice;
@@ -1803,11 +1855,14 @@ async function handleNewSetup(setup: BackburnerSetup) {
     else if (qualityScore >= 50) quality = 'marginal';
     else quality = 'skip';
 
-    // Get current regime (reuse from spot regime detection)
+    // Get current regime from GLOBAL signal history (NOT bot's internal detector which starts empty)
     const timestamp = setup.triggeredAt || Date.now();
-    const macroRegime = 'neutral' as const;  // Will be calculated by bot's internal detector
-    const microRegime = 'neutral' as const;
-    const quadrant: Quadrant = 'NEU+NEU';  // Will be calculated by bot's internal detector
+    const macroRegime = globalRegime.macro;
+    const microRegime = globalRegime.micro;
+    const quadrant = globalRegime.quadrant;
+
+    // Log regime for debugging
+    console.log(`[FOCUS-REGIME] ${setup.symbol} ${setup.direction.toUpperCase()} | Quadrant: ${quadrant} | Macro: ${macroRegime} | Micro: ${microRegime}`);
 
     const focusSignal: FocusModeSignal = {
       timestamp,
@@ -6380,6 +6435,162 @@ function getHtmlPage(): string {
         <div style="flex: 1; min-width: 200px;">
           <span style="color: #8b949e; font-size: 11px;">Total Trades:</span>
           <span id="expTotalTrades" style="font-weight: 600; margin-left: 4px; color: #c9d1d9;">0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section: Focus Mode Shadow Bots Documentation -->
+    <div class="section-header" onclick="toggleSection('focusBots')" style="margin-top: 12px;">
+      <span class="section-title">🎯 Focus Mode Shadow Bots (Documentation)</span>
+      <span class="section-toggle" id="focusBotsToggle">▸</span>
+    </div>
+    <div class="section-content" id="focusBotsContent" style="display: none;">
+      <div style="font-size: 11px; color: #8b949e; margin-bottom: 12px; padding: 8px 12px; background: #0d1117; border-radius: 4px; line-height: 1.6;">
+        <strong style="color: #58a6ff;">What are Focus Mode Bots?</strong><br>
+        Paper trading bots that simulate leveraged futures trading using the Focus Mode dashboard signals.
+        They use S/R levels for stop loss and take profit, dynamic leverage based on risk distance,
+        and regime-based filtering. All bots start with $2,000 simulated balance.
+      </div>
+
+      <!-- Common Settings -->
+      <div style="margin-bottom: 16px; padding: 10px 12px; background: rgba(88, 166, 255, 0.08); border: 1px solid #1f6feb33; border-radius: 6px;">
+        <div style="color: #58a6ff; font-size: 12px; font-weight: 600; margin-bottom: 8px;">📊 Common Features (All Bots)</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px; color: #c9d1d9;">
+          <div>• <strong>Stop Loss</strong>: Based on nearest support/resistance (min 1.5%)</div>
+          <div>• <strong>Take Profit</strong>: Based on nearest S/R level (min 2%)</div>
+          <div>• <strong>Trailing Stop</strong>: Activates at 10% ROE profit</div>
+          <div>• <strong>Profit-Tiered Trail</strong>: Tighter trail at higher profits</div>
+          <div>• <strong>Liquidation</strong>: Simulated at 90% margin loss</div>
+          <div>• <strong>Fees</strong>: 0.1% entry + 0.1% exit simulated</div>
+          <div>• <strong>Slippage</strong>: 0.1% entry/exit simulated</div>
+          <div>• <strong>Regime Detection</strong>: Macro (24h) + Micro (4h) signal ratios</div>
+        </div>
+      </div>
+
+      <!-- Bot Variants Grid -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px;">
+        <!-- focus-baseline -->
+        <div style="padding: 10px 12px; background: #161b22; border-radius: 6px; border-left: 3px solid #3fb950;">
+          <div style="color: #3fb950; font-size: 13px; font-weight: 600; margin-bottom: 6px;">focus-baseline</div>
+          <div style="font-size: 11px; color: #8b949e; margin-bottom: 6px;">Standard Focus Mode rules. The control group.</div>
+          <div style="font-size: 10px; color: #c9d1d9; line-height: 1.5;">
+            • Max 5 positions<br>
+            • Uses suggested leverage from dashboard<br>
+            • Uses suggested position size<br>
+            • Trailing stops enabled<br>
+            • No conflict-close (holds through regime changes)
+          </div>
+        </div>
+
+        <!-- focus-aggressive -->
+        <div style="padding: 10px 12px; background: #161b22; border-radius: 6px; border-left: 3px solid #f85149;">
+          <div style="color: #f85149; font-size: 13px; font-weight: 600; margin-bottom: 6px;">focus-aggressive</div>
+          <div style="font-size: 11px; color: #8b949e; margin-bottom: 6px;">Higher risk, more positions. Used for live trading.</div>
+          <div style="font-size: 10px; color: #c9d1d9; line-height: 1.5;">
+            • Max 8 positions (+3 excellent overflow)<br>
+            • 1.0x leverage multiplier (max 20x)<br>
+            • 8% initial stop, 3% trail step<br>
+            • Quality threshold: 40 (low bar)<br>
+            • Does NOT close on regime conflict
+          </div>
+        </div>
+
+        <!-- focus-conservative -->
+        <div style="padding: 10px 12px; background: #161b22; border-radius: 6px; border-left: 3px solid #58a6ff;">
+          <div style="color: #58a6ff; font-size: 13px; font-weight: 600; margin-bottom: 6px;">focus-conservative</div>
+          <div style="font-size: 11px; color: #8b949e; margin-bottom: 6px;">Lower risk, stricter entries, closes on conflict.</div>
+          <div style="font-size: 10px; color: #c9d1d9; line-height: 1.5;">
+            • Max 3 positions (+1 excellent overflow)<br>
+            • 0.75x leverage multiplier (max 15x)<br>
+            • 12% initial stop, 4% trail step<br>
+            • Quality threshold: 70 (high bar)<br>
+            • Closes on regime conflict (3min grace)
+          </div>
+        </div>
+
+        <!-- focus-conflict -->
+        <div style="padding: 10px 12px; background: #161b22; border-radius: 6px; border-left: 3px solid #a371f7;">
+          <div style="color: #a371f7; font-size: 13px; font-weight: 600; margin-bottom: 6px;">focus-conflict</div>
+          <div style="font-size: 11px; color: #8b949e; margin-bottom: 6px;">Like baseline but closes when regime conflicts.</div>
+          <div style="font-size: 10px; color: #c9d1d9; line-height: 1.5;">
+            • Max 5 positions, no overflow<br>
+            • Standard leverage and sizing<br>
+            • Closes if long in BEAR+BULL or short in BULL+BEAR<br>
+            • 5 minute grace period before closing
+          </div>
+        </div>
+
+        <!-- focus-excellent -->
+        <div style="padding: 10px 12px; background: #161b22; border-radius: 6px; border-left: 3px solid #ffd700;">
+          <div style="color: #ffd700; font-size: 13px; font-weight: 600; margin-bottom: 6px;">focus-excellent</div>
+          <div style="font-size: 11px; color: #8b949e; margin-bottom: 6px;">Extra positions allowed for excellent setups.</div>
+          <div style="font-size: 10px; color: #c9d1d9; line-height: 1.5;">
+            • Max 5 positions (+2 excellent overflow)<br>
+            • Quality threshold: 60 (moderate bar)<br>
+            • Excellent = quality score >= 80<br>
+            • Does NOT close on conflict
+          </div>
+        </div>
+
+        <!-- focus-hybrid -->
+        <div style="padding: 10px 12px; background: #161b22; border-radius: 6px; border-left: 3px solid #d29922;">
+          <div style="color: #d29922; font-size: 13px; font-weight: 600; margin-bottom: 6px;">focus-hybrid</div>
+          <div style="font-size: 11px; color: #8b949e; margin-bottom: 6px;">Best of conflict-close + excellent-overflow.</div>
+          <div style="font-size: 10px; color: #c9d1d9; line-height: 1.5;">
+            • Max 5 positions (+2 excellent overflow)<br>
+            • Quality threshold: 55<br>
+            • Closes on regime conflict (5min grace)<br>
+            • Allows overflow for excellent setups
+          </div>
+        </div>
+
+        <!-- focus-kelly -->
+        <div style="padding: 10px 12px; background: #161b22; border-radius: 6px; border-left: 3px solid #7ee787;">
+          <div style="color: #7ee787; font-size: 13px; font-weight: 600; margin-bottom: 6px;">focus-kelly</div>
+          <div style="font-size: 11px; color: #8b949e; margin-bottom: 6px;">Dynamic position sizing using Kelly criterion.</div>
+          <div style="font-size: 10px; color: #c9d1d9; line-height: 1.5;">
+            • Position size based on quality score & R:R<br>
+            • Half-Kelly fraction (max 25% per trade)<br>
+            • Higher quality = larger position<br>
+            • Does NOT close on conflict
+          </div>
+        </div>
+
+        <!-- focus-contrarian-only -->
+        <div style="padding: 10px 12px; background: #161b22; border-radius: 6px; border-left: 3px solid #f778ba;">
+          <div style="color: #f778ba; font-size: 13px; font-weight: 600; margin-bottom: 6px;">focus-contrarian-only</div>
+          <div style="font-size: 11px; color: #8b949e; margin-bottom: 6px;">Only trades in bearish micro-regimes ("buy the blood").</div>
+          <div style="font-size: 10px; color: #c9d1d9; line-height: 1.5;">
+            • Only trades in NEU+BEAR, BEAR+BEAR quadrants<br>
+            • Max 5 positions, no overflow<br>
+            • Pure contrarian strategy
+          </div>
+        </div>
+      </div>
+
+      <!-- Quality Score Explanation -->
+      <div style="margin-top: 16px; padding: 10px 12px; background: rgba(163, 113, 247, 0.08); border: 1px solid #a371f733; border-radius: 6px;">
+        <div style="color: #a371f7; font-size: 12px; font-weight: 600; margin-bottom: 6px;">📈 Quality Score Explained</div>
+        <div style="font-size: 11px; color: #c9d1d9; line-height: 1.6;">
+          Quality score (0-100) determines entry eligibility. Calculated from:<br>
+          • <strong>R:R Bonus</strong>: +20 for R:R ≥ 2, +10 for ≥ 1.5, 0 for ≥ 1, -20 for &lt; 1<br>
+          • <strong>Impulse Strength</strong>: +2 per % of impulse move<br>
+          • <strong>RSI Extreme</strong>: Bonus for deeper oversold/overbought<br>
+          <br>
+          <strong>Quality Tiers:</strong> Excellent ≥ 80 | Good ≥ 65 | Marginal ≥ 50 | Skip &lt; 50
+        </div>
+      </div>
+
+      <!-- Regime Detection Explanation -->
+      <div style="margin-top: 12px; padding: 10px 12px; background: rgba(56, 139, 253, 0.08); border: 1px solid #1f6feb33; border-radius: 6px;">
+        <div style="color: #58a6ff; font-size: 12px; font-weight: 600; margin-bottom: 6px;">🧭 Regime Detection (Quadrants)</div>
+        <div style="font-size: 11px; color: #c9d1d9; line-height: 1.6;">
+          Regime is detected from signal ratios (longs vs shorts) in rolling windows:<br>
+          • <strong>Macro</strong> (24h): &gt;55% longs = BULL, &gt;55% shorts = BEAR, else NEU<br>
+          • <strong>Micro</strong> (4h): Same thresholds but shorter window<br>
+          <br>
+          <strong>Quadrant Format:</strong> MACRO+MICRO (e.g., BULL+BEAR = bull macro, bearish micro)<br>
+          <strong>Conflict:</strong> Long in BEAR+BULL or Short in BULL+BEAR is a "trap" scenario
         </div>
       </div>
     </div>

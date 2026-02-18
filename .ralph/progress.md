@@ -4,10 +4,40 @@
 
 ## Summary
 
-- Iterations completed: 54
-- Current status: Fixed balance double-counting bug in focus mode paper bot
+- Iterations completed: 55
+- Current status: Added Focus Mode Bots documentation to FAQ tab
 
 ## Current Task: MEXC Live Trading Stability
+
+### Iteration 55 - Focus Mode Bots Documentation
+**Date**: 2026-02-01
+**Status**: ✅ Complete
+
+**Task**: Add focus bots documentation to FAQ tab so user knows what each bot does.
+
+**Documentation Added**:
+Comprehensive documentation for all 8 focus mode bot variants:
+- **Baseline**: Standard strategy with balanced parameters
+- **Aggressive**: Higher leverage, tighter stops, higher quality threshold
+- **Conservative**: Lower leverage, wider stops, lower quality threshold
+- **Conflict**: Only trades when quadrant signals conflict (contrarian)
+- **Excellent**: Only trades when both signals agree with excellent confidence
+- **Hybrid**: Combines quadrant signals with top-of-book analysis
+- **Kelly**: Uses Kelly Criterion for position sizing based on win rate
+- **Contrarian-Only**: Pure contrarian strategy against quadrant direction
+
+**Documentation Includes**:
+- Common features (SL, TP, trailing, liquidation, fees, slippage, regime)
+- Per-bot parameters and strategies
+- Quality score explanation
+- Regime detection/quadrants explanation
+
+**Files Modified**:
+- `src/web-server.ts` - Added 156 lines of documentation HTML to FAQ tab
+
+**Build**: ✅ Passes
+
+---
 
 ### Iteration 54 - Balance Double-Counting Bug Fix
 **Date**: 2026-02-01
