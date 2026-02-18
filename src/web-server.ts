@@ -330,7 +330,8 @@ const serverSettings: ServerSettings = {
 };
 
 // Load server settings from disk first, then Turso fallback (for Render ephemeral filesystem)
-function loadServerSettings(): void {
+// Returns a Promise so callers can await Turso load before acting on settings (e.g., allBotsPaused)
+async function loadServerSettings(): Promise<void> {
   let loaded = false;
   try {
     const settingsPath = path.join(process.cwd(), 'data', 'server-settings.json');
@@ -348,8 +349,10 @@ function loadServerSettings(): void {
   }
 
   // Turso fallback: if disk file doesn't exist (Render restart), load from cloud
+  // IMPORTANT: await this so allBotsPaused is populated before screener.start()
   if (!loaded && isTursoConfigured()) {
-    loadServerSettingsFromTurso().then(data => {
+    try {
+      const data = await loadServerSettingsFromTurso();
       if (data) {
         if ((data as any).botNotifications) {
           (data as any).botNotifications = { ...defaultBotNotifications, ...(data as any).botNotifications };
@@ -357,9 +360,9 @@ function loadServerSettings(): void {
         Object.assign(serverSettings, data);
         console.log('[SETTINGS] Loaded server settings from Turso (disk was empty)');
       }
-    }).catch(e => {
+    } catch (e) {
       console.error('[SETTINGS] Failed to load settings from Turso:', e);
-    });
+    }
   }
 }
 
@@ -7316,7 +7319,8 @@ async function main() {
   console.log('⏰ Hourly snapshot callback registered');
 
   // Load server settings (daily reset, etc.)
-  loadServerSettings();
+  // MUST await: Turso load is async, and allBotsPaused must be set before screener.start()
+  await loadServerSettings();
 
   // Sync execution mode from persisted settings to experimental bots
   for (const [botId, bot] of experimentalBots) {
