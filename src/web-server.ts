@@ -281,6 +281,8 @@ interface ServerSettings {
   mexcExecutionMode: 'dry_run' | 'shadow' | 'live';  // Persisted execution mode
   // Conditional Insurance - only activate during stress periods
   conditionalInsuranceEnabled: boolean;
+  // Global pause toggle - stops screener, poll loop, signal processing
+  allBotsPaused: boolean;
 }
 
 // Default bot notification settings - top performers enabled by default
@@ -324,6 +326,7 @@ const serverSettings: ServerSettings = {
   mexcExecutionMode: 'dry_run',
   // Conditional insurance: enabled by default (backtest showed +$706 improvement)
   conditionalInsuranceEnabled: true,
+  allBotsPaused: false,
 };
 
 // Load server settings from disk first, then Turso fallback (for Render ephemeral filesystem)
@@ -1529,6 +1532,9 @@ function broadcast(event: string, data: any) {
 
 // Event handlers
 async function handleNewSetup(setup: BackburnerSetup) {
+  // Global pause: reject all new signals
+  if (serverSettings.allBotsPaused) return;
+
   // Update momentum exhaustion tracker (for higher timeframe filtering)
   updateMomentumExhaustion(setup);
 
@@ -2596,6 +2602,7 @@ function getFullState() {
     meta: {
       eligibleSymbols: screener.getEligibleSymbolCount(),
       isRunning: screener.isActive(),
+      allBotsPaused: serverSettings.allBotsPaused,
       status: currentStatus,
       scanProgress,
       timestamp: Date.now(),
@@ -3352,6 +3359,12 @@ export function addToMexcQueue(
   entryQuality?: string,
   entryPrice?: number
 ): void {
+  // Global pause: block live order execution
+  if (serverSettings.allBotsPaused) {
+    console.log(`[MEXC] Skipping queue add - system paused`);
+    return;
+  }
+
   // Convert spot symbol (BTCUSDT) to futures format (BTC_USDT) for MEXC API
   symbol = spotSymbolToFutures(symbol);
 
@@ -4634,6 +4647,39 @@ app.post('/api/investment-amount', express.json(), (req, res) => {
     success: true,
     amount: serverSettings.investmentAmount,
     botsReset: resetBots === true,
+  });
+});
+
+// Global pause toggle - stops screener, poll loop, signal processing
+app.get('/api/settings/pause', (_req, res) => {
+  res.json({ allBotsPaused: serverSettings.allBotsPaused });
+});
+
+app.post('/api/settings/pause', express.json(), async (req, res) => {
+  const { paused } = req.body;
+
+  if (typeof paused !== 'boolean') {
+    res.status(400).json({ error: 'paused must be a boolean' });
+    return;
+  }
+
+  const wasPaused = serverSettings.allBotsPaused;
+  serverSettings.allBotsPaused = paused;
+  saveServerSettings();
+
+  if (paused && !wasPaused) {
+    screener.stop();
+    console.log('[PAUSE] System PAUSED - screener stopped, poll loop gated, signals blocked');
+  } else if (!paused && wasPaused) {
+    await screener.start();
+    console.log('[PAUSE] System RESUMED - screener restarted');
+  }
+
+  broadcastState();
+
+  res.json({
+    success: true,
+    allBotsPaused: serverSettings.allBotsPaused,
   });
 });
 
@@ -6988,6 +7034,9 @@ async function main() {
       console.log(`🔄 Self-ping enabled: ${selfPingUrl}`);
 
       setInterval(async () => {
+        // Global pause: let Render spin down naturally
+        if (serverSettings.allBotsPaused) return;
+
         try {
           const response = await fetch(selfPingUrl);
           if (response.ok) {
@@ -7645,14 +7694,21 @@ async function main() {
   });
 
   try {
-    await screener.start();
-    console.log('✅ Screener started');
+    if (!serverSettings.allBotsPaused) {
+      await screener.start();
+      console.log('✅ Screener started');
+    } else {
+      console.log('[PAUSE] System is PAUSED - screener not started');
+    }
 
     // Periodic real-time price updates for ALL positions (every 10 seconds)
     // This ensures P&L is calculated from live ticker data, not stale candle closes
     // RACE CONDITION FIX: Lock to prevent overlapping updates during high API load
     let priceUpdateInProgress = false;
     setInterval(async () => {
+      // Global pause: skip price updates entirely
+      if (serverSettings.allBotsPaused) return;
+
       // Prevent overlap: if previous update is still running, skip this tick
       if (priceUpdateInProgress) {
         console.warn('[POLL] Previous price update still running, skipping this tick');
