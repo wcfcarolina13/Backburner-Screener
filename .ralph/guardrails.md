@@ -114,7 +114,7 @@
 - **Added after**: Iteration 39 - Script failed with HTTP 401 when trying to query Turso locally without auth token.
 
 ### Sign: Worktrees Are NOT Main — Check Before Deploying
-- **Trigger**: When working in a git worktree (path contains `.claude-worktrees` or working directory differs from `/Users/roti/gemini_projects/Backburner`)
+- **Trigger**: When working in a git worktree (path contains `.claude-worktrees` or working directory differs from `/Users/roti/pontus/Backburner`)
 - **Instruction**:
   1. **Check your location**: Run `pwd` and `git branch --show-current` at the start of each session
   2. **Worktrees are sandboxes**: Changes in worktrees (e.g., `lucid-bardeen`) don't deploy until merged to `main`
@@ -125,7 +125,7 @@
      git add -A && git commit -m "message"
      git push origin <branch-name>
      # From MAIN repo: merge and push
-     cd /Users/roti/gemini_projects/Backburner
+     cd /Users/roti/pontus/Backburner
      git fetch origin && git merge origin/<branch-name>
      git push origin main
      ```

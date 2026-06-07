@@ -320,3 +320,16 @@ At 20x leverage, even a 20% ROI SL only gives 1% price distance. The fix needs t
 ## Older Tasks (Complete)
 - HTF-Based Impulse Detection + 15m Trading (cca674a)
 - Futures-Only Asset Discovery & Commodity Screening (0e95826, d669874)
+
+---
+
+## Cross-Project Manifest (REQUIRED)
+
+**On startup**: Read `/Users/roti/pontus/.ralph/RALPH_MANIFEST.md` before beginning work.
+- Check for cross-project context that affects this project
+- Avoid duplicating work already completed in another project
+
+**On completion**: Update the manifest with:
+- This project's current status/phase in the "Project Status" table
+- This project's git health in the "Git Health" table
+- Any cross-project tasks discovered → add to "Cross-Project Backlog"
